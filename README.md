@@ -6,9 +6,11 @@ Osk is a design-stage project for a hub-and-spoke system that helps groups
 coordinate during protests, public meetings, large events, travel, and other
 situations where shared awareness matters.
 
-> Status: Osk is currently a public design repository. The repo contains specs,
-> plans, governance documents, and an initial package scaffold. It does not yet
-> contain the operational application described in the plans.
+> Status: Osk is currently a public design-and-foundation repository. The repo
+> contains specs, plans, governance documents, and a working Phase 1 host/runtime
+> baseline for local install, start/stop, operator sessions, audit, logs, and
+> member visibility. The intelligence pipeline, synthesis layer, dashboard, and
+> mobile client are still planned.
 
 ## At a Glance
 
@@ -21,7 +23,7 @@ situations where shared awareness matters.
 - **Privacy-focused**: the planned storage model is ephemeral by default, with
   selective preservation to encrypted storage
 - **Publicly designed**: architecture, tradeoffs, and implementation phases are
-  documented in the open before the codebase lands
+  documented in the open as the system evolves
 
 ## Why Osk Exists
 
@@ -44,8 +46,9 @@ project:
   data model, API contract, privacy model, and operating assumptions
 - [Implementation plans](docs/plans/): phased build plans for the first working
   version
-- Initial package scaffold: `pyproject.toml`, `src/osk/`, `tests/`, and CI for
-  early Phase 1 work
+- Foundational host runtime under `src/osk/`: config, migrations, hub lifecycle,
+  operator bootstrap/session flow, local audit/log/member observability, and
+  early REST/WebSocket wiring
 - [Security policy](SECURITY.md): how to report sensitive issues
 - [Safety and use limits](SAFETY.md): non-guarantees, trust boundaries, and
   misuse concerns
@@ -58,7 +61,30 @@ project:
 - [Provenance record](docs/PROVENANCE.md): how spin-off and future code reuse
   are tracked
 
-If you are looking for a working operational build, it has not landed yet.
+If you are looking for the full intelligence platform described in the plans,
+it has not landed yet.
+
+## Current Foundation
+
+What exists today:
+
+- Local hub lifecycle commands: `osk install`, `osk start`, `osk status`, and
+  `osk stop`
+- Local operator flow: `osk operator login`, `osk operator status`, and
+  `osk operator logout`
+- Local observability commands: `osk audit`, `osk logs`, and `osk members`
+- Database migrations, coordinator auth boundary, member reconnect handling,
+  and heartbeat-based stale-session cleanup
+- Early REST/WebSocket hub surface for the coordinator and member join/runtime
+  flow
+
+What is still missing:
+
+- The Whisper/audio ingestion pipeline
+- The vision/key-frame ingestion pipeline
+- Event synthesis and sitrep generation
+- Coordinator dashboard and mobile PWA user experience
+- Validated wipe timing and production-grade evidence/export tooling
 
 ## Planned Operating Model
 
@@ -133,8 +159,8 @@ The initial implementation is split into six phases:
 
 | Phase | Scope | Status |
 |---|---|---|
-| [1. Core Hub + Connection](docs/plans/2026-03-21-plan-1-core-hub-connection.md) | Scaffolding, models, DB, auth, server, CLI | Planned |
-| [2. Intelligence Pipeline](docs/plans/2026-03-21-plan-2-intelligence-pipeline.md) | Whisper, vision, ingest queues, location engine | Planned |
+| [1. Core Hub + Connection](docs/plans/2026-03-21-plan-1-core-hub-connection.md) | Scaffolding, models, DB, auth, server, CLI | Foundational runtime in repo |
+| [2. Intelligence Pipeline](docs/plans/2026-03-21-plan-2-intelligence-pipeline.md) | Whisper, vision, ingest queues, location engine | Next |
 | [3. Synthesis Layer](docs/plans/2026-03-21-plan-3-synthesis-layer.md) | Events, alerts, SitReps | Planned |
 | [4. Coordinator Dashboard](docs/plans/2026-03-21-plan-4-coordinator-dashboard.md) | Map, timeline, sensor management | Planned |
 | [5. Mobile PWA](docs/plans/2026-03-21-plan-5-mobile-pwa.md) | Join flow, alert feed, edge sampling | Planned |
@@ -147,8 +173,10 @@ full architecture, API contract, and threat-model assumptions.
 
 - Read the [design specification](docs/specs/2026-03-21-osk-design.md)
 - Review the [implementation plans](docs/plans/)
-- Run `PYTHONPATH=src python -m osk doctor` locally, or `osk doctor` after
-  installing the package
+- Run `PYTHONPATH=src python -m osk doctor --json` locally, or `osk doctor --json`
+  after installing the package
+- Use `osk status`, `osk operator status`, `osk audit`, `osk members`, and
+  `osk logs` to inspect the local foundation runtime
 - Open a `Design feedback` issue if you see a gap or bad assumption
 - Open a `Bug report` issue for contradictions, broken links, or repo problems
 - Use Discussions for broader proposals and open-ended questions

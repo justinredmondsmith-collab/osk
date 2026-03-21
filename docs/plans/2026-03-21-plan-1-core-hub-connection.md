@@ -1,6 +1,6 @@
 # Plan 1: Core Hub Infrastructure + Connection Layer
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** Start from `AGENTS.md` and `docs/WORKFLOW.md`. Treat checklist items as decomposable tasks, keep changes narrow, and verify each step before moving on.
 
 **Goal:** Build the foundational infrastructure — project scaffolding, data models, database, storage (ephemeral + LUKS), CLI, Docker stack, WebSocket server with token auth, member management, and QR code join flow.
 

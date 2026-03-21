@@ -83,3 +83,21 @@ def test_expired_bootstrap_session_is_cleared(tmp_path: Path) -> None:
     with patch("osk.local_operator._state_root", return_value=tmp_path):
         assert read_bootstrap_session(now=expired_now) is None
         assert not bootstrap_path.exists()
+
+
+def test_invalid_operator_session_is_cleared(tmp_path: Path) -> None:
+    session_path = tmp_path / "operator-session.json"
+    session_path.write_text("{not-json\n")
+
+    with patch("osk.local_operator._state_root", return_value=tmp_path):
+        assert read_operator_session() is None
+        assert not session_path.exists()
+
+
+def test_invalid_bootstrap_session_is_cleared(tmp_path: Path) -> None:
+    bootstrap_path = tmp_path / "operator-bootstrap.json"
+    bootstrap_path.write_text("{not-json\n")
+
+    with patch("osk.local_operator._state_root", return_value=tmp_path):
+        assert read_bootstrap_session() is None
+        assert not bootstrap_path.exists()

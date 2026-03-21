@@ -1,6 +1,6 @@
 # Plan 5: Mobile PWA Client
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** Start from `AGENTS.md` and `docs/WORKFLOW.md`. Treat checklist items as decomposable tasks, keep changes narrow, and verify each step before moving on.
 
 **Goal:** Build the mobile Progressive Web App that members use on their phones — join flow, observer view (alert feed + manual reports), sensor view (streaming + alerts), edge-side key frame sampling, and audio capture.
 

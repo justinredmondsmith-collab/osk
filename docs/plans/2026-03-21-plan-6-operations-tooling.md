@@ -1,6 +1,6 @@
 # Plan 6: Operations Tooling
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** Start from `AGENTS.md` and `docs/WORKFLOW.md`. Treat checklist items as decomposable tasks, keep changes narrow, and verify each step before moving on.
 
 **Goal:** Build the operational tools that make Osk field-ready — WiFi hotspot management, offline map tile caching, post-operation evidence viewer/exporter, sudoers configuration, and the install flow.
 

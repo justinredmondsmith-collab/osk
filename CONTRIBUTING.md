@@ -4,18 +4,22 @@ Thank you for your interest in contributing.
 
 ## Current Project State
 
-Osk is currently a public design-stage repository. At this stage, the repo is
-primarily architecture, governance, planning documentation, and an early
-implementation scaffold.
+Osk is currently a public design-plus-foundation repository. At this stage, the
+repo contains architecture, governance, and planning documentation, plus an
+early but real Phase 1 host/runtime implementation.
 
 The repository now includes:
 
 - A minimal Python package layout under `src/osk/`
-- A CLI skeleton (`python -m osk` / `osk`)
+- A working host/operator CLI (`python -m osk` / `osk`)
 - Basic tests under `tests/`
 - A lightweight GitHub Actions CI workflow
+- Local hub runtime commands (`install`, `start`, `status`, `stop`)
+- Local operator and observability commands (`operator`, `audit`, `logs`,
+  `members`)
 
-The repository does **not** yet contain the operational system described in the
+The repository does **not** yet contain the full intelligence pipeline,
+synthesis layer, coordinator dashboard, or mobile client described in the
 design documents.
 
 That means the most useful contributions right now are:
@@ -45,13 +49,20 @@ pip install -e ".[dev]"
 Run tests:
 
 ```bash
-pytest
+pytest -q
+```
+
+Run lint and formatting checks:
+
+```bash
+ruff check src tests
+ruff format --check src tests
 ```
 
 Check the local scaffold:
 
 ```bash
-python -m osk doctor
+python -m osk doctor --json
 ```
 
 ## Contribution Rules
@@ -63,6 +74,8 @@ python -m osk doctor
   planned.
 - If you change architecture or behavior in a meaningful way, update the
   relevant spec or plan in the same pull request.
+- If you change operator/runtime behavior, update the README and workflow docs
+  in the same pull request.
 - Prefer precise language over marketing language, especially for privacy,
   security, and safety claims.
 
@@ -83,6 +96,8 @@ Code contributions should:
 - Update user-facing docs when behavior changes
 - Avoid weakening the stated privacy and local-only design goals without an
   explicit design update
+- For Phase 2 work, prefer contract tests and fake adapters before wiring real
+  Whisper/Ollama runtimes into the hub
 
 ## How to Contribute
 

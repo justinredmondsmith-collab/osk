@@ -53,7 +53,11 @@ def read_bootstrap_session(*, now: datetime | None = None) -> dict[str, object] 
     if not path.exists():
         return None
 
-    payload = json.loads(path.read_text())
+    try:
+        payload = json.loads(path.read_text())
+    except (json.JSONDecodeError, OSError):
+        clear_bootstrap_session()
+        return None
     current_time = now or _utcnow()
     expires_at_raw = payload.get("expires_at")
     if not isinstance(expires_at_raw, str):
@@ -108,7 +112,11 @@ def read_operator_session(*, now: datetime | None = None) -> dict[str, object] |
     if not path.exists():
         return None
 
-    payload = json.loads(path.read_text())
+    try:
+        payload = json.loads(path.read_text())
+    except (json.JSONDecodeError, OSError):
+        clear_operator_session()
+        return None
     current_time = now or _utcnow()
     expires_at_raw = payload.get("expires_at")
     if not isinstance(expires_at_raw, str):

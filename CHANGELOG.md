@@ -50,3 +50,5 @@ changes manually while the project is in its early public setup phase.
 - README wording to better reflect the current design-stage status
 - Design spec metadata and provenance guidance for future code transplants
 - Contributor guidance now reflects the presence of the initial code scaffold
+- Public docs and plan headers now reflect the current Phase 1 foundation state
+  and the repo's current AI-agent workflow

@@ -1,8 +1,12 @@
 # Plan 2: Intelligence Pipeline
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** Start from `AGENTS.md` and `docs/WORKFLOW.md`. Treat checklist items as decomposable tasks, keep changes narrow, and verify each step before moving on.
 
 **Goal:** Transplant and adapt the proven intelligence engines from bodycam-summarizer — Whisper transcription, Ollama vision analysis, temporal fusion — and build the new audio/frame ingest queues and location engine.
+
+**Current recommendation:** The Phase 1 host/runtime foundation is now in the
+repository. Start this phase with ingest contracts, fake adapters, and contract
+tests before landing real Whisper or Ollama runtime integration.
 
 **Architecture:** Three parallel processing engines fed by ingest queues. Audio ingest receives WebSocket binary frames and feeds a priority queue to the Whisper engine. Frame ingest receives JPEG key frames and feeds the vision engine. Location engine tracks GPS and detects spatial patterns. All engines output to the synthesis layer (Plan 3).
 

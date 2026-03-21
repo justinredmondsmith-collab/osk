@@ -1,6 +1,6 @@
 # Plan 3: Synthesis Layer
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** Start from `AGENTS.md` and `docs/WORKFLOW.md`. Treat checklist items as decomposable tasks, keep changes narrow, and verify each step before moving on.
 
 **Goal:** Build the synthesis layer that fuses raw intelligence (transcripts, observations, GPS, manual reports) into unified Events, filters them into role-appropriate Alerts, and generates periodic SitReps for the coordinator.
 

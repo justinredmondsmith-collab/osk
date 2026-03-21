@@ -45,21 +45,30 @@ Before merging, confirm:
 - No new security or privacy guarantee is stated without validation
 - Any copied/adapted material is recorded in `docs/PROVENANCE.md`
 
-## Suggested Order For Early Implementation
+## Current Gate
 
-For the first working code, follow this order:
+The repo now has enough Phase 1 foundation to start Phase 2 work, but the next
+stage should still stay disciplined:
 
-1. Package scaffold, CLI entrypoint, tests, and CI
-2. Models and config
-3. Database and migrations
-4. Storage and host-side primitives
-5. Operation lifecycle and connection management
-6. Server
-7. Intelligence pipeline
-8. Synthesis layer
-9. Coordinator dashboard
-10. Mobile client
-11. Operations tooling
+- Start with ingest contracts and fake adapters before real model runtimes
+- Add operator-visible diagnostics for new subsystems when practical
+- Keep Whisper/Ollama calls behind explicit interfaces rather than wiring them
+  directly into route or WebSocket handlers
+- Treat observability as part of the feature, not follow-up cleanup
+
+## Suggested Order For The Next Stage
+
+For the next implementation stage, follow this order:
+
+1. Ingest contracts and fake adapters
+2. Audio queue and transcriber interface
+3. Frame queue and vision interface
+4. Location engine
+5. Real model runtimes
+6. Synthesis layer
+7. Coordinator dashboard
+8. Mobile client
+9. Operations tooling
 
 ## When To Require Extra Human Attention
 
