@@ -46,6 +46,8 @@ changes manually while the project is in its early public setup phase.
   refresh/logout, and clearer startup failure logging with runtime log hints
 - Phase 2 contract-first slice: intelligence contracts, deterministic fake
   adapters, and a normalization pipeline for audio, frame, and location inputs
+- Phase 2 queue primitives: bounded audio ingest with priority backpressure and
+  frame ingest with dedupe, observer rate limits, and per-member queue caps
 
 ### Changed
 

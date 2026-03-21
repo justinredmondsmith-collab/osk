@@ -61,6 +61,7 @@ class FrameSample(BaseModel):
     content_type: str = "image/jpeg"
     width: int
     height: int
+    change_score: float = 0.0
     sequence_no: int = 0
     captured_at: datetime = Field(default_factory=_utcnow)
     payload: bytes = Field(default=b"", exclude=True, repr=False)
