@@ -35,6 +35,8 @@ changes manually while the project is in its early public setup phase.
   `osk status --json` output for agent workflows
 - Separate coordinator API auth token, operation resume on restart, and
   persisted shutdown tracking for active operations
+- Member reconnect tokens, reconnect-aware WebSocket auth, and audit event
+  storage plus local admin audit retrieval
 
 ### Changed
 

@@ -39,6 +39,12 @@ class OperationManager:
             self.operation.coordinator_token,
             self.operation.started_at,
         )
+        await self.db.insert_audit_event(
+            self.operation.id,
+            "system",
+            "operation_created",
+            details={"name": self.operation.name},
+        )
         logger.info("Created operation %s (%s)", self.operation.name, self.operation.id)
         return self.operation
 
@@ -57,6 +63,13 @@ class OperationManager:
                 member_data["status"] = MemberStatus.DISCONNECTED.value
             member = Member.model_validate(member_data)
             self.members[member.id] = member
+
+        await self.db.insert_audit_event(
+            self.operation.id,
+            "system",
+            "operation_resumed",
+            details={"requested_name": requested_name, "resumed_name": self.operation.name},
+        )
 
         logger.info(
             "Resumed operation %s (%s); requested start name was %r",
@@ -97,6 +110,12 @@ class OperationManager:
         stopped_at = datetime.now(timezone.utc)
         operation.stopped_at = stopped_at
         await self.db.mark_operation_stopped(operation.id, stopped_at)
+        await self.db.insert_audit_event(
+            operation.id,
+            "system",
+            "operation_stopped",
+            details={"stopped_at": stopped_at.isoformat()},
+        )
         logger.info("Marked operation %s as stopped", operation.id)
 
     async def add_member(self, operation_id: uuid.UUID, name: str) -> Member:
@@ -106,8 +125,52 @@ class OperationManager:
 
         member = Member(name=name, role=MemberRole.OBSERVER)
         self.members[member.id] = member
-        await self.db.insert_member(member.id, operation_id, member.name, member.role)
+        await self.db.insert_member(
+            member.id,
+            operation_id,
+            member.name,
+            member.role,
+            member.reconnect_token,
+            member.connected_at,
+        )
+        await self.db.insert_audit_event(
+            operation_id,
+            "member",
+            "member_joined",
+            actor_member_id=member.id,
+            details={"name": member.name, "role": member.role.value},
+        )
         logger.info("Member joined: %s (%s)", member.name, member.id)
+        return member
+
+    async def resume_member(
+        self,
+        operation_id: uuid.UUID,
+        member_id: uuid.UUID,
+        reconnect_token: str,
+    ) -> Member:
+        operation = self._require_operation()
+        if operation.id != operation_id:
+            raise ValueError(f"Operation id mismatch: expected {operation.id}, got {operation_id}")
+
+        member = self._require_member(member_id)
+        if member.status == MemberStatus.KICKED:
+            raise PermissionError(f"Member {member_id} is kicked and cannot reconnect.")
+        if not secrets.compare_digest(member.reconnect_token, reconnect_token):
+            raise PermissionError(f"Reconnect token mismatch for member {member_id}.")
+
+        connected_at = datetime.now(timezone.utc)
+        member.status = MemberStatus.CONNECTED
+        member.connected_at = connected_at
+        await self.db.mark_member_connected(member_id, connected_at)
+        await self.db.insert_audit_event(
+            operation.id,
+            "member",
+            "member_reconnected",
+            actor_member_id=member.id,
+            details={"name": member.name, "role": member.role.value},
+        )
+        logger.info("Member resumed: %s (%s)", member.name, member.id)
         return member
 
     async def promote_member(self, member_id: uuid.UUID) -> None:
@@ -129,8 +192,17 @@ class OperationManager:
         member = self._require_member(member_id)
         if member.status == MemberStatus.KICKED:
             return
+        if member.status == MemberStatus.DISCONNECTED:
+            return
         member.status = MemberStatus.DISCONNECTED
         await self.db.update_member_status(member_id, MemberStatus.DISCONNECTED.value)
+        await self.db.insert_audit_event(
+            self._require_operation().id,
+            "member",
+            "member_disconnected",
+            actor_member_id=member.id,
+            details={"name": member.name, "role": member.role.value},
+        )
 
     async def update_member_gps(self, member_id: uuid.UUID, lat: float, lon: float) -> None:
         member = self._require_member(member_id)

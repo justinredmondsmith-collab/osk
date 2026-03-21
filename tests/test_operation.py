@@ -24,6 +24,7 @@ async def test_add_member(op_manager: OperationManager) -> None:
     member = await op_manager.add_member(op.id, "Jay")
     assert member.name == "Jay"
     assert member.role == MemberRole.OBSERVER
+    assert member.reconnect_token
     assert member.id in op_manager.members
 
 
@@ -91,6 +92,25 @@ async def test_mark_member_disconnected(op_manager: OperationManager) -> None:
     member = await op_manager.add_member(op.id, "Jay")
     await op_manager.mark_disconnected(member.id)
     assert op_manager.members[member.id].status == MemberStatus.DISCONNECTED
+
+
+async def test_resume_member(op_manager: OperationManager) -> None:
+    op = await op_manager.create("Test Op")
+    member = await op_manager.add_member(op.id, "Jay")
+    await op_manager.mark_disconnected(member.id)
+
+    resumed = await op_manager.resume_member(op.id, member.id, member.reconnect_token)
+
+    assert resumed.id == member.id
+    assert resumed.status == MemberStatus.CONNECTED
+    op_manager.db.mark_member_connected.assert_awaited_once()
+
+
+async def test_resume_member_rejects_wrong_token(op_manager: OperationManager) -> None:
+    op = await op_manager.create("Test Op")
+    member = await op_manager.add_member(op.id, "Jay")
+    with pytest.raises(PermissionError):
+        await op_manager.resume_member(op.id, member.id, "wrong-token")
 
 
 async def test_resume_existing_operation(op_manager: OperationManager) -> None:

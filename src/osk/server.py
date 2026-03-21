@@ -18,6 +18,7 @@ from osk.operation import OperationManager
 logger = logging.getLogger(__name__)
 ADMIN_TOKEN_HEADER = "X-Osk-Coordinator-Token"
 LOCAL_ADMIN_TEST_HOSTS = {"testclient", "localhost"}
+MAX_AUDIT_LIMIT = 200
 
 
 class ReportRequest(BaseModel):
@@ -117,6 +118,16 @@ def create_app(op_manager: OperationManager, conn_manager: ConnectionManager, db
             return JSONResponse({"error": "No active operation"}, status_code=503)
         return op_manager.get_member_list()
 
+    @app.get("/api/audit")
+    async def list_audit_events(request: Request, limit: int = 50):
+        if response := _require_local_admin(request, op_manager):
+            return response
+        operation = op_manager.operation
+        if operation is None:
+            return JSONResponse({"error": "No active operation"}, status_code=503)
+        clamped_limit = max(1, min(limit, MAX_AUDIT_LIMIT))
+        return await db.get_audit_events(operation.id, clamped_limit)
+
     @app.post("/api/members/{member_id}/promote")
     async def promote_member(member_id: uuid.UUID, request: Request):
         if response := _require_local_admin(request, op_manager):
@@ -130,6 +141,13 @@ def create_app(op_manager: OperationManager, conn_manager: ConnectionManager, db
         await conn_manager.send_to(
             member_id,
             {"type": "role_change", "role": MemberRole.SENSOR.value},
+        )
+        await db.insert_audit_event(
+            op_manager.operation.id,
+            "coordinator",
+            "member_promoted",
+            actor_member_id=member_id,
+            details={"role": MemberRole.SENSOR.value},
         )
         return {"status": "promoted"}
 
@@ -147,6 +165,13 @@ def create_app(op_manager: OperationManager, conn_manager: ConnectionManager, db
             member_id,
             {"type": "role_change", "role": MemberRole.OBSERVER.value},
         )
+        await db.insert_audit_event(
+            op_manager.operation.id,
+            "coordinator",
+            "member_demoted",
+            actor_member_id=member_id,
+            details={"role": MemberRole.OBSERVER.value},
+        )
         return {"status": "demoted"}
 
     @app.post("/api/members/{member_id}/kick")
@@ -159,6 +184,12 @@ def create_app(op_manager: OperationManager, conn_manager: ConnectionManager, db
             return JSONResponse({"error": "Member not found"}, status_code=404)
         await op_manager.kick_member(member_id)
         await conn_manager.disconnect(member_id)
+        await db.insert_audit_event(
+            op_manager.operation.id,
+            "coordinator",
+            "member_kicked",
+            actor_member_id=member_id,
+        )
         return {"status": "kicked"}
 
     @app.post("/api/rotate-token")
@@ -169,6 +200,11 @@ def create_app(op_manager: OperationManager, conn_manager: ConnectionManager, db
         if operation is None:
             return JSONResponse({"error": "No active operation"}, status_code=503)
         token = await op_manager.rotate_token(operation.id)
+        await db.insert_audit_event(
+            operation.id,
+            "coordinator",
+            "join_token_rotated",
+        )
         return {"token": token}
 
     @app.post("/api/pin/{event_id}")
@@ -179,6 +215,13 @@ def create_app(op_manager: OperationManager, conn_manager: ConnectionManager, db
             return JSONResponse({"error": "No active operation"}, status_code=503)
         pin = Pin(event_id=event_id, pinned_by=uuid.UUID(req.member_id))
         await db.insert_pin(pin.id, pin.event_id, pin.pinned_by)
+        await db.insert_audit_event(
+            op_manager.operation.id,
+            "coordinator",
+            "event_pinned",
+            actor_member_id=pin.pinned_by,
+            details={"event_id": str(pin.event_id), "pin_id": str(pin.id)},
+        )
         return {"status": "pinned", "pin_id": str(pin.id)}
 
     @app.post("/api/report")
@@ -204,6 +247,13 @@ def create_app(op_manager: OperationManager, conn_manager: ConnectionManager, db
             None,
             None,
         )
+        await db.insert_audit_event(
+            operation.id,
+            "coordinator",
+            "report_submitted",
+            actor_member_id=event.source_member_id,
+            details={"event_id": str(event.id)},
+        )
         return {"status": "reported", "event_id": str(event.id)}
 
     @app.post("/api/wipe")
@@ -213,6 +263,11 @@ def create_app(op_manager: OperationManager, conn_manager: ConnectionManager, db
         if op_manager.operation is None:
             return JSONResponse({"error": "No active operation"}, status_code=503)
         await conn_manager.broadcast({"type": "wipe"})
+        await db.insert_audit_event(
+            op_manager.operation.id,
+            "coordinator",
+            "wipe_triggered",
+        )
         return {"status": "wipe_initiated"}
 
     @app.get("/api/events")
@@ -255,8 +310,26 @@ def create_app(op_manager: OperationManager, conn_manager: ConnectionManager, db
                 await ws.close(code=4004, reason="No active operation")
                 return
 
-            member = await op_manager.add_member(operation.id, name)
+            resume_member_id = auth_message.get("resume_member_id")
+            resume_token = auth_message.get("resume_token")
+            resumed = False
+            if resume_member_id and resume_token:
+                try:
+                    member = await op_manager.resume_member(
+                        operation.id,
+                        uuid.UUID(str(resume_member_id)),
+                        str(resume_token),
+                    )
+                    resumed = True
+                except (KeyError, PermissionError, ValueError):
+                    await ws.close(code=4003, reason="Invalid resume credentials")
+                    return
+            else:
+                member = await op_manager.add_member(operation.id, name)
+
             member_id = member.id
+            if member_id in conn_manager.connections:
+                await conn_manager.disconnect(member_id)
             conn_manager.register(member_id, ws, member.role)
 
             await ws.send_json(
@@ -264,6 +337,8 @@ def create_app(op_manager: OperationManager, conn_manager: ConnectionManager, db
                     "type": "auth_ok",
                     "member_id": str(member_id),
                     "role": member.role.value,
+                    "resume_token": member.reconnect_token,
+                    "resumed": resumed,
                 }
             )
 
@@ -292,6 +367,13 @@ def create_app(op_manager: OperationManager, conn_manager: ConnectionManager, db
                             event.source_member_id,
                             None,
                             None,
+                        )
+                        await db.insert_audit_event(
+                            operation.id,
+                            "member",
+                            "report_submitted",
+                            actor_member_id=member_id,
+                            details={"event_id": str(event.id)},
                         )
                     elif msg_type in {"pong", "audio_meta", "frame_meta", "clip_meta"}:
                         continue

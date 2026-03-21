@@ -4,6 +4,7 @@ import uuid
 
 from osk.models import (
     Alert,
+    AuditEvent,
     Event,
     EventCategory,
     EventSeverity,
@@ -32,6 +33,7 @@ def test_member_creation() -> None:
     assert member.id is not None
     assert member.role == MemberRole.OBSERVER
     assert member.status == MemberStatus.CONNECTED
+    assert member.reconnect_token
 
 
 def test_member_role_values() -> None:
@@ -90,6 +92,18 @@ def test_operation_serialization() -> None:
     assert data["name"] == "Test"
     assert "token" in data
     assert "coordinator_token" in data
+
+
+def test_member_serialization_excludes_reconnect_token() -> None:
+    member = Member(name="Jay")
+    data = member.model_dump(mode="json")
+    assert "reconnect_token" not in data
+
+
+def test_audit_event_defaults() -> None:
+    audit = AuditEvent(operation_id=uuid.uuid4(), actor_type="system", action="started")
+    assert audit.id is not None
+    assert audit.details == {}
 
 
 def test_event_serialization() -> None:

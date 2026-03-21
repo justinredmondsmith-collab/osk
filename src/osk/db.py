@@ -132,14 +132,21 @@ class Database:
         operation_id: uuid.UUID,
         name: str,
         role: MemberRole,
+        reconnect_token: str,
+        connected_at: datetime,
     ) -> None:
         pool = self._require_pool()
         await pool.execute(
-            "INSERT INTO members (id, operation_id, name, role) VALUES ($1, $2, $3, $4)",
+            (
+                "INSERT INTO members (id, operation_id, name, role, reconnect_token, connected_at) "
+                "VALUES ($1, $2, $3, $4, $5, $6)"
+            ),
             member_id,
             operation_id,
             name,
             role.value,
+            reconnect_token,
+            connected_at,
         )
 
     async def update_member_role(self, member_id: uuid.UUID, role: MemberRole) -> None:
@@ -155,6 +162,14 @@ class Database:
         await pool.execute(
             "UPDATE members SET status = $1 WHERE id = $2",
             status,
+            member_id,
+        )
+
+    async def mark_member_connected(self, member_id: uuid.UUID, connected_at: datetime) -> None:
+        pool = self._require_pool()
+        await pool.execute(
+            "UPDATE members SET status = 'connected', connected_at = $1 WHERE id = $2",
+            connected_at,
             member_id,
         )
 
@@ -174,6 +189,38 @@ class Database:
         rows = await pool.fetch(
             "SELECT * FROM members WHERE operation_id = $1 ORDER BY connected_at",
             operation_id,
+        )
+        return [dict(row) for row in rows]
+
+    async def insert_audit_event(
+        self,
+        operation_id: uuid.UUID,
+        actor_type: str,
+        action: str,
+        *,
+        actor_member_id: uuid.UUID | None = None,
+        details: dict | None = None,
+    ) -> None:
+        pool = self._require_pool()
+        await pool.execute(
+            """INSERT INTO audit_events (operation_id, actor_member_id, actor_type, action, details)
+               VALUES ($1, $2, $3, $4, $5::jsonb)""",
+            operation_id,
+            actor_member_id,
+            actor_type,
+            action,
+            json.dumps(details or {}),
+        )
+
+    async def get_audit_events(self, operation_id: uuid.UUID, limit: int = 50) -> list[dict]:
+        pool = self._require_pool()
+        rows = await pool.fetch(
+            """SELECT * FROM audit_events
+               WHERE operation_id = $1
+               ORDER BY timestamp DESC
+               LIMIT $2""",
+            operation_id,
+            limit,
         )
         return [dict(row) for row in rows]
 

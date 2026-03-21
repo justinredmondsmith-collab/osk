@@ -41,9 +41,10 @@ def mock_pool() -> MagicMock:
 
 async def test_migration_files_exist(db: Database) -> None:
     migrations = db._get_migration_files()
-    assert len(migrations) >= 2
+    assert len(migrations) >= 3
     assert migrations[0].name == "001_initial.sql"
     assert migrations[1].name == "002_operation_coordinator_token.sql"
+    assert migrations[2].name == "003_members_reconnect_and_audit.sql"
 
 
 async def test_insert_operation(db: Database, mock_pool: MagicMock) -> None:
@@ -84,9 +85,26 @@ async def test_mark_members_disconnected(db: Database, mock_pool: MagicMock) -> 
     assert "UPDATE members" in mock_pool.execute.call_args.args[0]
 
 
+async def test_mark_member_connected(db: Database, mock_pool: MagicMock) -> None:
+    db._pool = mock_pool
+    await db.mark_member_connected(
+        uuid.uuid4(),
+        datetime.fromisoformat("2026-03-21T02:00:00+00:00"),
+    )
+    mock_pool.execute.assert_called_once()
+    assert "status = 'connected'" in mock_pool.execute.call_args.args[0]
+
+
 async def test_insert_member(db: Database, mock_pool: MagicMock) -> None:
     db._pool = mock_pool
-    await db.insert_member(uuid.uuid4(), uuid.uuid4(), "Jay", MemberRole.OBSERVER)
+    await db.insert_member(
+        uuid.uuid4(),
+        uuid.uuid4(),
+        "Jay",
+        MemberRole.OBSERVER,
+        "resume-token",
+        datetime.fromisoformat("2026-03-21T00:00:00+00:00"),
+    )
     mock_pool.execute.assert_called_once()
 
 
@@ -116,6 +134,25 @@ async def test_get_events_since(db: Database, mock_pool: MagicMock) -> None:
     db._pool = mock_pool
     result = await db.get_events_since(uuid.uuid4(), "2026-01-01T00:00:00Z")
     assert result == []
+
+
+async def test_insert_audit_event(db: Database, mock_pool: MagicMock) -> None:
+    db._pool = mock_pool
+    await db.insert_audit_event(
+        uuid.uuid4(),
+        "system",
+        "started",
+        details={"ok": True},
+    )
+    mock_pool.execute.assert_called_once()
+    assert "INSERT INTO audit_events" in mock_pool.execute.call_args.args[0]
+
+
+async def test_get_audit_events(db: Database, mock_pool: MagicMock) -> None:
+    db._pool = mock_pool
+    mock_pool.fetch = AsyncMock(return_value=[{"action": "started"}])
+    result = await db.get_audit_events(uuid.uuid4(), 25)
+    assert result == [{"action": "started"}]
 
 
 async def test_run_migrations_applies_only_pending(

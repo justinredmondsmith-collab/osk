@@ -31,6 +31,7 @@ def mock_op_manager(operation: Operation) -> MagicMock:
             id=member_id,
             name="Jay",
             role=MemberRole.OBSERVER,
+            reconnect_token="resume-secret",
             model_dump=MagicMock(return_value={"id": str(member_id), "name": "Jay"}),
         )
     )
@@ -127,6 +128,14 @@ def test_list_members(client: TestClient) -> None:
     assert isinstance(resp.json(), list)
 
 
+def test_list_audit_events(client: TestClient, mock_db: MagicMock) -> None:
+    mock_db.get_audit_events.return_value = [{"action": "operation_created"}]
+    resp = client.get("/api/audit?limit=25")
+    assert resp.status_code == 200
+    assert resp.json() == [{"action": "operation_created"}]
+    mock_db.get_audit_events.assert_called_once()
+
+
 def test_promote_member(
     client: TestClient, mock_op_manager: MagicMock, mock_conn_mgr: MagicMock
 ) -> None:
@@ -196,5 +205,38 @@ def test_websocket_auth_flow(
         message = websocket.receive_json()
 
     assert message["type"] == "auth_ok"
+    assert message["resume_token"]
+    assert message["resumed"] is False
     mock_conn_mgr.register.assert_called_once()
     mock_op_manager.add_member.assert_called_once()
+
+
+def test_websocket_resume_flow(
+    client: TestClient, mock_conn_mgr: MagicMock, mock_op_manager: MagicMock
+) -> None:
+    member_id = uuid.uuid4()
+    resumed_member = MagicMock(
+        id=member_id,
+        name="Jay",
+        role=MemberRole.OBSERVER,
+        reconnect_token="resume-secret",
+    )
+    mock_op_manager.resume_member = AsyncMock(return_value=resumed_member)
+
+    with client.websocket_connect("/ws") as websocket:
+        websocket.send_json(
+            {
+                "type": "auth",
+                "token": "valid-token",
+                "name": "Jay",
+                "resume_member_id": str(member_id),
+                "resume_token": "resume-secret",
+            }
+        )
+        message = websocket.receive_json()
+
+    assert message["type"] == "auth_ok"
+    assert message["member_id"] == str(member_id)
+    assert message["resume_token"] == "resume-secret"
+    assert message["resumed"] is True
+    mock_op_manager.resume_member.assert_called_once()

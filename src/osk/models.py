@@ -6,6 +6,7 @@ import secrets
 import uuid
 from datetime import datetime, timezone
 from enum import Enum
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -86,6 +87,7 @@ class Member(BaseModel):
     name: str
     role: MemberRole = MemberRole.OBSERVER
     status: MemberStatus = MemberStatus.CONNECTED
+    reconnect_token: str = Field(default_factory=_new_token, exclude=True)
     latitude: float | None = None
     longitude: float | None = None
     last_gps_at: datetime | None = None
@@ -132,4 +134,14 @@ class SitRep(BaseModel):
     id: uuid.UUID = Field(default_factory=_new_id)
     text: str
     trend: str
+    timestamp: datetime = Field(default_factory=_utcnow)
+
+
+class AuditEvent(BaseModel):
+    id: uuid.UUID = Field(default_factory=_new_id)
+    operation_id: uuid.UUID
+    actor_member_id: uuid.UUID | None = None
+    actor_type: str
+    action: str
+    details: dict[str, Any] = Field(default_factory=dict)
     timestamp: datetime = Field(default_factory=_utcnow)
