@@ -13,8 +13,13 @@ changes manually while the project is in its early public setup phase.
   policy, safety limits, notice, and provenance tracking
 - Explicit `AGPL-3.0-only` licensing language
 - GitHub issue templates, pull request template, and `CODEOWNERS`
+- Agent workflow guidance in `AGENTS.md` and `docs/WORKFLOW.md`
+- Initial Python package scaffold, CLI skeleton, tests, and CI workflow
+- Phase 1 foundations: core models, config, database layer, storage manager,
+  and initial migration SQL
 
 ### Changed
 
 - README wording to better reflect the current design-stage status
 - Design spec metadata and provenance guidance for future code transplants
+- Contributor guidance now reflects the presence of the initial code scaffold

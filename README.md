@@ -7,8 +7,8 @@ coordinate during protests, public meetings, large events, travel, and other
 situations where shared awareness matters.
 
 > Status: Osk is currently a public design repository. The repo contains specs,
-> plans, and governance documents. It does not yet contain a runnable
-> application.
+> plans, governance documents, and an initial package scaffold. It does not yet
+> contain the operational application described in the plans.
 
 ## At a Glance
 
@@ -44,15 +44,21 @@ project:
   data model, API contract, privacy model, and operating assumptions
 - [Implementation plans](docs/plans/): phased build plans for the first working
   version
+- Initial package scaffold: `pyproject.toml`, `src/osk/`, `tests/`, and CI for
+  early Phase 1 work
 - [Security policy](SECURITY.md): how to report sensitive issues
 - [Safety and use limits](SAFETY.md): non-guarantees, trust boundaries, and
   misuse concerns
 - [Contributing guide](CONTRIBUTING.md): how to contribute while the repo is
   still design-first
+- [Agent rules](AGENTS.md): project invariants and expectations for AI-driven
+  implementation work
+- [Workflow guide](docs/WORKFLOW.md): recommended solo-maintainer plus
+  AI-agent execution loop
 - [Provenance record](docs/PROVENANCE.md): how spin-off and future code reuse
   are tracked
 
-If you are looking for runnable code, it has not landed yet.
+If you are looking for a working operational build, it has not landed yet.
 
 ## Planned Operating Model
 
@@ -141,6 +147,8 @@ full architecture, API contract, and threat-model assumptions.
 
 - Read the [design specification](docs/specs/2026-03-21-osk-design.md)
 - Review the [implementation plans](docs/plans/)
+- Run `PYTHONPATH=src python -m osk doctor` locally, or `osk doctor` after
+  installing the package
 - Open a `Design feedback` issue if you see a gap or bad assumption
 - Open a `Bug report` issue for contradictions, broken links, or repo problems
 - Use Discussions for broader proposals and open-ended questions

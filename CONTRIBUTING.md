@@ -5,8 +5,18 @@ Thank you for your interest in contributing.
 ## Current Project State
 
 Osk is currently a public design-stage repository. At this stage, the repo is
-primarily architecture, governance, and planning documentation. There is not
-yet a runnable application scaffold in this repository.
+primarily architecture, governance, planning documentation, and an early
+implementation scaffold.
+
+The repository now includes:
+
+- A minimal Python package layout under `src/osk/`
+- A CLI skeleton (`python -m osk` / `osk`)
+- Basic tests under `tests/`
+- A lightweight GitHub Actions CI workflow
+
+The repository does **not** yet contain the operational system described in the
+design documents.
 
 That means the most useful contributions right now are:
 
@@ -14,18 +24,35 @@ That means the most useful contributions right now are:
 - Threat-model and privacy-model review
 - Licensing, provenance, and repo-governance cleanup
 - Design review grounded in the existing specs and plans
-- Small repo-hygiene improvements that make public collaboration easier
-
-If you want to propose implementation work before the scaffold lands, start
-with an issue or discussion so the repo does not drift away from the approved
-design.
+- Small, verified implementation steps that follow the phase plans
 
 ## Before You Start
 
 - Read the [design specification](docs/specs/2026-03-21-osk-design.md)
 - Review the [implementation plans](docs/plans/)
+- Read [AGENTS.md](AGENTS.md) and [docs/WORKFLOW.md](docs/WORKFLOW.md)
 - Check whether the topic is already covered by an issue, discussion, or plan
 - Keep changes scoped to one concern per pull request
+
+## Development Baseline
+
+Install the package and test dependencies:
+
+```bash
+pip install -e ".[dev]"
+```
+
+Run tests:
+
+```bash
+pytest
+```
+
+Check the local scaffold:
+
+```bash
+python -m osk doctor
+```
 
 ## Contribution Rules
 
@@ -47,18 +74,15 @@ design.
   predecessor or third-party sources.
 - Osk is intended to use `AGPL-3.0-only` for code unless a file says otherwise.
 
-### Future Code Contributions
+### Code Contributions
 
-When the implementation scaffold exists, code contributions should:
+Code contributions should:
 
 - Be discussed first if they are large or architectural
 - Include tests for new behavior
 - Update user-facing docs when behavior changes
 - Avoid weakening the stated privacy and local-only design goals without an
   explicit design update
-
-This document will be expanded once there is runnable code, test tooling, and a
-stable development setup.
 
 ## How to Contribute
 
