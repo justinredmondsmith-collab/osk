@@ -115,6 +115,10 @@ def _hub_state_path() -> Path:
     return _config_root() / "hub-state.json"
 
 
+def _hub_stop_request_path() -> Path:
+    return _config_root() / "hub-stop-request.json"
+
+
 def _find_compose_command() -> list[str]:
     if docker := shutil.which("docker"):
         return [docker, "compose"]
@@ -174,9 +178,24 @@ def _clear_hub_state() -> None:
     _hub_state_path().unlink(missing_ok=True)
 
 
+def _request_hub_shutdown() -> None:
+    request_path = _hub_stop_request_path()
+    request_path.parent.mkdir(parents=True, exist_ok=True)
+    request_path.write_text(json.dumps({"requested_at": int(time.time())}) + "\n")
+
+
+def _clear_stop_request() -> None:
+    _hub_stop_request_path().unlink(missing_ok=True)
+
+
+def _shutdown_requested() -> bool:
+    return _hub_stop_request_path().exists()
+
+
 def ensure_hub_not_running() -> None:
     state = read_hub_state()
     if state is None:
+        _clear_stop_request()
         return
 
     pid = int(state.get("pid", -1))
@@ -189,6 +208,7 @@ def ensure_hub_not_running() -> None:
 
     logger.warning("Removing stale hub state at %s", _hub_state_path())
     _clear_hub_state()
+    _clear_stop_request()
 
 
 def ensure_local_services(config: OskConfig) -> None:
@@ -239,6 +259,15 @@ async def wait_for_database(database_url: str, timeout_seconds: float = 30.0) ->
 
     detail = f": {last_error}" if last_error else ""
     raise HubBootstrapError(f"Database did not become ready within {timeout_seconds:.0f}s{detail}")
+
+
+async def watch_for_stop_request(server: uvicorn.Server, poll_seconds: float = 0.2) -> None:
+    while not server.should_exit:
+        if _shutdown_requested():
+            logger.info("Received graceful hub shutdown request.")
+            server.should_exit = True
+            return
+        await asyncio.sleep(poll_seconds)
 
 
 def install() -> None:
@@ -298,6 +327,7 @@ async def run_hub(name: str) -> None:
     storage = default_storage_manager(config)
     ensure_installation_ready(config, storage)
     ensure_hub_not_running()
+    _clear_stop_request()
     ensure_local_services(config)
     await wait_for_database(config.database_url)
 
@@ -348,10 +378,16 @@ async def run_hub(name: str) -> None:
                 log_level="info",
             )
         )
-        await server.serve()
+        stop_watcher = asyncio.create_task(watch_for_stop_request(server))
+        try:
+            await server.serve()
+        finally:
+            stop_watcher.cancel()
+            await asyncio.gather(stop_watcher, return_exceptions=True)
     finally:
         print("\nShutting down...")
         _clear_hub_state()
+        _clear_stop_request()
         await conn_manager.broadcast({"type": "op_ended"})
         await db.close()
         if luks_open:
@@ -371,6 +407,8 @@ def run_hub_sync(name: str) -> int:
     except HubBootstrapError as exc:
         print(exc)
         return 1
+    except KeyboardInterrupt:
+        return 0
     return 0
 
 
@@ -393,7 +431,7 @@ def stop_hub(wait_seconds: float = 10.0, *, stop_services: bool = False) -> int:
 
     operation_name = state.get("operation_name", "unknown")
     print(f"Stopping Osk hub for '{operation_name}' (pid {pid})...")
-    os.kill(pid, signal.SIGTERM)
+    _request_hub_shutdown()
 
     deadline = time.monotonic() + wait_seconds
     while time.monotonic() < deadline:
@@ -402,11 +440,52 @@ def stop_hub(wait_seconds: float = 10.0, *, stop_services: bool = False) -> int:
         time.sleep(0.2)
 
     if _pid_is_running(pid):
+        logger.warning("Graceful shutdown timed out; sending SIGTERM to pid %s", pid)
+        os.kill(pid, signal.SIGTERM)
+        while time.monotonic() < deadline:
+            if not _pid_is_running(pid):
+                break
+            time.sleep(0.2)
+
+    if _pid_is_running(pid):
         print(f"Hub process {pid} did not exit within {wait_seconds:.1f}s.")
         return 1
 
     _clear_hub_state()
+    _clear_stop_request()
     if stop_services:
         stop_local_services(config)
     print("Osk hub stopped.")
     return 0
+
+
+def status_hub() -> int:
+    state = read_hub_state()
+    if state is None:
+        _clear_stop_request()
+        print("Osk hub is not running.")
+        return 1
+
+    pid = int(state.get("pid", -1))
+    operation_name = state.get("operation_name", "unknown")
+    port = state.get("port", "unknown")
+    started_at = state.get("started_at", "unknown")
+    stopping = _shutdown_requested()
+
+    if pid > 0 and _pid_is_running(pid):
+        print("Osk hub is running.")
+        print(f"operation = {operation_name}")
+        print(f"pid = {pid}")
+        print(f"port = {port}")
+        print(f"started_at = {started_at}")
+        print(f"stopping = {str(stopping).lower()}")
+        return 0
+
+    print("Osk hub state is present but the recorded PID is not visible.")
+    print(f"operation = {operation_name}")
+    print(f"pid = {pid}")
+    print(f"port = {port}")
+    print(f"started_at = {started_at}")
+    print(f"stopping = {str(stopping).lower()}")
+    print("The state file was left in place so it can be inspected or stopped from the same host context.")
+    return 1

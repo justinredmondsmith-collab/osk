@@ -25,6 +25,11 @@ def test_parse_stop_with_options() -> None:
     assert args.timeout == 5.0
 
 
+def test_parse_status() -> None:
+    args = parse_args(["status"])
+    assert args.command == "status"
+
+
 def test_parse_install() -> None:
     args = parse_args(["install"])
     assert args.command == "install"
@@ -140,3 +145,10 @@ def test_stop_command_invokes_hub_stop(mock_stop_hub: MagicMock) -> None:
     code = main(["stop", "--services", "--timeout", "3"])
     assert code == 0
     mock_stop_hub.assert_called_once_with(wait_seconds=3.0, stop_services=True)
+
+
+@patch("osk.hub.status_hub", return_value=0)
+def test_status_command_invokes_hub_status(mock_status_hub: MagicMock) -> None:
+    code = main(["status"])
+    assert code == 0
+    mock_status_hub.assert_called_once_with()

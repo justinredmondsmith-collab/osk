@@ -27,6 +27,8 @@ changes manually while the project is in its early public setup phase.
 - Development-friendly host control: directory-backed storage mode, `osk stop`,
   hub state tracking, and configurable local Postgres port mapping for smoke
   runs on busy machines
+- Graceful local runtime control: read-only `osk status`, file-based shutdown
+  requests before SIGTERM fallback, and clean `osk start` exit on remote stop
 
 ### Changed
 

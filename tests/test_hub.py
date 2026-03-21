@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 import signal
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -19,9 +20,11 @@ from osk.hub import (
     local_service_mode,
     read_hub_state,
     run_hub_sync,
+    status_hub,
     stop_hub,
     uses_local_dev_services,
     wait_for_database,
+    watch_for_stop_request,
 )
 
 
@@ -141,10 +144,13 @@ def test_read_hub_state_missing(tmp_path: Path) -> None:
 
 def test_ensure_hub_not_running_cleans_stale_state(tmp_path: Path) -> None:
     state_path = tmp_path / "hub-state.json"
+    stop_path = tmp_path / "hub-stop-request.json"
     state_path.write_text('{"pid": 999999, "operation_name": "Old Op"}\n')
+    stop_path.write_text('{"requested_at": 1}\n')
     with patch("osk.hub._config_root", return_value=tmp_path):
         ensure_hub_not_running()
     assert not state_path.exists()
+    assert not stop_path.exists()
 
 
 def test_ensure_hub_not_running_raises_for_live_pid(tmp_path: Path) -> None:
@@ -161,24 +167,54 @@ def test_ensure_hub_not_running_raises_for_live_pid(tmp_path: Path) -> None:
 @patch("osk.hub.stop_local_services")
 @patch("osk.hub.os.kill")
 @patch("osk.hub.time.sleep")
-def test_stop_hub_stops_running_process(
+def test_stop_hub_requests_graceful_shutdown(
     mock_sleep: MagicMock,
     mock_kill: MagicMock,
     mock_stop_local_services: MagicMock,
     tmp_path: Path,
 ) -> None:
     state_path = tmp_path / "hub-state.json"
+    stop_path = tmp_path / "hub-stop-request.json"
     state_path.write_text('{"pid": 4321, "operation_name": "March"}\n')
     with patch("osk.hub._config_root", return_value=tmp_path), patch(
         "osk.hub._pid_is_running",
-        side_effect=[True, True, False, False],
-    ), patch("osk.hub.load_config", return_value=OskConfig()):
+        side_effect=[True, True, False, False, False],
+    ), patch("osk.hub.time.monotonic", side_effect=[0.0, 0.0, 0.1]), patch(
+        "osk.hub.load_config",
+        return_value=OskConfig(),
+    ):
         code = stop_hub(wait_seconds=1, stop_services=True)
 
     assert code == 0
-    mock_kill.assert_called_once_with(4321, signal.SIGTERM)
+    mock_kill.assert_not_called()
     mock_stop_local_services.assert_called_once()
     assert not state_path.exists()
+    assert not stop_path.exists()
+
+
+@patch("osk.hub.os.kill")
+@patch("osk.hub.time.sleep")
+def test_stop_hub_falls_back_to_sigterm(
+    mock_sleep: MagicMock,
+    mock_kill: MagicMock,
+    tmp_path: Path,
+) -> None:
+    state_path = tmp_path / "hub-state.json"
+    stop_path = tmp_path / "hub-stop-request.json"
+    state_path.write_text('{"pid": 4321, "operation_name": "March"}\n')
+    with patch("osk.hub._config_root", return_value=tmp_path), patch(
+        "osk.hub._pid_is_running",
+        side_effect=[True, True, True, False, False],
+    ), patch("osk.hub.time.monotonic", side_effect=[0.0, 0.0, 0.3, 0.1]), patch(
+        "osk.hub.load_config",
+        return_value=OskConfig(),
+    ):
+        code = stop_hub(wait_seconds=0.2)
+
+    assert code == 0
+    mock_kill.assert_called_once_with(4321, signal.SIGTERM)
+    assert not state_path.exists()
+    assert not stop_path.exists()
 
 
 def test_stop_hub_cleans_stale_state(tmp_path: Path) -> None:
@@ -192,3 +228,76 @@ def test_stop_hub_cleans_stale_state(tmp_path: Path) -> None:
 
     assert code == 0
     assert not state_path.exists()
+
+
+def test_status_hub_reports_running(tmp_path: Path, capsys) -> None:
+    state_path = tmp_path / "hub-state.json"
+    state_path.write_text('{"pid": 4321, "operation_name": "March", "port": 8443, "started_at": 123}\n')
+    with patch("osk.hub._config_root", return_value=tmp_path), patch(
+        "osk.hub._pid_is_running",
+        return_value=True,
+    ):
+        code = status_hub()
+    out = capsys.readouterr().out
+    assert code == 0
+    assert "Osk hub is running." in out
+    assert "operation = March" in out
+    assert "stopping = false" in out
+
+
+def test_status_hub_reports_stopping(tmp_path: Path, capsys) -> None:
+    state_path = tmp_path / "hub-state.json"
+    stop_path = tmp_path / "hub-stop-request.json"
+    state_path.write_text('{"pid": 4321, "operation_name": "March", "port": 8443, "started_at": 123}\n')
+    stop_path.write_text('{"requested_at": 1}\n')
+    with patch("osk.hub._config_root", return_value=tmp_path), patch(
+        "osk.hub._pid_is_running",
+        return_value=True,
+    ):
+        code = status_hub()
+    out = capsys.readouterr().out
+    assert code == 0
+    assert "stopping = true" in out
+
+
+def test_status_hub_reports_unverifiable_state_without_cleanup(tmp_path: Path, capsys) -> None:
+    state_path = tmp_path / "hub-state.json"
+    stop_path = tmp_path / "hub-stop-request.json"
+    state_path.write_text('{"pid": 4321, "operation_name": "March"}\n')
+    stop_path.write_text('{"requested_at": 1}\n')
+    with patch("osk.hub._config_root", return_value=tmp_path), patch(
+        "osk.hub._pid_is_running",
+        return_value=False,
+    ):
+        code = status_hub()
+    out = capsys.readouterr().out
+    assert code == 1
+    assert "not visible" in out.lower()
+    assert state_path.exists()
+    assert stop_path.exists()
+
+
+def test_status_hub_reports_not_running(tmp_path: Path, capsys) -> None:
+    stop_path = tmp_path / "hub-stop-request.json"
+    stop_path.write_text('{"requested_at": 1}\n')
+    with patch("osk.hub._config_root", return_value=tmp_path):
+        code = status_hub()
+    out = capsys.readouterr().out
+    assert code == 1
+    assert "not running" in out.lower()
+    assert not stop_path.exists()
+
+
+async def test_watch_for_stop_request_sets_server_should_exit(tmp_path: Path) -> None:
+    class DummyServer:
+        should_exit = False
+
+    server = DummyServer()
+    stop_path = tmp_path / "hub-stop-request.json"
+    with patch("osk.hub._config_root", return_value=tmp_path):
+        task = asyncio.create_task(watch_for_stop_request(server, poll_seconds=0.01))
+        await asyncio.sleep(0.02)
+        stop_path.write_text('{"requested_at": 1}\n')
+        await task
+
+    assert server.should_exit is True
