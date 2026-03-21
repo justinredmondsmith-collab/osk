@@ -18,6 +18,23 @@ from osk.intelligence_contracts import (
 )
 
 
+def build_observation(
+    *,
+    kind: ObservationKind,
+    source_member_id,
+    summary: str,
+    confidence: float,
+    result: BaseModel,
+) -> IntelligenceObservation:
+    return IntelligenceObservation(
+        kind=kind,
+        source_member_id=source_member_id,
+        summary=summary,
+        confidence=confidence,
+        details=result.model_dump(mode="json"),
+    )
+
+
 class IntelligencePipeline:
     def __init__(
         self,
@@ -79,10 +96,10 @@ class IntelligencePipeline:
         confidence: float,
         result: BaseModel,
     ) -> IntelligenceObservation:
-        return IntelligenceObservation(
+        return build_observation(
             kind=kind,
             source_member_id=source_member_id,
             summary=summary,
             confidence=confidence,
-            details=result.model_dump(mode="json"),
+            result=result,
         )

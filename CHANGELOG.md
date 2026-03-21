@@ -48,6 +48,8 @@ changes manually while the project is in its early public setup phase.
   adapters, and a normalization pipeline for audio, frame, and location inputs
 - Phase 2 queue primitives: bounded audio ingest with priority backpressure and
   frame ingest with dedupe, observer rate limits, and per-member queue caps
+- Phase 2 worker loops: fake-backed background transcription and vision workers
+  with callback hooks, metrics, and queue-drain lifecycle tests
 
 ### Changed
 

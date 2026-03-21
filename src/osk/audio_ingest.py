@@ -46,6 +46,10 @@ class AudioIngest:
     def qsize(self) -> int:
         return self._active_count
 
+    @property
+    def is_running(self) -> bool:
+        return self._running
+
     def member_depth(self, member_id: uuid.UUID) -> int:
         return self._member_depths.get(member_id, 0)
 
