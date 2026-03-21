@@ -12,7 +12,6 @@ import asyncpg
 
 from osk.models import EventCategory, EventSeverity, MemberRole
 
-
 logger = logging.getLogger(__name__)
 
 MIGRATIONS_DIR = Path(__file__).parent / "migrations"
@@ -119,7 +118,9 @@ class Database:
             member_id,
         )
 
-    async def update_member_gps(self, member_id: uuid.UUID, latitude: float, longitude: float) -> None:
+    async def update_member_gps(
+        self, member_id: uuid.UUID, latitude: float, longitude: float
+    ) -> None:
         pool = self._require_pool()
         await pool.execute(
             "UPDATE members SET latitude = $1, longitude = $2, last_gps_at = NOW() WHERE id = $3",
@@ -181,7 +182,10 @@ class Database:
     ) -> None:
         pool = self._require_pool()
         await pool.execute(
-            "INSERT INTO alerts (id, event_id, severity, category, text) VALUES ($1, $2, $3, $4, $5)",
+            (
+                "INSERT INTO alerts (id, event_id, severity, category, text) "
+                "VALUES ($1, $2, $3, $4, $5)"
+            ),
             alert_id,
             event_id,
             severity.value,
@@ -189,7 +193,9 @@ class Database:
             text,
         )
 
-    async def insert_pin(self, pin_id: uuid.UUID, event_id: uuid.UUID, pinned_by: uuid.UUID) -> None:
+    async def insert_pin(
+        self, pin_id: uuid.UUID, event_id: uuid.UUID, pinned_by: uuid.UUID
+    ) -> None:
         pool = self._require_pool()
         await pool.execute(
             "INSERT INTO pins (id, event_id, pinned_by) VALUES ($1, $2, $3)",
@@ -263,7 +269,9 @@ class Database:
             threat_score,
         )
 
-    async def insert_stream(self, stream_id: uuid.UUID, member_id: uuid.UUID, stream_type: str) -> None:
+    async def insert_stream(
+        self, stream_id: uuid.UUID, member_id: uuid.UUID, stream_type: str
+    ) -> None:
         pool = self._require_pool()
         await pool.execute(
             "INSERT INTO streams (id, member_id, stream_type) VALUES ($1, $2, $3)",

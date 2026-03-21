@@ -66,6 +66,11 @@ def client(app) -> TestClient:
     return TestClient(app)
 
 
+@pytest.fixture
+def remote_client(app) -> TestClient:
+    return TestClient(app, client=("10.8.0.15", 50000))
+
+
 def test_join_page_valid_token(client: TestClient, mock_op_manager: MagicMock) -> None:
     mock_op_manager.validate_token.return_value = True
     resp = client.get("/join?token=valid-token")
@@ -85,13 +90,21 @@ def test_operation_status(client: TestClient) -> None:
     assert data["name"] == "Test Op"
 
 
+def test_operation_status_rejects_remote_client(remote_client: TestClient) -> None:
+    resp = remote_client.get("/api/operation/status")
+    assert resp.status_code == 403
+    assert resp.json()["error"] == "Local coordinator access only"
+
+
 def test_list_members(client: TestClient) -> None:
     resp = client.get("/api/members")
     assert resp.status_code == 200
     assert isinstance(resp.json(), list)
 
 
-def test_promote_member(client: TestClient, mock_op_manager: MagicMock, mock_conn_mgr: MagicMock) -> None:
+def test_promote_member(
+    client: TestClient, mock_op_manager: MagicMock, mock_conn_mgr: MagicMock
+) -> None:
     member_id = uuid.uuid4()
     mock_op_manager.members = {member_id: MagicMock(role=MemberRole.OBSERVER)}
     resp = client.post(f"/api/members/{member_id}/promote")
@@ -108,7 +121,9 @@ def test_demote_member(client: TestClient, mock_op_manager: MagicMock) -> None:
     mock_op_manager.demote_member.assert_called_once()
 
 
-def test_kick_member(client: TestClient, mock_op_manager: MagicMock, mock_conn_mgr: MagicMock) -> None:
+def test_kick_member(
+    client: TestClient, mock_op_manager: MagicMock, mock_conn_mgr: MagicMock
+) -> None:
     member_id = uuid.uuid4()
     mock_op_manager.members = {member_id: MagicMock()}
     resp = client.post(f"/api/members/{member_id}/kick")
@@ -123,6 +138,11 @@ def test_rotate_token(client: TestClient) -> None:
     assert resp.json()["token"] == "new-token"
 
 
+def test_rotate_token_rejects_remote_client(remote_client: TestClient) -> None:
+    resp = remote_client.post("/api/rotate-token")
+    assert resp.status_code == 403
+
+
 def test_pin_event(client: TestClient, mock_db: MagicMock) -> None:
     event_id = uuid.uuid4()
     resp = client.post(f"/api/pin/{event_id}", json={"member_id": str(uuid.uuid4())})
@@ -131,12 +151,21 @@ def test_pin_event(client: TestClient, mock_db: MagicMock) -> None:
 
 
 def test_report(client: TestClient, mock_db: MagicMock) -> None:
-    resp = client.post("/api/report", json={"member_id": str(uuid.uuid4()), "text": "Suspicious activity"})
+    resp = client.post(
+        "/api/report", json={"member_id": str(uuid.uuid4()), "text": "Suspicious activity"}
+    )
     assert resp.status_code == 200
     mock_db.insert_event.assert_called_once()
 
 
-def test_websocket_auth_flow(client: TestClient, mock_conn_mgr: MagicMock, mock_op_manager: MagicMock) -> None:
+def test_wipe_rejects_remote_client(remote_client: TestClient) -> None:
+    resp = remote_client.post("/api/wipe")
+    assert resp.status_code == 403
+
+
+def test_websocket_auth_flow(
+    client: TestClient, mock_conn_mgr: MagicMock, mock_op_manager: MagicMock
+) -> None:
     with client.websocket_connect("/ws") as websocket:
         websocket.send_json({"type": "auth", "token": "valid-token", "name": "Jay"})
         message = websocket.receive_json()

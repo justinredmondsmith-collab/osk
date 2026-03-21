@@ -7,7 +7,6 @@ import uuid
 
 from osk.models import EventSeverity, MemberRole
 
-
 logger = logging.getLogger(__name__)
 
 ALERT_THRESHOLDS: dict[MemberRole, int] = {

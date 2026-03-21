@@ -7,7 +7,6 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
 

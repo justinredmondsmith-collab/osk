@@ -9,6 +9,8 @@ changes manually while the project is in its early public setup phase.
 
 ### Added
 
+- Foundational hardening: local-only admin HTTP access for coordinator routes,
+  user-scoped runtime state paths, and Ruff lint/format enforcement in CI
 - Public governance documents: code of conduct, contributing guide, security
   policy, safety limits, notice, and provenance tracking
 - Explicit `AGPL-3.0-only` licensing language

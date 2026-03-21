@@ -71,7 +71,9 @@ def test_parse_rotate_token() -> None:
 
 @patch("osk.cli.load_config")
 def test_config_prints_values(mock_load_config: MagicMock, capsys) -> None:
-    mock_load_config.return_value = MagicMock(model_dump=MagicMock(return_value={"max_sensors": 10}))
+    mock_load_config.return_value = MagicMock(
+        model_dump=MagicMock(return_value={"max_sensors": 10})
+    )
     code = main(["config"])
     out = capsys.readouterr().out
     assert code == 0
@@ -80,7 +82,9 @@ def test_config_prints_values(mock_load_config: MagicMock, capsys) -> None:
 
 @patch("osk.cli.save_config")
 @patch("osk.cli.load_config")
-def test_config_set_updates_value(mock_load_config: MagicMock, mock_save_config: MagicMock, capsys) -> None:
+def test_config_set_updates_value(
+    mock_load_config: MagicMock, mock_save_config: MagicMock, capsys
+) -> None:
     cfg = MagicMock()
     cfg.model_fields = {"max_sensors": object()}
     cfg.max_sensors = 10

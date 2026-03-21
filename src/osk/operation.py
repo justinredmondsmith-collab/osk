@@ -9,7 +9,6 @@ from datetime import datetime, timezone
 
 from osk.models import Member, MemberRole, MemberStatus, Operation
 
-
 logger = logging.getLogger(__name__)
 
 

@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import asyncio
-from pathlib import Path
 import signal
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -10,17 +10,17 @@ import pytest
 from osk.config import OskConfig
 from osk.hub import (
     HubBootstrapError,
-    _find_compose_command,
     _compose_environment,
+    _find_compose_command,
     default_storage_manager,
-    ensure_local_services,
     ensure_hub_not_running,
+    ensure_local_services,
+    hub_status_snapshot,
     installation_issues,
     local_database_port,
     local_service_mode,
     read_hub_state,
     run_hub_sync,
-    hub_status_snapshot,
     status_hub,
     stop_hub,
     uses_local_dev_services,
@@ -77,7 +77,9 @@ def test_uses_local_dev_services_true_for_localhost_alt_port() -> None:
 
 
 @patch("osk.hub.subprocess.run")
-def test_ensure_local_services_skips_when_config_uses_external_services(mock_run: MagicMock) -> None:
+def test_ensure_local_services_skips_when_config_uses_external_services(
+    mock_run: MagicMock,
+) -> None:
     config = OskConfig(database_url="postgresql://db.internal:5432/osk")
     ensure_local_services(config)
     mock_run.assert_not_called()
@@ -157,9 +159,12 @@ def test_ensure_hub_not_running_cleans_stale_state(tmp_path: Path) -> None:
 def test_ensure_hub_not_running_raises_for_live_pid(tmp_path: Path) -> None:
     state_path = tmp_path / "hub-state.json"
     state_path.write_text('{"pid": 1234, "operation_name": "Live Op"}\n')
-    with patch("osk.hub._config_root", return_value=tmp_path), patch(
-        "osk.hub._pid_is_running",
-        return_value=True,
+    with (
+        patch("osk.hub._config_root", return_value=tmp_path),
+        patch(
+            "osk.hub._pid_is_running",
+            return_value=True,
+        ),
     ):
         with pytest.raises(HubBootstrapError):
             ensure_hub_not_running()
@@ -177,12 +182,17 @@ def test_stop_hub_requests_graceful_shutdown(
     state_path = tmp_path / "hub-state.json"
     stop_path = tmp_path / "hub-stop-request.json"
     state_path.write_text('{"pid": 4321, "operation_name": "March"}\n')
-    with patch("osk.hub._config_root", return_value=tmp_path), patch(
-        "osk.hub._pid_is_running",
-        side_effect=[True, True, False, False, False],
-    ), patch("osk.hub.time.monotonic", side_effect=[0.0, 0.0, 0.1]), patch(
-        "osk.hub.load_config",
-        return_value=OskConfig(),
+    with (
+        patch("osk.hub._config_root", return_value=tmp_path),
+        patch(
+            "osk.hub._pid_is_running",
+            side_effect=[True, True, False, False, False],
+        ),
+        patch("osk.hub.time.monotonic", side_effect=[0.0, 0.0, 0.1]),
+        patch(
+            "osk.hub.load_config",
+            return_value=OskConfig(),
+        ),
     ):
         code = stop_hub(wait_seconds=1, stop_services=True)
 
@@ -203,12 +213,17 @@ def test_stop_hub_falls_back_to_sigterm(
     state_path = tmp_path / "hub-state.json"
     stop_path = tmp_path / "hub-stop-request.json"
     state_path.write_text('{"pid": 4321, "operation_name": "March"}\n')
-    with patch("osk.hub._config_root", return_value=tmp_path), patch(
-        "osk.hub._pid_is_running",
-        side_effect=[True, True, True, False, False],
-    ), patch("osk.hub.time.monotonic", side_effect=[0.0, 0.0, 0.3, 0.1]), patch(
-        "osk.hub.load_config",
-        return_value=OskConfig(),
+    with (
+        patch("osk.hub._config_root", return_value=tmp_path),
+        patch(
+            "osk.hub._pid_is_running",
+            side_effect=[True, True, True, False, False],
+        ),
+        patch("osk.hub.time.monotonic", side_effect=[0.0, 0.0, 0.3, 0.1]),
+        patch(
+            "osk.hub.load_config",
+            return_value=OskConfig(),
+        ),
     ):
         code = stop_hub(wait_seconds=0.2)
 
@@ -221,10 +236,14 @@ def test_stop_hub_falls_back_to_sigterm(
 def test_stop_hub_cleans_stale_state(tmp_path: Path) -> None:
     state_path = tmp_path / "hub-state.json"
     state_path.write_text('{"pid": 4321, "operation_name": "March"}\n')
-    with patch("osk.hub._config_root", return_value=tmp_path), patch(
-        "osk.hub._pid_is_running",
-        return_value=False,
-    ), patch("osk.hub.load_config", return_value=OskConfig()):
+    with (
+        patch("osk.hub._config_root", return_value=tmp_path),
+        patch(
+            "osk.hub._pid_is_running",
+            return_value=False,
+        ),
+        patch("osk.hub.load_config", return_value=OskConfig()),
+    ):
         code = stop_hub(wait_seconds=1)
 
     assert code == 0
@@ -233,11 +252,17 @@ def test_stop_hub_cleans_stale_state(tmp_path: Path) -> None:
 
 def test_status_hub_reports_running(tmp_path: Path, capsys) -> None:
     state_path = tmp_path / "hub-state.json"
-    state_path.write_text('{"pid": 4321, "operation_name": "March", "port": 8443, "started_at": 123}\n')
-    with patch("osk.hub._config_root", return_value=tmp_path), patch(
-        "osk.hub._pid_is_running",
-        return_value=True,
-    ), patch("osk.hub.time.time", return_value=130):
+    state_path.write_text(
+        '{"pid": 4321, "operation_name": "March", "port": 8443, "started_at": 123}\n'
+    )
+    with (
+        patch("osk.hub._config_root", return_value=tmp_path),
+        patch(
+            "osk.hub._pid_is_running",
+            return_value=True,
+        ),
+        patch("osk.hub.time.time", return_value=130),
+    ):
         code = status_hub()
     out = capsys.readouterr().out
     assert code == 0
@@ -252,11 +277,16 @@ def test_status_hub_reports_running(tmp_path: Path, capsys) -> None:
 def test_status_hub_reports_stopping(tmp_path: Path, capsys) -> None:
     state_path = tmp_path / "hub-state.json"
     stop_path = tmp_path / "hub-stop-request.json"
-    state_path.write_text('{"pid": 4321, "operation_name": "March", "port": 8443, "started_at": 123}\n')
+    state_path.write_text(
+        '{"pid": 4321, "operation_name": "March", "port": 8443, "started_at": 123}\n'
+    )
     stop_path.write_text('{"requested_at": 1}\n')
-    with patch("osk.hub._config_root", return_value=tmp_path), patch(
-        "osk.hub._pid_is_running",
-        return_value=True,
+    with (
+        patch("osk.hub._config_root", return_value=tmp_path),
+        patch(
+            "osk.hub._pid_is_running",
+            return_value=True,
+        ),
     ):
         code = status_hub()
     out = capsys.readouterr().out
@@ -269,9 +299,12 @@ def test_status_hub_reports_unverifiable_state_without_cleanup(tmp_path: Path, c
     stop_path = tmp_path / "hub-stop-request.json"
     state_path.write_text('{"pid": 4321, "operation_name": "March"}\n')
     stop_path.write_text('{"requested_at": 1}\n')
-    with patch("osk.hub._config_root", return_value=tmp_path), patch(
-        "osk.hub._pid_is_running",
-        return_value=False,
+    with (
+        patch("osk.hub._config_root", return_value=tmp_path),
+        patch(
+            "osk.hub._pid_is_running",
+            return_value=False,
+        ),
     ):
         code = status_hub()
     out = capsys.readouterr().out
@@ -297,11 +330,16 @@ def test_status_hub_reports_not_running(tmp_path: Path, capsys) -> None:
 def test_hub_status_snapshot_json_payload(tmp_path: Path) -> None:
     state_path = tmp_path / "hub-state.json"
     stop_path = tmp_path / "hub-stop-request.json"
-    state_path.write_text('{"pid": 4321, "operation_name": "March", "port": 8443, "started_at": 123}\n')
+    state_path.write_text(
+        '{"pid": 4321, "operation_name": "March", "port": 8443, "started_at": 123}\n'
+    )
     stop_path.write_text('{"requested_at": 1}\n')
-    with patch("osk.hub._config_root", return_value=tmp_path), patch(
-        "osk.hub._pid_is_running",
-        return_value=True,
+    with (
+        patch("osk.hub._config_root", return_value=tmp_path),
+        patch(
+            "osk.hub._pid_is_running",
+            return_value=True,
+        ),
     ):
         code, snapshot = hub_status_snapshot(now=130)
     assert code == 0

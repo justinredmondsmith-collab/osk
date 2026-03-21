@@ -7,7 +7,6 @@ import subprocess
 from pathlib import Path
 from typing import Literal
 
-
 logger = logging.getLogger(__name__)
 
 LUKS_MAPPER_NAME = "osk-evidence"
@@ -65,7 +64,15 @@ class StorageManager:
             check=True,
         )
         subprocess.run(
-            ["sudo", "cryptsetup", "open", str(self.luks_image_path), LUKS_MAPPER_NAME, "--type", "luks"],
+            [
+                "sudo",
+                "cryptsetup",
+                "open",
+                str(self.luks_image_path),
+                LUKS_MAPPER_NAME,
+                "--type",
+                "luks",
+            ],
             input=passphrase.encode(),
             check=True,
         )
@@ -79,7 +86,15 @@ class StorageManager:
             logger.info("Opened directory-backed evidence storage at %s", self.luks_mount_path)
             return
         subprocess.run(
-            ["sudo", "cryptsetup", "open", str(self.luks_image_path), LUKS_MAPPER_NAME, "--type", "luks"],
+            [
+                "sudo",
+                "cryptsetup",
+                "open",
+                str(self.luks_image_path),
+                LUKS_MAPPER_NAME,
+                "--type",
+                "luks",
+            ],
             input=passphrase.encode(),
             check=True,
         )

@@ -4,12 +4,12 @@ from __future__ import annotations
 
 import asyncio
 import datetime as dt
-import json
 import getpass
+import json
 import logging
 import os
-import signal
 import shutil
+import signal
 import subprocess
 import time
 from pathlib import Path
@@ -27,7 +27,6 @@ from osk.server import create_app
 from osk.storage import StorageManager
 from osk.tls import generate_self_signed_cert
 
-
 logger = logging.getLogger(__name__)
 LOCAL_DEV_DATABASE_URL = "postgresql://osk:osk@localhost:5432/osk"
 LOCAL_DEV_OLLAMA_URL = "http://localhost:11434"
@@ -42,12 +41,16 @@ def _config_root() -> Path:
     return Path.home() / ".config" / "osk"
 
 
+def _state_root() -> Path:
+    return Path.home() / ".local" / "state" / "osk"
+
+
 def default_storage_manager(config: OskConfig) -> StorageManager:
-    config_root = _config_root()
+    state_root = _state_root()
     return StorageManager(
-        tmpfs_path=Path("/tmp/osk-tmpfs"),
-        luks_image_path=config_root / "evidence.luks",
-        luks_mount_path=Path("/tmp/osk-evidence"),
+        tmpfs_path=state_root / "runtime",
+        luks_image_path=state_root / "evidence.luks",
+        luks_mount_path=state_root / "evidence",
         luks_size_gb=config.luks_volume_size_gb,
         backend=config.storage_backend,
     )
@@ -527,7 +530,8 @@ def hub_status_snapshot(now: float | None = None) -> tuple[int, dict[str, object
     snapshot["status"] = "state_only"
     snapshot["message"] = "Osk hub state is present but the recorded PID is not visible."
     snapshot["note"] = (
-        "The state file was left in place so it can be inspected or stopped from the same host context."
+        "The state file was left in place so it can be inspected or stopped "
+        "from the same host context."
     )
     return 1, snapshot
 

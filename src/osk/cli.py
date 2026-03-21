@@ -162,7 +162,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
     doctor_parser.set_defaults(func=_cmd_doctor)
 
-    install_parser = subparsers.add_parser("install", help="Install local prerequisites and assets.")
+    install_parser = subparsers.add_parser(
+        "install", help="Install local prerequisites and assets."
+    )
     install_parser.set_defaults(func=_cmd_install)
 
     start_parser = subparsers.add_parser("start", help="Start an operation.")
@@ -193,7 +195,9 @@ def build_parser() -> argparse.ArgumentParser:
     stop_parser.set_defaults(func=_cmd_stop)
 
     config_parser = subparsers.add_parser("config", help="View or set configuration.")
-    config_parser.add_argument("--set", dest="set", help="Set a config value in the form key=value.")
+    config_parser.add_argument(
+        "--set", dest="set", help="Set a config value in the form key=value."
+    )
     config_parser.set_defaults(func=_cmd_config)
 
     rotate_parser = subparsers.add_parser("rotate-token", help="Rotate the operation token.")
@@ -213,7 +217,9 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
+    logging.basicConfig(
+        level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+    )
     parser = build_parser()
     args = parse_args(argv)
 
