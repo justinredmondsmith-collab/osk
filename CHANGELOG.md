@@ -42,6 +42,8 @@ changes manually while the project is in its early public setup phase.
 - One-time local operator bootstrap exchange, `osk audit`, `osk logs`,
   machine-readable `osk doctor --json`, and runtime log file visibility in
   hub status
+- `osk members`, extra operator audit events for bootstrap expiry/session
+  refresh/logout, and clearer startup failure logging with runtime log hints
 
 ### Changed
 

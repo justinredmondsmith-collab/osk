@@ -195,6 +195,12 @@ def _cmd_logs(args: argparse.Namespace) -> int:
     return show_runtime_logs(tail=args.tail)
 
 
+def _cmd_members(args: argparse.Namespace) -> int:
+    from .hub import show_members
+
+    return show_members(json_output=args.json_output)
+
+
 def _cmd_rotate_token(_: argparse.Namespace) -> int:
     print("Token rotation requires a running hub and is not wired through the CLI yet.")
     return 1
@@ -331,6 +337,15 @@ def build_parser() -> argparse.ArgumentParser:
         help="Number of log lines to display.",
     )
     logs_parser.set_defaults(func=_cmd_logs)
+
+    members_parser = subparsers.add_parser("members", help="Show current operation members.")
+    members_parser.add_argument(
+        "--json",
+        dest="json_output",
+        action="store_true",
+        help="Emit machine-readable JSON output.",
+    )
+    members_parser.set_defaults(func=_cmd_members)
 
     rotate_parser = subparsers.add_parser("rotate-token", help="Rotate the operation token.")
     rotate_parser.set_defaults(func=_cmd_rotate_token)

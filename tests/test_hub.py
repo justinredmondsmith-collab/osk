@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import datetime as dt
 import signal
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -127,6 +128,20 @@ def test_run_hub_sync_returns_error_code_on_bootstrap_failure(mock_run: MagicMoc
     assert code == 1
     assert "boom" in out
     mock_run.assert_called_once()
+
+
+@patch("osk.hub.asyncio.run")
+def test_run_hub_sync_reports_unexpected_failure(mock_run: MagicMock, capsys) -> None:
+    def raise_runtime_error(coro) -> None:
+        coro.close()
+        raise RuntimeError("kaboom")
+
+    mock_run.side_effect = raise_runtime_error
+    code = run_hub_sync("Test Op")
+    out = capsys.readouterr().out
+    assert code == 1
+    assert "Osk hub failed unexpectedly: kaboom" in out
+    assert "Runtime log:" in out
 
 
 async def test_wait_for_database_retries_until_ready() -> None:
@@ -377,6 +392,7 @@ def test_hub_status_snapshot_json_payload(tmp_path: Path) -> None:
     assert snapshot["operator_bootstrap_path"] == str(bootstrap_path)
     assert snapshot["operator_bootstrap_active"] is True
     assert snapshot["operator_bootstrap_expires_at"]
+    assert snapshot["operator_bootstrap_status"] == "active"
     assert snapshot["operator_session_active"] is True
     assert snapshot["operator_session_expires_at"]
     assert snapshot["operator_session_path"] == str(session_path)
@@ -425,6 +441,50 @@ def test_login_operator_session_consumes_bootstrap(
 
 
 @patch("osk.hub.asyncio.run")
+def test_login_operator_session_reports_expired_bootstrap(
+    mock_asyncio_run: MagicMock,
+    tmp_path: Path,
+    capsys,
+) -> None:
+    def close_audit_coro(coro) -> None:
+        coro.close()
+        return None
+
+    mock_asyncio_run.side_effect = close_audit_coro
+
+    expired_bootstrap = (
+        "{\n"
+        '  "operation_id": "11111111-1111-1111-1111-111111111111",\n'
+        '  "bootstrap_token": "expired-token",\n'
+        '  "created_at": "2026-03-21T00:00:00+00:00",\n'
+        '  "expires_at": "2026-03-21T00:01:00+00:00"\n'
+        "}\n"
+    )
+
+    with (
+        patch("osk.hub._config_root", return_value=tmp_path),
+        patch("osk.local_operator._state_root", return_value=tmp_path),
+        patch(
+            "osk.local_operator._utcnow",
+            return_value=dt.datetime(2026, 3, 21, 0, 2, tzinfo=dt.timezone.utc),
+        ),
+    ):
+        (tmp_path / "hub-state.json").write_text(
+            '{"operation_id":"11111111-1111-1111-1111-111111111111"}\n'
+        )
+        (tmp_path / "operator-bootstrap.json").write_text(expired_bootstrap)
+
+        from osk.hub import login_operator_session
+
+        code = login_operator_session()
+
+    out = capsys.readouterr().out
+    assert code == 1
+    assert "expired before it could be used" in out
+    assert mock_asyncio_run.called
+
+
+@patch("osk.hub.asyncio.run")
 def test_show_audit_events_formats_rows(
     mock_asyncio_run: MagicMock,
     tmp_path: Path,
@@ -469,6 +529,82 @@ def test_show_runtime_logs_returns_tail(tmp_path: Path, capsys) -> None:
     out = capsys.readouterr().out
     assert code == 0
     assert out.splitlines() == ["two", "three"]
+
+
+@patch("osk.hub.asyncio.run")
+def test_logout_operator_session_records_audit_event(
+    mock_asyncio_run: MagicMock,
+    tmp_path: Path,
+    capsys,
+) -> None:
+    def close_audit_coro(coro) -> None:
+        coro.close()
+        return None
+
+    mock_asyncio_run.side_effect = close_audit_coro
+
+    with (
+        patch("osk.hub._config_root", return_value=tmp_path),
+        patch("osk.local_operator._state_root", return_value=tmp_path),
+    ):
+        (tmp_path / "hub-state.json").write_text(
+            '{"operation_id":"11111111-1111-1111-1111-111111111111"}\n'
+        )
+        create_operator_session("11111111-1111-1111-1111-111111111111", 60)
+
+        from osk.hub import logout_operator_session
+
+        code = logout_operator_session()
+
+    out = capsys.readouterr().out
+    assert code == 0
+    assert "Local operator session removed." in out
+    assert mock_asyncio_run.called
+
+
+@patch("osk.hub.asyncio.run")
+def test_show_members_formats_rows(mock_asyncio_run: MagicMock, tmp_path: Path, capsys) -> None:
+    member_rows = [
+        {
+            "id": "11111111-1111-1111-1111-111111111111",
+            "name": "Jay",
+            "role": "observer",
+            "status": "connected",
+            "reconnect_token": "resume-token",
+            "connected_at": dt.datetime(2026, 3, 21, 12, 0, tzinfo=dt.timezone.utc),
+            "last_seen_at": dt.datetime(2026, 3, 21, 12, 0, 30, tzinfo=dt.timezone.utc),
+            "last_gps_at": None,
+            "latitude": 39.75,
+            "longitude": -104.99,
+        }
+    ]
+
+    def return_member_rows(coro):
+        coro.close()
+        return member_rows
+
+    mock_asyncio_run.side_effect = return_member_rows
+
+    with (
+        patch("osk.hub._config_root", return_value=tmp_path),
+        patch("osk.hub.load_config", return_value=OskConfig(member_heartbeat_timeout_seconds=45)),
+        patch("osk.hub.dt.datetime") as mock_datetime,
+    ):
+        mock_datetime.now.return_value = dt.datetime(2026, 3, 21, 12, 1, tzinfo=dt.timezone.utc)
+        mock_datetime.side_effect = lambda *args, **kwargs: dt.datetime(*args, **kwargs)
+        (tmp_path / "hub-state.json").write_text(
+            '{"operation_id":"11111111-1111-1111-1111-111111111111"}\n'
+        )
+
+        from osk.hub import show_members
+
+        code = show_members()
+
+    out = capsys.readouterr().out
+    assert code == 0
+    assert "Jay" in out
+    assert "heartbeat=fresh" in out
+    assert "gps=39.75,-104.99" in out
 
 
 async def test_watch_member_heartbeats_disconnects_stale_members() -> None:

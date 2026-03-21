@@ -33,6 +33,7 @@ from osk.local_operator import (
     read_bootstrap_session,
     read_operator_session,
 )
+from osk.models import Member, MemberStatus
 from osk.operation import OperationManager
 from osk.qr import build_join_url, generate_qr_ascii, generate_qr_png
 from osk.server import create_app
@@ -337,6 +338,16 @@ async def _get_audit_events(operation_id: uuid.UUID, limit: int) -> list[dict]:
         await db.close()
 
 
+async def _get_members(operation_id: uuid.UUID) -> list[dict]:
+    config = load_config()
+    db = Database()
+    await db.connect(config.database_url)
+    try:
+        return await db.get_members(operation_id)
+    finally:
+        await db.close()
+
+
 async def _record_local_audit_event(
     operation_id: uuid.UUID,
     action: str,
@@ -355,6 +366,48 @@ async def _record_local_audit_event(
         )
     finally:
         await db.close()
+
+
+def _parse_operation_id(operation_id: str | None) -> uuid.UUID | None:
+    if not operation_id:
+        return None
+    try:
+        return uuid.UUID(str(operation_id))
+    except (ValueError, TypeError):
+        return None
+
+
+def _try_record_local_audit_event(
+    operation_id: str | None,
+    action: str,
+    *,
+    details: dict | None = None,
+) -> None:
+    operation_uuid = _parse_operation_id(operation_id)
+    if operation_uuid is None:
+        return
+    try:
+        asyncio.run(_record_local_audit_event(operation_uuid, action, details=details))
+    except Exception as exc:  # pragma: no cover - defensive logging path
+        logger.warning("Failed to record local audit event %s: %s", action, exc)
+
+
+def _resolve_bootstrap_state(operation_id: str | None) -> tuple[str, dict[str, object] | None]:
+    existed = bootstrap_session_path().exists()
+    payload = read_bootstrap_session()
+    if payload is None:
+        if existed:
+            _try_record_local_audit_event(
+                operation_id,
+                "operator_bootstrap_expired",
+                details={"path": str(bootstrap_session_path())},
+            )
+            return "expired_or_invalid", None
+        return "missing", None
+
+    if operation_id and payload.get("operation_id") != operation_id:
+        return "wrong_operation", payload
+    return "active", payload
 
 
 def install() -> None:
@@ -519,15 +572,22 @@ async def run_hub(name: str) -> None:
 
 
 def run_hub_sync(name: str) -> int:
+    log_path = _configure_runtime_log_handler()
     try:
-        log_path = _configure_runtime_log_handler()
         logger.info("Starting Osk hub runtime; log file at %s", log_path)
         asyncio.run(run_hub(name))
     except HubBootstrapError as exc:
+        logger.error("Hub bootstrap failed: %s", exc)
         print(exc)
+        print(f"Runtime log: {log_path}")
         return 1
     except KeyboardInterrupt:
         return 0
+    except Exception as exc:  # pragma: no cover - defensive startup path
+        logger.exception("Osk hub failed unexpectedly: %s", exc)
+        print(f"Osk hub failed unexpectedly: {exc}")
+        print(f"Runtime log: {log_path}")
+        return 1
     return 0
 
 
@@ -645,12 +705,16 @@ def hub_status_snapshot(now: float | None = None) -> tuple[int, dict[str, object
         "uptime_human": uptime_human,
         "stopping": stopping,
     }
-    if bootstrap := read_bootstrap_session():
+    bootstrap_status, bootstrap = _resolve_bootstrap_state(
+        str(operation_id) if operation_id else None
+    )
+    if bootstrap is not None:
         snapshot["operator_bootstrap_active"] = True
         snapshot["operator_bootstrap_expires_at"] = bootstrap.get("expires_at")
     else:
         snapshot["operator_bootstrap_active"] = False
         snapshot["operator_bootstrap_expires_at"] = None
+    snapshot["operator_bootstrap_status"] = bootstrap_status
     if session := read_operator_session():
         snapshot["operator_session_active"] = True
         snapshot["operator_session_expires_at"] = session.get("expires_at")
@@ -704,6 +768,8 @@ def status_hub(*, json_output: bool = False) -> int:
         print(f"operator_session_expires_at = {session_expires_at}")
     if bootstrap_path := snapshot.get("operator_bootstrap_path"):
         print(f"operator_bootstrap_file = {bootstrap_path}")
+    if bootstrap_status := snapshot.get("operator_bootstrap_status"):
+        print(f"operator_bootstrap_status = {bootstrap_status}")
     if bootstrap_expires_at := snapshot.get("operator_bootstrap_expires_at"):
         print(f"operator_bootstrap_expires_at = {bootstrap_expires_at}")
     if runtime_log_path := snapshot.get("runtime_log_path"):
@@ -728,14 +794,27 @@ def login_operator_session(*, ttl_minutes: int | None = None, json_output: bool 
     bootstrap_consumed = False
     existing_session = read_operator_session()
     if existing_session is None or existing_session.get("operation_id") != operation_id:
-        bootstrap = read_bootstrap_session()
+        bootstrap_status, bootstrap = _resolve_bootstrap_state(operation_id)
         if bootstrap is None:
-            print("No active operator bootstrap is available for this hub instance.")
+            if bootstrap_status == "expired_or_invalid":
+                print("Operator bootstrap expired before it could be used.")
+            elif bootstrap_status == "wrong_operation":
+                print("Operator bootstrap belongs to a different operation.")
+            else:
+                print("No active operator bootstrap is available for this hub instance.")
+            return 1
+        if bootstrap_status == "wrong_operation":
+            print("Operator bootstrap belongs to a different operation.")
             return 1
         bootstrap_token = bootstrap.get("bootstrap_token")
         if not isinstance(bootstrap_token, str):
             print("Operator bootstrap file is invalid.")
             clear_bootstrap_session()
+            _try_record_local_audit_event(
+                operation_id,
+                "operator_bootstrap_invalid",
+                details={"path": str(bootstrap_session_path())},
+            )
             return 1
         if not consume_bootstrap_session(operation_id, bootstrap_token):
             print("Operator bootstrap could not be consumed.")
@@ -747,19 +826,14 @@ def login_operator_session(*, ttl_minutes: int | None = None, json_output: bool 
         operation_id,
         ttl_minutes if ttl_minutes is not None else config.operator_session_ttl_minutes,
     )
-    try:
-        asyncio.run(
-            _record_local_audit_event(
-                uuid.UUID(operation_id),
-                "operator_session_created",
-                details={
-                    "expires_at": session["expires_at"],
-                    "issued_from": issued_from,
-                },
-            )
-        )
-    except Exception as exc:  # pragma: no cover - defensive logging path
-        logger.warning("Failed to record operator session audit event: %s", exc)
+    _try_record_local_audit_event(
+        operation_id,
+        "operator_session_created" if bootstrap_consumed else "operator_session_refreshed",
+        details={
+            "expires_at": session["expires_at"],
+            "issued_from": issued_from,
+        },
+    )
     response = {
         "bootstrap_consumed": bootstrap_consumed,
         "issued_from": issued_from,
@@ -785,14 +859,16 @@ def login_operator_session(*, ttl_minutes: int | None = None, json_output: bool 
 
 def status_operator_session(*, json_output: bool = False) -> int:
     state = read_hub_state()
-    bootstrap = read_bootstrap_session()
+    operation_id = str(state.get("operation_id")) if state and state.get("operation_id") else None
+    bootstrap_status, bootstrap = _resolve_bootstrap_state(operation_id)
     session = read_operator_session()
     response = {
         "hub_running": state is not None,
-        "operation_id": state.get("operation_id") if state else None,
+        "operation_id": operation_id,
         "operator_bootstrap_active": bootstrap is not None,
         "operator_bootstrap_expires_at": bootstrap.get("expires_at") if bootstrap else None,
         "operator_bootstrap_path": str(bootstrap_session_path()),
+        "operator_bootstrap_status": bootstrap_status,
         "operator_session_active": session is not None,
         "operator_session_expires_at": session.get("expires_at") if session else None,
         "operator_session_path": str(operator_session_path()),
@@ -811,6 +887,7 @@ def status_operator_session(*, json_output: bool = False) -> int:
         print(f"operation_id = {response['operation_id']}")
     print(f"operator_bootstrap_active = {str(response['operator_bootstrap_active']).lower()}")
     print(f"operator_bootstrap_file = {response['operator_bootstrap_path']}")
+    print(f"operator_bootstrap_status = {response['operator_bootstrap_status']}")
     if response["operator_bootstrap_expires_at"]:
         print(f"operator_bootstrap_expires_at = {response['operator_bootstrap_expires_at']}")
     print(f"operator_session_file = {response['operator_session_path']}")
@@ -820,6 +897,17 @@ def status_operator_session(*, json_output: bool = False) -> int:
 
 
 def logout_operator_session() -> int:
+    state = read_hub_state()
+    session = read_operator_session()
+    if session is not None:
+        operation_id = (
+            str(state.get("operation_id")) if state and state.get("operation_id") else None
+        )
+        _try_record_local_audit_event(
+            operation_id,
+            "operator_session_logged_out",
+            details={"expires_at": session.get("expires_at")},
+        )
     clear_operator_session()
     print("Local operator session removed.")
     return 0
@@ -861,6 +949,86 @@ def show_audit_events(*, limit: int = 20, json_output: bool = False) -> int:
             detail_text = f" details={json.dumps(details, sort_keys=True)}"
         actor_text = f" actor_member_id={actor_member_id}" if actor_member_id else ""
         print(f"{timestamp} {actor_type} {action}{actor_text}{detail_text}")
+    return 0
+
+
+def _member_snapshot(row: dict, *, heartbeat_timeout_seconds: int) -> dict[str, object]:
+    member = Member.model_validate(row)
+    now = dt.datetime.now(dt.timezone.utc)
+    last_seen_at = member.last_seen_at.astimezone(dt.timezone.utc)
+    seconds_since_last_seen = max(int((now - last_seen_at).total_seconds()), 0)
+    if member.status != MemberStatus.CONNECTED:
+        heartbeat_state = member.status.value
+    elif seconds_since_last_seen >= heartbeat_timeout_seconds:
+        heartbeat_state = "stale"
+    else:
+        heartbeat_state = "fresh"
+
+    return {
+        "id": str(member.id),
+        "name": member.name,
+        "role": member.role.value,
+        "status": member.status.value,
+        "heartbeat_state": heartbeat_state,
+        "seconds_since_last_seen": seconds_since_last_seen,
+        "last_seen_at": last_seen_at.isoformat().replace("+00:00", "Z"),
+        "connected_at": member.connected_at.astimezone(dt.timezone.utc)
+        .isoformat()
+        .replace("+00:00", "Z"),
+        "last_gps_at": (
+            member.last_gps_at.astimezone(dt.timezone.utc).isoformat().replace("+00:00", "Z")
+            if member.last_gps_at
+            else None
+        ),
+        "latitude": member.latitude,
+        "longitude": member.longitude,
+    }
+
+
+def show_members(*, json_output: bool = False) -> int:
+    state = read_hub_state()
+    if state is None:
+        print("No running Osk hub state found.")
+        return 1
+
+    operation_id_raw = str(state.get("operation_id", "")).strip()
+    if not operation_id_raw:
+        print("Hub state is missing an operation id.")
+        return 1
+
+    operation_uuid = _parse_operation_id(operation_id_raw)
+    if operation_uuid is None:
+        print("Hub state contains an invalid operation id.")
+        return 1
+
+    cfg = load_config()
+    try:
+        rows = asyncio.run(_get_members(operation_uuid))
+    except Exception as exc:
+        print(f"Failed to load members: {exc}")
+        return 1
+
+    members = [
+        _member_snapshot(row, heartbeat_timeout_seconds=cfg.member_heartbeat_timeout_seconds)
+        for row in rows
+    ]
+    if json_output:
+        print(json.dumps(members, indent=2, sort_keys=True))
+        return 0
+
+    if not members:
+        print("No members recorded.")
+        return 0
+
+    for member in members:
+        coords = ""
+        if member["latitude"] is not None and member["longitude"] is not None:
+            coords = f" gps={member['latitude']},{member['longitude']}"
+        print(
+            f"{member['name']} role={member['role']} status={member['status']} "
+            f"heartbeat={member['heartbeat_state']} last_seen={member['last_seen_at']}"
+            f"{coords} id={member['id']}"
+        )
     return 0
 
 
