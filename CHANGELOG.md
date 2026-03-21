@@ -21,6 +21,9 @@ changes manually while the project is in its early public setup phase.
   and initial FastAPI REST/WebSocket wiring
 - Phase 1 host-side setup: TLS certificate generation, QR generation, CLI
   command parsing, hub orchestration stub, and local compose files
+- Phase 1 startup hardening: install readiness checks, tracked database
+  migrations, and optional Docker Compose management for default local
+  services
 
 ### Changed
 

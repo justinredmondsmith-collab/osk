@@ -36,7 +36,11 @@ class OskConfig(BaseModel):
     hotspot_band: str = "5GHz"
     map_tile_cache_path: str = str(Path.home() / ".config" / "osk" / "tiles")
     hub_port: int = 8443
+    hub_host: str = "0.0.0.0"
+    join_host: str = "127.0.0.1"
+    database_url: str = "postgresql://osk:osk@localhost:5432/osk"
     ollama_base_url: str = "http://localhost:11434"
+    auto_manage_local_services: bool = True
 
 
 def _toml_literal(value: Any) -> str:

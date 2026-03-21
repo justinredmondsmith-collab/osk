@@ -33,10 +33,24 @@ def _cmd_doctor(_: argparse.Namespace) -> int:
 
     if ok:
         print("Scaffold ready for Phase 1 implementation work.")
-        return 0
+    else:
+        print("Scaffold incomplete. Fix missing paths before continuing.")
+        return 1
 
-    print("Scaffold incomplete. Fix missing paths before continuing.")
-    return 1
+    from .hub import default_storage_manager, installation_issues, local_service_mode
+
+    cfg = load_config()
+    issues = installation_issues(cfg, default_storage_manager(cfg))
+    print(f"Service mode: {local_service_mode(cfg)}")
+    if issues:
+        print("Install readiness: missing")
+        for issue in issues:
+            print(f"- {issue}")
+        print("Run `osk install` before starting the hub.")
+        return 1
+
+    print("Install readiness: ok")
+    return 0
 
 
 def _cmd_placeholder(args: argparse.Namespace) -> int:

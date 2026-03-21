@@ -43,8 +43,27 @@ class Database:
 
     async def _run_migrations(self) -> None:
         pool = self._require_pool()
+        await pool.execute(
+            """CREATE TABLE IF NOT EXISTS schema_migrations (
+               filename TEXT PRIMARY KEY,
+               applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            )"""
+        )
+        rows = await pool.fetch("SELECT filename FROM schema_migrations")
+        applied = {str(row["filename"]) for row in rows}
+
         for migration_file in self._get_migration_files():
-            await pool.execute(migration_file.read_text())
+            if migration_file.name in applied:
+                logger.info("Skipping previously applied migration: %s", migration_file.name)
+                continue
+
+            async with pool.acquire() as conn:
+                async with conn.transaction():
+                    await conn.execute(migration_file.read_text())
+                    await conn.execute(
+                        "INSERT INTO schema_migrations (filename) VALUES ($1)",
+                        migration_file.name,
+                    )
             logger.info("Applied migration: %s", migration_file.name)
 
     async def insert_operation(self, op_id: uuid.UUID, name: str, token: str) -> None:

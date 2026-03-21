@@ -73,7 +73,17 @@ def test_config_set_updates_value(mock_load_config: MagicMock, mock_save_config:
 
 
 @patch("osk.cli._repo_root")
-def test_doctor_reports_scaffold_ready(mock_repo_root: MagicMock, tmp_path, capsys) -> None:
+@patch("osk.hub.default_storage_manager")
+@patch("osk.hub.installation_issues", return_value=[])
+@patch("osk.hub.local_service_mode", return_value="compose-managed local services")
+def test_doctor_reports_scaffold_ready(
+    _: MagicMock,
+    __: MagicMock,
+    ___: MagicMock,
+    mock_repo_root: MagicMock,
+    tmp_path,
+    capsys,
+) -> None:
     root = tmp_path / "repo"
     (root / "src" / "osk").mkdir(parents=True)
     (root / "tests").mkdir(parents=True)
@@ -86,3 +96,31 @@ def test_doctor_reports_scaffold_ready(mock_repo_root: MagicMock, tmp_path, caps
     out = capsys.readouterr().out
     assert code == 0
     assert "Scaffold ready for Phase 1 implementation work." in out
+    assert "Install readiness: ok" in out
+
+
+@patch("osk.cli._repo_root")
+@patch("osk.hub.default_storage_manager")
+@patch("osk.hub.installation_issues", return_value=["missing TLS certificate"])
+@patch("osk.hub.local_service_mode", return_value="compose-managed local services")
+def test_doctor_reports_missing_install_assets(
+    _: MagicMock,
+    __: MagicMock,
+    ___: MagicMock,
+    mock_repo_root: MagicMock,
+    tmp_path,
+    capsys,
+) -> None:
+    root = tmp_path / "repo"
+    (root / "src" / "osk").mkdir(parents=True)
+    (root / "tests").mkdir(parents=True)
+    (root / "docs" / "specs").mkdir(parents=True)
+    (root / "docs" / "plans").mkdir(parents=True)
+    (root / "pyproject.toml").write_text("")
+    (root / "docs" / "specs" / "2026-03-21-osk-design.md").write_text("")
+    mock_repo_root.return_value = root
+    code = main(["doctor"])
+    out = capsys.readouterr().out
+    assert code == 1
+    assert "Install readiness: missing" in out
+    assert "missing TLS certificate" in out
