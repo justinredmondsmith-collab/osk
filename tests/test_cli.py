@@ -37,6 +37,27 @@ def test_parse_status_json() -> None:
     assert args.json_output is True
 
 
+def test_parse_operator_login() -> None:
+    args = parse_args(["operator", "login", "--ttl-minutes", "30", "--json"])
+    assert args.command == "operator"
+    assert args.operator_command == "login"
+    assert args.ttl_minutes == 30
+    assert args.json_output is True
+
+
+def test_parse_operator_status() -> None:
+    args = parse_args(["operator", "status", "--json"])
+    assert args.command == "operator"
+    assert args.operator_command == "status"
+    assert args.json_output is True
+
+
+def test_parse_operator_logout() -> None:
+    args = parse_args(["operator", "logout"])
+    assert args.command == "operator"
+    assert args.operator_command == "logout"
+
+
 def test_parse_install() -> None:
     args = parse_args(["install"])
     assert args.command == "install"
@@ -170,3 +191,28 @@ def test_status_command_invokes_hub_status_json(mock_status_hub: MagicMock) -> N
     code = main(["status", "--json"])
     assert code == 0
     mock_status_hub.assert_called_once_with(json_output=True)
+
+
+@patch("osk.hub.login_operator_session", return_value=0)
+def test_operator_login_command_invokes_hub_helper(mock_login_operator_session: MagicMock) -> None:
+    code = main(["operator", "login", "--ttl-minutes", "30", "--json"])
+    assert code == 0
+    mock_login_operator_session.assert_called_once_with(ttl_minutes=30, json_output=True)
+
+
+@patch("osk.hub.status_operator_session", return_value=0)
+def test_operator_status_command_invokes_hub_helper(
+    mock_status_operator_session: MagicMock,
+) -> None:
+    code = main(["operator", "status", "--json"])
+    assert code == 0
+    mock_status_operator_session.assert_called_once_with(json_output=True)
+
+
+@patch("osk.hub.logout_operator_session", return_value=0)
+def test_operator_logout_command_invokes_hub_helper(
+    mock_logout_operator_session: MagicMock,
+) -> None:
+    code = main(["operator", "logout"])
+    assert code == 0
+    mock_logout_operator_session.assert_called_once_with()

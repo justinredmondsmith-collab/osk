@@ -26,7 +26,9 @@ from osk.hub import (
     uses_local_dev_services,
     wait_for_database,
     watch_for_stop_request,
+    watch_member_heartbeats,
 )
+from osk.local_operator import create_operator_session, write_bootstrap_token
 
 
 def test_installation_issues_report_missing_assets(tmp_path: Path) -> None:
@@ -149,17 +151,20 @@ def test_ensure_hub_not_running_cleans_stale_state(tmp_path: Path) -> None:
     state_path = tmp_path / "hub-state.json"
     stop_path = tmp_path / "hub-stop-request.json"
     token_path = tmp_path / "coordinator-token.txt"
+    session_path = tmp_path / "operator-session.json"
     state_path.write_text('{"pid": 999999, "operation_name": "Old Op"}\n')
     stop_path.write_text('{"requested_at": 1}\n')
     token_path.write_text("secret\n")
+    session_path.write_text('{"token":"session"}\n')
     with (
         patch("osk.hub._config_root", return_value=tmp_path),
-        patch("osk.hub._state_root", return_value=tmp_path),
+        patch("osk.local_operator._state_root", return_value=tmp_path),
     ):
         ensure_hub_not_running()
     assert not state_path.exists()
     assert not stop_path.exists()
     assert not token_path.exists()
+    assert not session_path.exists()
 
 
 def test_ensure_hub_not_running_raises_for_live_pid(tmp_path: Path) -> None:
@@ -241,9 +246,14 @@ def test_stop_hub_falls_back_to_sigterm(
 
 def test_stop_hub_cleans_stale_state(tmp_path: Path) -> None:
     state_path = tmp_path / "hub-state.json"
+    token_path = tmp_path / "coordinator-token.txt"
+    session_path = tmp_path / "operator-session.json"
     state_path.write_text('{"pid": 4321, "operation_name": "March"}\n')
+    token_path.write_text("secret\n")
+    session_path.write_text('{"token":"session"}\n')
     with (
         patch("osk.hub._config_root", return_value=tmp_path),
+        patch("osk.local_operator._state_root", return_value=tmp_path),
         patch(
             "osk.hub._pid_is_running",
             return_value=False,
@@ -254,6 +264,8 @@ def test_stop_hub_cleans_stale_state(tmp_path: Path) -> None:
 
     assert code == 0
     assert not state_path.exists()
+    assert not token_path.exists()
+    assert not session_path.exists()
 
 
 def test_status_hub_reports_running(tmp_path: Path, capsys) -> None:
@@ -336,34 +348,64 @@ def test_status_hub_reports_not_running(tmp_path: Path, capsys) -> None:
 def test_hub_status_snapshot_json_payload(tmp_path: Path) -> None:
     state_path = tmp_path / "hub-state.json"
     stop_path = tmp_path / "hub-stop-request.json"
-    token_path = Path.home() / ".local" / "state" / "osk" / "coordinator-token.txt"
+    token_path = tmp_path / "coordinator-token.txt"
+    session_path = tmp_path / "operator-session.json"
     state_path.write_text(
         '{"pid": 4321, "operation_name": "March", "port": 8443, "started_at": 123}\n'
     )
     stop_path.write_text('{"requested_at": 1}\n')
     with (
         patch("osk.hub._config_root", return_value=tmp_path),
+        patch("osk.local_operator._state_root", return_value=tmp_path),
         patch(
             "osk.hub._pid_is_running",
             return_value=True,
         ),
     ):
+        write_bootstrap_token("bootstrap-token")
+        create_operator_session("op-123", 60)
         code, snapshot = hub_status_snapshot(now=130)
     assert code == 0
-    assert snapshot == {
-        "coordinator_token_path": str(token_path),
-        "message": "Osk hub is running.",
-        "operation_id": None,
-        "operation_name": "March",
-        "pid": 4321,
-        "port": 8443,
-        "started_at_iso": "1970-01-01T00:02:03Z",
-        "started_at_unix": 123,
-        "status": "running",
-        "stopping": True,
-        "uptime_human": "7s",
-        "uptime_seconds": 7,
-    }
+    assert snapshot["message"] == "Osk hub is running."
+    assert snapshot["operation_id"] is None
+    assert snapshot["operation_name"] == "March"
+    assert snapshot["operator_bootstrap_path"] == str(token_path)
+    assert snapshot["operator_session_active"] is True
+    assert snapshot["operator_session_expires_at"]
+    assert snapshot["operator_session_path"] == str(session_path)
+    assert snapshot["pid"] == 4321
+    assert snapshot["port"] == 8443
+    assert snapshot["started_at_iso"] == "1970-01-01T00:02:03Z"
+    assert snapshot["started_at_unix"] == 123
+    assert snapshot["status"] == "running"
+    assert snapshot["stopping"] is True
+    assert snapshot["uptime_human"] == "7s"
+    assert snapshot["uptime_seconds"] == 7
+
+
+async def test_watch_member_heartbeats_disconnects_stale_members() -> None:
+    op_manager = MagicMock()
+    op_manager.mark_disconnected = AsyncMock()
+    conn_manager = MagicMock()
+    stale_member_id = "member-1"
+    conn_manager.stale_member_ids.side_effect = [[stale_member_id], []]
+    conn_manager.disconnect = AsyncMock()
+
+    async def stop_after_first_sleep(_: float) -> None:
+        raise asyncio.CancelledError
+
+    with patch("osk.hub.asyncio.sleep", side_effect=stop_after_first_sleep):
+        with pytest.raises(asyncio.CancelledError):
+            await watch_member_heartbeats(
+                op_manager,
+                conn_manager,
+                timeout_seconds=45,
+                poll_seconds=1,
+            )
+
+    conn_manager.stale_member_ids.assert_called_once_with(45)
+    conn_manager.disconnect.assert_awaited_once_with(stale_member_id)
+    op_manager.mark_disconnected.assert_awaited_once_with(stale_member_id)
 
 
 async def test_watch_for_stop_request_sets_server_should_exit(tmp_path: Path) -> None:

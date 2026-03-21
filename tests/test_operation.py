@@ -25,6 +25,7 @@ async def test_add_member(op_manager: OperationManager) -> None:
     assert member.name == "Jay"
     assert member.role == MemberRole.OBSERVER
     assert member.reconnect_token
+    assert member.last_seen_at == member.connected_at
     assert member.id in op_manager.members
 
 
@@ -85,6 +86,17 @@ async def test_update_member_gps(op_manager: OperationManager) -> None:
     await op_manager.update_member_gps(member.id, 39.75, -104.99)
     assert op_manager.members[member.id].latitude == 39.75
     assert op_manager.members[member.id].longitude == -104.99
+    op_manager.db.update_member_heartbeat.assert_awaited_once()
+
+
+async def test_touch_member_heartbeat(op_manager: OperationManager) -> None:
+    op = await op_manager.create("Test Op")
+    member = await op_manager.add_member(op.id, "Jay")
+
+    await op_manager.touch_member_heartbeat(member.id)
+
+    assert op_manager.members[member.id].last_seen_at is not None
+    op_manager.db.update_member_heartbeat.assert_awaited_once()
 
 
 async def test_mark_member_disconnected(op_manager: OperationManager) -> None:
@@ -103,6 +115,7 @@ async def test_resume_member(op_manager: OperationManager) -> None:
 
     assert resumed.id == member.id
     assert resumed.status == MemberStatus.CONNECTED
+    assert resumed.last_seen_at == resumed.connected_at
     op_manager.db.mark_member_connected.assert_awaited_once()
 
 

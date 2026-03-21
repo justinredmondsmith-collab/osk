@@ -125,6 +125,24 @@ def _cmd_config(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_operator_login(args: argparse.Namespace) -> int:
+    from .hub import login_operator_session
+
+    return login_operator_session(ttl_minutes=args.ttl_minutes, json_output=args.json_output)
+
+
+def _cmd_operator_status(args: argparse.Namespace) -> int:
+    from .hub import status_operator_session
+
+    return status_operator_session(json_output=args.json_output)
+
+
+def _cmd_operator_logout(_: argparse.Namespace) -> int:
+    from .hub import logout_operator_session
+
+    return logout_operator_session()
+
+
 def _cmd_rotate_token(_: argparse.Namespace) -> int:
     print("Token rotation requires a running hub and is not wired through the CLI yet.")
     return 1
@@ -199,6 +217,38 @@ def build_parser() -> argparse.ArgumentParser:
         "--set", dest="set", help="Set a config value in the form key=value."
     )
     config_parser.set_defaults(func=_cmd_config)
+
+    operator_parser = subparsers.add_parser("operator", help="Manage local operator sessions.")
+    operator_sub = operator_parser.add_subparsers(dest="operator_command")
+
+    operator_login = operator_sub.add_parser(
+        "login", help="Create or refresh a local operator session."
+    )
+    operator_login.add_argument(
+        "--ttl-minutes",
+        type=int,
+        default=None,
+        help="Override the configured operator session TTL.",
+    )
+    operator_login.add_argument(
+        "--json",
+        dest="json_output",
+        action="store_true",
+        help="Emit machine-readable JSON output.",
+    )
+    operator_login.set_defaults(func=_cmd_operator_login)
+
+    operator_status = operator_sub.add_parser("status", help="Show local operator session status.")
+    operator_status.add_argument(
+        "--json",
+        dest="json_output",
+        action="store_true",
+        help="Emit machine-readable JSON output.",
+    )
+    operator_status.set_defaults(func=_cmd_operator_status)
+
+    operator_logout = operator_sub.add_parser("logout", help="Remove the local operator session.")
+    operator_logout.set_defaults(func=_cmd_operator_logout)
 
     rotate_parser = subparsers.add_parser("rotate-token", help="Rotate the operation token.")
     rotate_parser.set_defaults(func=_cmd_rotate_token)

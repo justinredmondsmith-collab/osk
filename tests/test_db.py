@@ -41,10 +41,11 @@ def mock_pool() -> MagicMock:
 
 async def test_migration_files_exist(db: Database) -> None:
     migrations = db._get_migration_files()
-    assert len(migrations) >= 3
+    assert len(migrations) >= 4
     assert migrations[0].name == "001_initial.sql"
     assert migrations[1].name == "002_operation_coordinator_token.sql"
     assert migrations[2].name == "003_members_reconnect_and_audit.sql"
+    assert migrations[3].name == "004_member_heartbeat.sql"
 
 
 async def test_insert_operation(db: Database, mock_pool: MagicMock) -> None:
@@ -97,15 +98,27 @@ async def test_mark_member_connected(db: Database, mock_pool: MagicMock) -> None
 
 async def test_insert_member(db: Database, mock_pool: MagicMock) -> None:
     db._pool = mock_pool
+    connected_at = datetime.fromisoformat("2026-03-21T00:00:00+00:00")
     await db.insert_member(
         uuid.uuid4(),
         uuid.uuid4(),
         "Jay",
         MemberRole.OBSERVER,
         "resume-token",
-        datetime.fromisoformat("2026-03-21T00:00:00+00:00"),
+        connected_at,
+        connected_at,
     )
     mock_pool.execute.assert_called_once()
+
+
+async def test_update_member_heartbeat(db: Database, mock_pool: MagicMock) -> None:
+    db._pool = mock_pool
+    await db.update_member_heartbeat(
+        uuid.uuid4(),
+        datetime.fromisoformat("2026-03-21T00:05:00+00:00"),
+    )
+    mock_pool.execute.assert_called_once()
+    assert "UPDATE members SET last_seen_at" in mock_pool.execute.call_args.args[0]
 
 
 async def test_update_member_gps(db: Database, mock_pool: MagicMock) -> None:

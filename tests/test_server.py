@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import uuid
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -89,6 +89,14 @@ def unauthenticated_client(app) -> TestClient:
     return TestClient(app)
 
 
+@pytest.fixture
+def session_client(app) -> TestClient:
+    return TestClient(
+        app,
+        headers={"X-Osk-Operator-Session": "operator-session-token"},
+    )
+
+
 def test_join_page_valid_token(client: TestClient, mock_op_manager: MagicMock) -> None:
     mock_op_manager.validate_token.return_value = True
     resp = client.get("/join?token=valid-token")
@@ -119,7 +127,22 @@ def test_operation_status_requires_coordinator_token(
 ) -> None:
     resp = unauthenticated_client.get("/api/operation/status")
     assert resp.status_code == 401
-    assert resp.json()["error"] == "Missing coordinator token"
+    assert resp.json()["error"] == "Missing operator credentials"
+
+
+@patch("osk.server.validate_operator_session", return_value=True)
+def test_operation_status_accepts_operator_session(
+    mock_validate_operator_session: MagicMock,
+    session_client: TestClient,
+    operation: Operation,
+) -> None:
+    resp = session_client.get("/api/operation/status")
+
+    assert resp.status_code == 200
+    mock_validate_operator_session.assert_called_once_with(
+        "operator-session-token",
+        str(operation.id),
+    )
 
 
 def test_list_members(client: TestClient) -> None:

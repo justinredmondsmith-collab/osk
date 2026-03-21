@@ -134,12 +134,14 @@ class Database:
         role: MemberRole,
         reconnect_token: str,
         connected_at: datetime,
+        last_seen_at: datetime,
     ) -> None:
         pool = self._require_pool()
         await pool.execute(
             (
-                "INSERT INTO members (id, operation_id, name, role, reconnect_token, connected_at) "
-                "VALUES ($1, $2, $3, $4, $5, $6)"
+                "INSERT INTO members "
+                "(id, operation_id, name, role, reconnect_token, connected_at, last_seen_at) "
+                "VALUES ($1, $2, $3, $4, $5, $6, $7)"
             ),
             member_id,
             operation_id,
@@ -147,6 +149,7 @@ class Database:
             role.value,
             reconnect_token,
             connected_at,
+            last_seen_at,
         )
 
     async def update_member_role(self, member_id: uuid.UUID, role: MemberRole) -> None:
@@ -168,8 +171,20 @@ class Database:
     async def mark_member_connected(self, member_id: uuid.UUID, connected_at: datetime) -> None:
         pool = self._require_pool()
         await pool.execute(
-            "UPDATE members SET status = 'connected', connected_at = $1 WHERE id = $2",
+            (
+                "UPDATE members "
+                "SET status = 'connected', connected_at = $1, last_seen_at = $1 "
+                "WHERE id = $2"
+            ),
             connected_at,
+            member_id,
+        )
+
+    async def update_member_heartbeat(self, member_id: uuid.UUID, last_seen_at: datetime) -> None:
+        pool = self._require_pool()
+        await pool.execute(
+            "UPDATE members SET last_seen_at = $1 WHERE id = $2",
+            last_seen_at,
             member_id,
         )
 

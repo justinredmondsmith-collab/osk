@@ -21,6 +21,16 @@ import uvicorn
 from osk.config import OskConfig, load_config, save_config
 from osk.connection_manager import ConnectionManager
 from osk.db import Database
+from osk.local_operator import (
+    bootstrap_token_path,
+    clear_bootstrap_token,
+    clear_operator_session,
+    create_operator_session,
+    operator_session_path,
+    read_bootstrap_token,
+    read_operator_session,
+    write_bootstrap_token,
+)
 from osk.operation import OperationManager
 from osk.qr import build_join_url, generate_qr_ascii, generate_qr_png
 from osk.server import create_app
@@ -43,10 +53,6 @@ def _config_root() -> Path:
 
 def _state_root() -> Path:
     return Path.home() / ".local" / "state" / "osk"
-
-
-def _coordinator_token_path() -> Path:
-    return _state_root() / "coordinator-token.txt"
 
 
 def default_storage_manager(config: OskConfig) -> StorageManager:
@@ -164,18 +170,6 @@ def _pid_is_running(pid: int) -> bool:
     return True
 
 
-def _write_coordinator_token(token: str) -> Path:
-    token_path = _coordinator_token_path()
-    token_path.parent.mkdir(parents=True, exist_ok=True)
-    token_path.write_text(token + "\n")
-    os.chmod(token_path, 0o600)
-    return token_path
-
-
-def _clear_coordinator_token() -> None:
-    _coordinator_token_path().unlink(missing_ok=True)
-
-
 def _write_hub_state(operation_id: str, operation_name: str, port: int) -> None:
     state_path = _hub_state_path()
     state_path.parent.mkdir(parents=True, exist_ok=True)
@@ -230,7 +224,8 @@ def ensure_hub_not_running() -> None:
     logger.warning("Removing stale hub state at %s", _hub_state_path())
     _clear_hub_state()
     _clear_stop_request()
-    _clear_coordinator_token()
+    clear_bootstrap_token()
+    clear_operator_session()
 
 
 def ensure_local_services(config: OskConfig) -> None:
@@ -289,6 +284,24 @@ async def watch_for_stop_request(server: uvicorn.Server, poll_seconds: float = 0
             logger.info("Received graceful hub shutdown request.")
             server.should_exit = True
             return
+        await asyncio.sleep(poll_seconds)
+
+
+async def watch_member_heartbeats(
+    op_manager: OperationManager,
+    conn_manager: ConnectionManager,
+    *,
+    timeout_seconds: float,
+    poll_seconds: float,
+) -> None:
+    while True:
+        for member_id in conn_manager.stale_member_ids(timeout_seconds):
+            logger.warning("Heartbeat timeout for member %s", member_id)
+            await conn_manager.disconnect(member_id)
+            try:
+                await op_manager.mark_disconnected(member_id)
+            except KeyError:
+                continue
         await asyncio.sleep(poll_seconds)
 
 
@@ -382,7 +395,11 @@ async def run_hub(name: str) -> None:
         join_url = build_join_url(config.join_host, config.hub_port, operation.token)
         qr_path = _config_root() / "join-qr.png"
         generate_qr_png(join_url, qr_path)
-        token_path = _write_coordinator_token(operation.coordinator_token)
+        bootstrap_path = write_bootstrap_token(operation.coordinator_token)
+        session = create_operator_session(
+            str(operation.id),
+            config.operator_session_ttl_minutes,
+        )
         _write_hub_state(str(operation.id), operation.name, config.hub_port)
 
         if resumed:
@@ -394,7 +411,9 @@ async def run_hub(name: str) -> None:
         print(f"Name: {operation.name}")
         print(f"Operation ID: {operation.id}")
         print(f"Join URL: {join_url}")
-        print(f"Coordinator token file: {token_path}")
+        print(f"Operator bootstrap file: {bootstrap_path}")
+        print(f"Operator session file: {operator_session_path()}")
+        print(f"Operator session expires: {session['expires_at']}")
         print(f"Service mode: {local_service_mode(config)}")
         print(f"Storage backend: {storage.backend}")
         print(generate_qr_ascii(join_url))
@@ -412,16 +431,26 @@ async def run_hub(name: str) -> None:
             )
         )
         stop_watcher = asyncio.create_task(watch_for_stop_request(server))
+        heartbeat_watcher = asyncio.create_task(
+            watch_member_heartbeats(
+                op_manager,
+                conn_manager,
+                timeout_seconds=config.member_heartbeat_timeout_seconds,
+                poll_seconds=config.member_heartbeat_check_interval_seconds,
+            )
+        )
         try:
             await server.serve()
         finally:
             stop_watcher.cancel()
-            await asyncio.gather(stop_watcher, return_exceptions=True)
+            heartbeat_watcher.cancel()
+            await asyncio.gather(stop_watcher, heartbeat_watcher, return_exceptions=True)
     finally:
         print("\nShutting down...")
         _clear_hub_state()
         _clear_stop_request()
-        _clear_coordinator_token()
+        clear_bootstrap_token()
+        clear_operator_session()
         await conn_manager.broadcast({"type": "op_ended"})
         if db_connected and op_manager is not None and op_manager.operation is not None:
             await op_manager.stop()
@@ -461,7 +490,8 @@ def stop_hub(wait_seconds: float = 10.0, *, stop_services: bool = False) -> int:
     if pid <= 0 or not _pid_is_running(pid):
         print("Found stale Osk hub state; cleaning it up.")
         _clear_hub_state()
-        _clear_coordinator_token()
+        clear_bootstrap_token()
+        clear_operator_session()
         if stop_services:
             stop_local_services(config)
         return 0
@@ -490,7 +520,8 @@ def stop_hub(wait_seconds: float = 10.0, *, stop_services: bool = False) -> int:
 
     _clear_hub_state()
     _clear_stop_request()
-    _clear_coordinator_token()
+    clear_bootstrap_token()
+    clear_operator_session()
     if stop_services:
         stop_local_services(config)
     print("Osk hub stopped.")
@@ -547,9 +578,10 @@ def hub_status_snapshot(now: float | None = None) -> tuple[int, dict[str, object
         uptime_human = _format_uptime(uptime_seconds)
 
     snapshot: dict[str, object] = {
-        "coordinator_token_path": str(_coordinator_token_path()),
+        "operator_bootstrap_path": str(bootstrap_token_path()),
         "operation_id": operation_id,
         "operation_name": operation_name,
+        "operator_session_path": str(operator_session_path()),
         "pid": pid,
         "port": port,
         "started_at_unix": started_at_unix,
@@ -558,6 +590,12 @@ def hub_status_snapshot(now: float | None = None) -> tuple[int, dict[str, object
         "uptime_human": uptime_human,
         "stopping": stopping,
     }
+    if session := read_operator_session():
+        snapshot["operator_session_active"] = True
+        snapshot["operator_session_expires_at"] = session.get("expires_at")
+    else:
+        snapshot["operator_session_active"] = False
+        snapshot["operator_session_expires_at"] = None
 
     if pid > 0 and _pid_is_running(pid):
         snapshot["status"] = "running"
@@ -599,7 +637,86 @@ def status_hub(*, json_output: bool = False) -> int:
 
     if note := snapshot.get("note"):
         print(f"note = {note}")
-    if token_path := snapshot.get("coordinator_token_path"):
-        print(f"coordinator_token_file = {token_path}")
+    if session_path := snapshot.get("operator_session_path"):
+        print(f"operator_session_file = {session_path}")
+    if session_expires_at := snapshot.get("operator_session_expires_at"):
+        print(f"operator_session_expires_at = {session_expires_at}")
+    if bootstrap_path := snapshot.get("operator_bootstrap_path"):
+        print(f"operator_bootstrap_file = {bootstrap_path}")
 
     return code
+
+
+def login_operator_session(*, ttl_minutes: int | None = None, json_output: bool = False) -> int:
+    config = load_config()
+    state = read_hub_state()
+    if state is None:
+        print("No running Osk hub state found.")
+        return 1
+
+    if read_bootstrap_token() is None:
+        print("Operator bootstrap token is not available for this hub instance.")
+        return 1
+
+    operation_id = str(state.get("operation_id", "")).strip()
+    if not operation_id:
+        print("Hub state is missing an operation id.")
+        return 1
+
+    session = create_operator_session(
+        operation_id,
+        ttl_minutes if ttl_minutes is not None else config.operator_session_ttl_minutes,
+    )
+    response = {
+        "operation_id": operation_id,
+        "operator_session_active": True,
+        "operator_session_path": str(operator_session_path()),
+        "operator_session_expires_at": session["expires_at"],
+    }
+    if json_output:
+        print(json.dumps(response, indent=2, sort_keys=True))
+        return 0
+
+    print("Created local operator session.")
+    print(f"operation_id = {response['operation_id']}")
+    print(f"operator_session_file = {response['operator_session_path']}")
+    print(f"operator_session_expires_at = {response['operator_session_expires_at']}")
+    return 0
+
+
+def status_operator_session(*, json_output: bool = False) -> int:
+    state = read_hub_state()
+    session = read_operator_session()
+    response = {
+        "hub_running": state is not None,
+        "operation_id": state.get("operation_id") if state else None,
+        "operator_bootstrap_available": read_bootstrap_token() is not None,
+        "operator_bootstrap_path": str(bootstrap_token_path()),
+        "operator_session_active": session is not None,
+        "operator_session_expires_at": session.get("expires_at") if session else None,
+        "operator_session_path": str(operator_session_path()),
+    }
+    code = 0 if session is not None else 1
+    if json_output:
+        print(json.dumps(response, indent=2, sort_keys=True))
+        return code
+
+    if session is None:
+        print("No active local operator session.")
+    else:
+        print("Local operator session is active.")
+    print(f"hub_running = {str(response['hub_running']).lower()}")
+    if response["operation_id"]:
+        print(f"operation_id = {response['operation_id']}")
+    print(f"operator_bootstrap_available = {str(response['operator_bootstrap_available']).lower()}")
+    print(f"operator_bootstrap_file = {response['operator_bootstrap_path']}")
+    print(f"operator_session_file = {response['operator_session_path']}")
+    if response["operator_session_expires_at"]:
+        print(f"operator_session_expires_at = {response['operator_session_expires_at']}")
+    return code
+
+
+def logout_operator_session() -> int:
+    clear_operator_session()
+    print("Local operator session removed.")
+    return 0

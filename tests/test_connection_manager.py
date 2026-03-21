@@ -106,3 +106,16 @@ def test_connected_count(conn_mgr: ConnectionManager) -> None:
     conn_mgr.register(uuid.uuid4(), MagicMock(), MemberRole.OBSERVER)
     conn_mgr.register(uuid.uuid4(), MagicMock(), MemberRole.SENSOR)
     assert conn_mgr.connected_count == 2
+
+
+def test_stale_member_ids(conn_mgr: ConnectionManager, mock_ws: MagicMock) -> None:
+    stale_id = uuid.uuid4()
+    fresh_id = uuid.uuid4()
+    conn_mgr.register(stale_id, mock_ws, MemberRole.OBSERVER)
+    conn_mgr.register(fresh_id, MagicMock(), MemberRole.SENSOR)
+    conn_mgr.mark_seen(stale_id, seen_at=10.0)
+    conn_mgr.mark_seen(fresh_id, seen_at=50.0)
+
+    stale = conn_mgr.stale_member_ids(15.0, now=60.0)
+
+    assert stale == [stale_id]

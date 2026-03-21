@@ -69,6 +69,7 @@ def mock_db() -> MagicMock:
     db.update_member_role = AsyncMock()
     db.update_member_status = AsyncMock()
     db.mark_member_connected = AsyncMock()
+    db.update_member_heartbeat = AsyncMock()
     db.update_member_gps = AsyncMock()
     db.insert_event = AsyncMock()
     db.insert_alert = AsyncMock()

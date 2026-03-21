@@ -124,6 +124,7 @@ class OperationManager:
             raise ValueError(f"Operation id mismatch: expected {operation.id}, got {operation_id}")
 
         member = Member(name=name, role=MemberRole.OBSERVER)
+        member.last_seen_at = member.connected_at
         self.members[member.id] = member
         await self.db.insert_member(
             member.id,
@@ -132,6 +133,7 @@ class OperationManager:
             member.role,
             member.reconnect_token,
             member.connected_at,
+            member.last_seen_at,
         )
         await self.db.insert_audit_event(
             operation_id,
@@ -162,6 +164,7 @@ class OperationManager:
         connected_at = datetime.now(timezone.utc)
         member.status = MemberStatus.CONNECTED
         member.connected_at = connected_at
+        member.last_seen_at = connected_at
         await self.db.mark_member_connected(member_id, connected_at)
         await self.db.insert_audit_event(
             operation.id,
@@ -209,7 +212,14 @@ class OperationManager:
         member.latitude = lat
         member.longitude = lon
         member.last_gps_at = datetime.now(timezone.utc)
+        member.last_seen_at = member.last_gps_at
+        await self.db.update_member_heartbeat(member_id, member.last_seen_at)
         await self.db.update_member_gps(member_id, lat, lon)
+
+    async def touch_member_heartbeat(self, member_id: uuid.UUID) -> None:
+        member = self._require_member(member_id)
+        member.last_seen_at = datetime.now(timezone.utc)
+        await self.db.update_member_heartbeat(member_id, member.last_seen_at)
 
     def get_sensor_count(self) -> int:
         return sum(

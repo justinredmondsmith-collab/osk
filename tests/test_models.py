@@ -34,6 +34,7 @@ def test_member_creation() -> None:
     assert member.role == MemberRole.OBSERVER
     assert member.status == MemberStatus.CONNECTED
     assert member.reconnect_token
+    assert member.last_seen_at is not None
 
 
 def test_member_role_values() -> None:

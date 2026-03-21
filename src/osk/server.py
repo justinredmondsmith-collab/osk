@@ -12,11 +12,13 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel
 
 from osk.connection_manager import ConnectionManager
+from osk.local_operator import validate_operator_session
 from osk.models import Event, EventCategory, EventSeverity, MemberRole, Pin
 from osk.operation import OperationManager
 
 logger = logging.getLogger(__name__)
 ADMIN_TOKEN_HEADER = "X-Osk-Coordinator-Token"
+OPERATOR_SESSION_HEADER = "X-Osk-Operator-Session"
 LOCAL_ADMIN_TEST_HOSTS = {"testclient", "localhost"}
 MAX_AUDIT_LIMIT = 200
 
@@ -30,8 +32,11 @@ class PinRequest(BaseModel):
     member_id: str
 
 
-def _extract_coordinator_token(request: Request) -> str | None:
+def _extract_admin_token(request: Request) -> str | None:
     if token := request.headers.get(ADMIN_TOKEN_HEADER):
+        return token.strip()
+
+    if token := request.headers.get(OPERATOR_SESSION_HEADER):
         return token.strip()
 
     authorization = request.headers.get("Authorization", "")
@@ -59,18 +64,20 @@ def _require_local_admin(request: Request, op_manager: OperationManager) -> JSON
         if operation is None:
             return None
 
-        token = _extract_coordinator_token(request)
+        token = _extract_admin_token(request)
         if token is None:
             return JSONResponse(
-                {"error": "Missing coordinator token"},
+                {"error": "Missing operator credentials"},
                 status_code=401,
                 headers={"WWW-Authenticate": "Bearer"},
             )
+        if validate_operator_session(token, str(operation.id)):
+            return None
         if op_manager.validate_coordinator_token(token):
             return None
 
-        logger.warning("Rejected admin request with invalid coordinator token from %s", client_host)
-        return JSONResponse({"error": "Invalid coordinator token"}, status_code=403)
+        logger.warning("Rejected admin request with invalid local credentials from %s", client_host)
+        return JSONResponse({"error": "Invalid operator credentials"}, status_code=403)
 
     logger.warning("Rejected non-local admin request from %s", client_host)
     return JSONResponse({"error": "Local coordinator access only"}, status_code=403)
@@ -346,6 +353,8 @@ def create_app(op_manager: OperationManager, conn_manager: ConnectionManager, db
                 message = await ws.receive()
                 if message.get("type") == "websocket.disconnect":
                     break
+                conn_manager.mark_seen(member_id)
+                await op_manager.touch_member_heartbeat(member_id)
                 if "text" in message:
                     data = json.loads(message["text"])
                     msg_type = data.get("type")

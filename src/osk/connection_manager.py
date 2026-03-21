@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import time
 import uuid
 
 from osk.models import EventSeverity, MemberRole
@@ -19,20 +20,45 @@ ALERT_THRESHOLDS: dict[MemberRole, int] = {
 class ConnectionManager:
     def __init__(self) -> None:
         self.connections: dict[uuid.UUID, object] = {}
+        self.last_seen_monotonic: dict[uuid.UUID, float] = {}
         self.roles: dict[uuid.UUID, MemberRole] = {}
 
     def register(self, member_id: uuid.UUID, websocket, role: MemberRole) -> None:
         self.connections[member_id] = websocket
+        self.mark_seen(member_id)
         self.roles[member_id] = role
         logger.info("Registered connection for %s (%s)", member_id, role.value)
 
     def unregister(self, member_id: uuid.UUID) -> None:
         self.connections.pop(member_id, None)
+        self.last_seen_monotonic.pop(member_id, None)
         self.roles.pop(member_id, None)
 
     def update_role(self, member_id: uuid.UUID, role: MemberRole) -> None:
         if member_id in self.connections:
             self.roles[member_id] = role
+
+    def mark_seen(self, member_id: uuid.UUID, seen_at: float | None = None) -> None:
+        if member_id in self.connections:
+            self.last_seen_monotonic[member_id] = (
+                seen_at if seen_at is not None else time.monotonic()
+            )
+
+    def stale_member_ids(
+        self,
+        timeout_seconds: float,
+        *,
+        now: float | None = None,
+    ) -> list[uuid.UUID]:
+        current_time = now if now is not None else time.monotonic()
+        stale: list[uuid.UUID] = []
+        for member_id in self.connections:
+            last_seen = self.last_seen_monotonic.get(member_id)
+            if last_seen is None:
+                continue
+            if current_time - last_seen >= timeout_seconds:
+                stale.append(member_id)
+        return stale
 
     @property
     def connected_count(self) -> int:

@@ -37,6 +37,8 @@ changes manually while the project is in its early public setup phase.
   persisted shutdown tracking for active operations
 - Member reconnect tokens, reconnect-aware WebSocket auth, and audit event
   storage plus local admin audit retrieval
+- Local operator sessions, CLI operator login/status/logout flows, member
+  heartbeat tracking, and stale-connection disconnect handling
 
 ### Changed
 

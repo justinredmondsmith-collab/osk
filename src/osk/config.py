@@ -25,6 +25,8 @@ class OskConfig(BaseModel):
     alert_cooldown_seconds: int = 60
     gps_interval_moving_seconds: int = 10
     gps_interval_stationary_seconds: int = 60
+    member_heartbeat_timeout_seconds: int = 45
+    member_heartbeat_check_interval_seconds: int = 15
     frame_change_threshold: float = 0.15
     frame_baseline_interval_seconds: int = 30
     frame_sampling_fps: float = 2.0
@@ -41,6 +43,7 @@ class OskConfig(BaseModel):
     database_url: str = "postgresql://osk:osk@localhost:5432/osk"
     ollama_base_url: str = "http://localhost:11434"
     auto_manage_local_services: bool = True
+    operator_session_ttl_minutes: int = 240
     storage_backend: Literal["luks", "directory"] = "luks"
 
 

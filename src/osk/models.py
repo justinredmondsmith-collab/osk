@@ -92,6 +92,7 @@ class Member(BaseModel):
     longitude: float | None = None
     last_gps_at: datetime | None = None
     connected_at: datetime = Field(default_factory=_utcnow)
+    last_seen_at: datetime = Field(default_factory=_utcnow)
 
 
 class Stream(BaseModel):
