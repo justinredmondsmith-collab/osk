@@ -17,6 +17,8 @@ changes manually while the project is in its early public setup phase.
 - Initial Python package scaffold, CLI skeleton, tests, and CI workflow
 - Phase 1 foundations: core models, config, database layer, storage manager,
   and initial migration SQL
+- Phase 1 operation and server slice: operation lifecycle, connection manager,
+  and initial FastAPI REST/WebSocket wiring
 
 ### Changed
 
