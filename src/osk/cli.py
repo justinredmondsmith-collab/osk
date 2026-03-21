@@ -94,7 +94,7 @@ def _cmd_start(args: argparse.Namespace) -> int:
 def _cmd_status(_: argparse.Namespace) -> int:
     from .hub import status_hub
 
-    return status_hub()
+    return status_hub(json_output=_.json_output)
 
 
 def _cmd_stop(args: argparse.Namespace) -> int:
@@ -170,6 +170,12 @@ def build_parser() -> argparse.ArgumentParser:
     start_parser.set_defaults(func=_cmd_start)
 
     status_parser = subparsers.add_parser("status", help="Report hub runtime status.")
+    status_parser.add_argument(
+        "--json",
+        dest="json_output",
+        action="store_true",
+        help="Emit machine-readable JSON status output.",
+    )
     status_parser.set_defaults(func=_cmd_status)
 
     stop_parser = subparsers.add_parser("stop", help="Stop the current operation.")

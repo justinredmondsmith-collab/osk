@@ -28,6 +28,13 @@ def test_parse_stop_with_options() -> None:
 def test_parse_status() -> None:
     args = parse_args(["status"])
     assert args.command == "status"
+    assert args.json_output is False
+
+
+def test_parse_status_json() -> None:
+    args = parse_args(["status", "--json"])
+    assert args.command == "status"
+    assert args.json_output is True
 
 
 def test_parse_install() -> None:
@@ -151,4 +158,11 @@ def test_stop_command_invokes_hub_stop(mock_stop_hub: MagicMock) -> None:
 def test_status_command_invokes_hub_status(mock_status_hub: MagicMock) -> None:
     code = main(["status"])
     assert code == 0
-    mock_status_hub.assert_called_once_with()
+    mock_status_hub.assert_called_once_with(json_output=False)
+
+
+@patch("osk.hub.status_hub", return_value=0)
+def test_status_command_invokes_hub_status_json(mock_status_hub: MagicMock) -> None:
+    code = main(["status", "--json"])
+    assert code == 0
+    mock_status_hub.assert_called_once_with(json_output=True)

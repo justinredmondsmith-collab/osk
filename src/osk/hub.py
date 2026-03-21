@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import datetime as dt
 import json
 import getpass
 import logging
@@ -459,33 +460,101 @@ def stop_hub(wait_seconds: float = 10.0, *, stop_services: bool = False) -> int:
     return 0
 
 
-def status_hub() -> int:
+def _format_timestamp(timestamp: object) -> tuple[int | None, str | None]:
+    if not isinstance(timestamp, (int, float)):
+        return None, None
+    dt_value = dt.datetime.fromtimestamp(float(timestamp), tz=dt.timezone.utc)
+    return int(timestamp), dt_value.isoformat(timespec="seconds").replace("+00:00", "Z")
+
+
+def _format_uptime(seconds: object) -> str | None:
+    if not isinstance(seconds, (int, float)):
+        return None
+
+    remaining = max(int(seconds), 0)
+    if remaining == 0:
+        return "0s"
+
+    parts: list[str] = []
+    for suffix, unit_seconds in (("d", 86400), ("h", 3600), ("m", 60), ("s", 1)):
+        value, remaining = divmod(remaining, unit_seconds)
+        if value:
+            parts.append(f"{value}{suffix}")
+    return " ".join(parts)
+
+
+def hub_status_snapshot(now: float | None = None) -> tuple[int, dict[str, object]]:
+    if now is None:
+        now = time.time()
+
     state = read_hub_state()
     if state is None:
         _clear_stop_request()
-        print("Osk hub is not running.")
-        return 1
+        return 1, {
+            "status": "stopped",
+            "message": "Osk hub is not running.",
+            "stopping": False,
+        }
 
     pid = int(state.get("pid", -1))
     operation_name = state.get("operation_name", "unknown")
     port = state.get("port", "unknown")
-    started_at = state.get("started_at", "unknown")
+    started_at = state.get("started_at")
     stopping = _shutdown_requested()
+    started_at_unix, started_at_iso = _format_timestamp(started_at)
+    uptime_seconds = None
+    uptime_human = None
+    if started_at_unix is not None:
+        uptime_seconds = max(int(now) - started_at_unix, 0)
+        uptime_human = _format_uptime(uptime_seconds)
+
+    snapshot: dict[str, object] = {
+        "operation_name": operation_name,
+        "pid": pid,
+        "port": port,
+        "started_at_unix": started_at_unix,
+        "started_at_iso": started_at_iso,
+        "uptime_seconds": uptime_seconds,
+        "uptime_human": uptime_human,
+        "stopping": stopping,
+    }
 
     if pid > 0 and _pid_is_running(pid):
-        print("Osk hub is running.")
-        print(f"operation = {operation_name}")
-        print(f"pid = {pid}")
-        print(f"port = {port}")
-        print(f"started_at = {started_at}")
-        print(f"stopping = {str(stopping).lower()}")
-        return 0
+        snapshot["status"] = "running"
+        snapshot["message"] = "Osk hub is running."
+        return 0, snapshot
 
-    print("Osk hub state is present but the recorded PID is not visible.")
-    print(f"operation = {operation_name}")
-    print(f"pid = {pid}")
-    print(f"port = {port}")
-    print(f"started_at = {started_at}")
-    print(f"stopping = {str(stopping).lower()}")
-    print("The state file was left in place so it can be inspected or stopped from the same host context.")
-    return 1
+    snapshot["status"] = "state_only"
+    snapshot["message"] = "Osk hub state is present but the recorded PID is not visible."
+    snapshot["note"] = (
+        "The state file was left in place so it can be inspected or stopped from the same host context."
+    )
+    return 1, snapshot
+
+
+def status_hub(*, json_output: bool = False) -> int:
+    code, snapshot = hub_status_snapshot()
+    if json_output:
+        print(json.dumps(snapshot, indent=2, sort_keys=True))
+        return code
+
+    print(snapshot["message"])
+    print(f"status = {snapshot['status']}")
+
+    if snapshot["status"] == "stopped":
+        return code
+
+    print(f"operation = {snapshot['operation_name']}")
+    print(f"pid = {snapshot['pid']}")
+    print(f"port = {snapshot['port']}")
+    started_at_iso = snapshot.get("started_at_iso") or "unknown"
+    print(f"started_at = {started_at_iso}")
+    uptime_human = snapshot.get("uptime_human")
+    if uptime_human is not None:
+        print(f"uptime = {uptime_human}")
+    print(f"stopping = {str(snapshot['stopping']).lower()}")
+
+    if note := snapshot.get("note"):
+        print(f"note = {note}")
+
+    return code

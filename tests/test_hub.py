@@ -20,6 +20,7 @@ from osk.hub import (
     local_service_mode,
     read_hub_state,
     run_hub_sync,
+    hub_status_snapshot,
     status_hub,
     stop_hub,
     uses_local_dev_services,
@@ -236,12 +237,15 @@ def test_status_hub_reports_running(tmp_path: Path, capsys) -> None:
     with patch("osk.hub._config_root", return_value=tmp_path), patch(
         "osk.hub._pid_is_running",
         return_value=True,
-    ):
+    ), patch("osk.hub.time.time", return_value=130):
         code = status_hub()
     out = capsys.readouterr().out
     assert code == 0
     assert "Osk hub is running." in out
+    assert "status = running" in out
     assert "operation = March" in out
+    assert "started_at = 1970-01-01T00:02:03Z" in out
+    assert "uptime = 7s" in out
     assert "stopping = false" in out
 
 
@@ -272,6 +276,7 @@ def test_status_hub_reports_unverifiable_state_without_cleanup(tmp_path: Path, c
         code = status_hub()
     out = capsys.readouterr().out
     assert code == 1
+    assert "status = state_only" in out
     assert "not visible" in out.lower()
     assert state_path.exists()
     assert stop_path.exists()
@@ -285,7 +290,33 @@ def test_status_hub_reports_not_running(tmp_path: Path, capsys) -> None:
     out = capsys.readouterr().out
     assert code == 1
     assert "not running" in out.lower()
+    assert "status = stopped" in out
     assert not stop_path.exists()
+
+
+def test_hub_status_snapshot_json_payload(tmp_path: Path) -> None:
+    state_path = tmp_path / "hub-state.json"
+    stop_path = tmp_path / "hub-stop-request.json"
+    state_path.write_text('{"pid": 4321, "operation_name": "March", "port": 8443, "started_at": 123}\n')
+    stop_path.write_text('{"requested_at": 1}\n')
+    with patch("osk.hub._config_root", return_value=tmp_path), patch(
+        "osk.hub._pid_is_running",
+        return_value=True,
+    ):
+        code, snapshot = hub_status_snapshot(now=130)
+    assert code == 0
+    assert snapshot == {
+        "message": "Osk hub is running.",
+        "operation_name": "March",
+        "pid": 4321,
+        "port": 8443,
+        "started_at_iso": "1970-01-01T00:02:03Z",
+        "started_at_unix": 123,
+        "status": "running",
+        "stopping": True,
+        "uptime_human": "7s",
+        "uptime_seconds": 7,
+    }
 
 
 async def test_watch_for_stop_request_sets_server_should_exit(tmp_path: Path) -> None:
