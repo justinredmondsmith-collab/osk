@@ -33,6 +33,8 @@ changes manually while the project is in its early public setup phase.
   requests before SIGTERM fallback, and clean `osk start` exit on remote stop
 - Status polish: human-readable uptime/UTC timestamps and machine-readable
   `osk status --json` output for agent workflows
+- Separate coordinator API auth token, operation resume on restart, and
+  persisted shutdown tracking for active operations
 
 ### Changed
 

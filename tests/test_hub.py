@@ -148,12 +148,18 @@ def test_read_hub_state_missing(tmp_path: Path) -> None:
 def test_ensure_hub_not_running_cleans_stale_state(tmp_path: Path) -> None:
     state_path = tmp_path / "hub-state.json"
     stop_path = tmp_path / "hub-stop-request.json"
+    token_path = tmp_path / "coordinator-token.txt"
     state_path.write_text('{"pid": 999999, "operation_name": "Old Op"}\n')
     stop_path.write_text('{"requested_at": 1}\n')
-    with patch("osk.hub._config_root", return_value=tmp_path):
+    token_path.write_text("secret\n")
+    with (
+        patch("osk.hub._config_root", return_value=tmp_path),
+        patch("osk.hub._state_root", return_value=tmp_path),
+    ):
         ensure_hub_not_running()
     assert not state_path.exists()
     assert not stop_path.exists()
+    assert not token_path.exists()
 
 
 def test_ensure_hub_not_running_raises_for_live_pid(tmp_path: Path) -> None:
@@ -330,6 +336,7 @@ def test_status_hub_reports_not_running(tmp_path: Path, capsys) -> None:
 def test_hub_status_snapshot_json_payload(tmp_path: Path) -> None:
     state_path = tmp_path / "hub-state.json"
     stop_path = tmp_path / "hub-stop-request.json"
+    token_path = Path.home() / ".local" / "state" / "osk" / "coordinator-token.txt"
     state_path.write_text(
         '{"pid": 4321, "operation_name": "March", "port": 8443, "started_at": 123}\n'
     )
@@ -344,7 +351,9 @@ def test_hub_status_snapshot_json_payload(tmp_path: Path) -> None:
         code, snapshot = hub_status_snapshot(now=130)
     assert code == 0
     assert snapshot == {
+        "coordinator_token_path": str(token_path),
         "message": "Osk hub is running.",
+        "operation_id": None,
         "operation_name": "March",
         "pid": 4321,
         "port": 8443,

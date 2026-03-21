@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from osk.models import MemberRole, MemberStatus
+from osk.models import Member, MemberRole, MemberStatus, Operation
 from osk.operation import OperationManager
 
 
@@ -15,6 +15,7 @@ async def test_create_operation(op_manager: OperationManager) -> None:
     op = await op_manager.create("Test Op")
     assert op.name == "Test Op"
     assert op.token is not None
+    assert op.coordinator_token is not None
     op_manager.db.insert_operation.assert_called_once()
 
 
@@ -63,6 +64,12 @@ async def test_validate_token(op_manager: OperationManager) -> None:
     assert op_manager.validate_token("wrong-token") is False
 
 
+async def test_validate_coordinator_token(op_manager: OperationManager) -> None:
+    op = await op_manager.create("Test Op")
+    assert op_manager.validate_coordinator_token(op.coordinator_token) is True
+    assert op_manager.validate_coordinator_token("wrong-token") is False
+
+
 async def test_get_sensor_count(op_manager: OperationManager) -> None:
     op = await op_manager.create("Test Op")
     await op_manager.add_member(op.id, "Jay")
@@ -84,3 +91,32 @@ async def test_mark_member_disconnected(op_manager: OperationManager) -> None:
     member = await op_manager.add_member(op.id, "Jay")
     await op_manager.mark_disconnected(member.id)
     assert op_manager.members[member.id].status == MemberStatus.DISCONNECTED
+
+
+async def test_resume_existing_operation(op_manager: OperationManager) -> None:
+    operation = Operation(name="Existing Op")
+    resumed_member = Member(name="Jay")
+    op_manager.db.get_active_operation.return_value = operation.model_dump()
+    op_manager.db.get_members.return_value = [resumed_member.model_dump(mode="json")]
+
+    resumed, did_resume = await op_manager.create_or_resume("New Requested Name")
+
+    assert did_resume is True
+    assert resumed.name == "Existing Op"
+    assert resumed_member.id in op_manager.members
+    op_manager.db.mark_members_disconnected.assert_awaited_once_with(operation.id)
+
+
+async def test_create_or_resume_creates_new_operation_when_none_active(
+    op_manager: OperationManager,
+) -> None:
+    created, did_resume = await op_manager.create_or_resume("Fresh Op")
+    assert did_resume is False
+    assert created.name == "Fresh Op"
+
+
+async def test_stop_operation(op_manager: OperationManager) -> None:
+    op = await op_manager.create("Test Op")
+    await op_manager.stop()
+    assert op.stopped_at is not None
+    op_manager.db.mark_operation_stopped.assert_awaited_once()

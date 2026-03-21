@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from datetime import datetime
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
@@ -40,15 +41,47 @@ def mock_pool() -> MagicMock:
 
 async def test_migration_files_exist(db: Database) -> None:
     migrations = db._get_migration_files()
-    assert len(migrations) > 0
+    assert len(migrations) >= 2
     assert migrations[0].name == "001_initial.sql"
+    assert migrations[1].name == "002_operation_coordinator_token.sql"
 
 
 async def test_insert_operation(db: Database, mock_pool: MagicMock) -> None:
     db._pool = mock_pool
-    await db.insert_operation(uuid.uuid4(), "Test Op", "token123")
+    await db.insert_operation(
+        uuid.uuid4(),
+        "Test Op",
+        "token123",
+        "coordinator123",
+        datetime.fromisoformat("2026-03-21T00:00:00+00:00"),
+    )
     mock_pool.execute.assert_called_once()
     assert "INSERT INTO operations" in mock_pool.execute.call_args[0][0]
+
+
+async def test_get_active_operation(db: Database, mock_pool: MagicMock) -> None:
+    db._pool = mock_pool
+    row = {"id": uuid.uuid4(), "name": "Active", "token": "join", "coordinator_token": "admin"}
+    mock_pool.fetchrow = AsyncMock(return_value=row)
+    result = await db.get_active_operation()
+    assert result == row
+
+
+async def test_mark_operation_stopped(db: Database, mock_pool: MagicMock) -> None:
+    db._pool = mock_pool
+    await db.mark_operation_stopped(
+        uuid.uuid4(),
+        datetime.fromisoformat("2026-03-21T01:00:00+00:00"),
+    )
+    mock_pool.execute.assert_called_once()
+    assert "UPDATE operations SET stopped_at" in mock_pool.execute.call_args.args[0]
+
+
+async def test_mark_members_disconnected(db: Database, mock_pool: MagicMock) -> None:
+    db._pool = mock_pool
+    await db.mark_members_disconnected(uuid.uuid4())
+    mock_pool.execute.assert_called_once()
+    assert "UPDATE members" in mock_pool.execute.call_args.args[0]
 
 
 async def test_insert_member(db: Database, mock_pool: MagicMock) -> None:

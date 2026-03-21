@@ -23,6 +23,7 @@ def test_operation_defaults() -> None:
     op = Operation(name="Test Op")
     assert op.name == "Test Op"
     assert op.token
+    assert op.coordinator_token
     assert op.started_at is not None
 
 
@@ -88,6 +89,7 @@ def test_operation_serialization() -> None:
     data = operation.model_dump()
     assert data["name"] == "Test"
     assert "token" in data
+    assert "coordinator_token" in data
 
 
 def test_event_serialization() -> None:

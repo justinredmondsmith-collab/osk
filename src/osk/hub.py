@@ -45,6 +45,10 @@ def _state_root() -> Path:
     return Path.home() / ".local" / "state" / "osk"
 
 
+def _coordinator_token_path() -> Path:
+    return _state_root() / "coordinator-token.txt"
+
+
 def default_storage_manager(config: OskConfig) -> StorageManager:
     state_root = _state_root()
     return StorageManager(
@@ -160,13 +164,26 @@ def _pid_is_running(pid: int) -> bool:
     return True
 
 
-def _write_hub_state(operation_name: str, port: int) -> None:
+def _write_coordinator_token(token: str) -> Path:
+    token_path = _coordinator_token_path()
+    token_path.parent.mkdir(parents=True, exist_ok=True)
+    token_path.write_text(token + "\n")
+    os.chmod(token_path, 0o600)
+    return token_path
+
+
+def _clear_coordinator_token() -> None:
+    _coordinator_token_path().unlink(missing_ok=True)
+
+
+def _write_hub_state(operation_id: str, operation_name: str, port: int) -> None:
     state_path = _hub_state_path()
     state_path.parent.mkdir(parents=True, exist_ok=True)
     state_path.write_text(
         json.dumps(
             {
                 "pid": os.getpid(),
+                "operation_id": operation_id,
                 "operation_name": operation_name,
                 "port": port,
                 "started_at": int(time.time()),
@@ -213,6 +230,7 @@ def ensure_hub_not_running() -> None:
     logger.warning("Removing stale hub state at %s", _hub_state_path())
     _clear_hub_state()
     _clear_stop_request()
+    _clear_coordinator_token()
 
 
 def ensure_local_services(config: OskConfig) -> None:
@@ -340,8 +358,10 @@ async def run_hub(name: str) -> None:
         passphrase = getpass.getpass("Operation passphrase: ")
     mounted_tmpfs = False
     luks_open = False
+    db_connected = False
     db = Database()
     conn_manager = ConnectionManager()
+    op_manager: OperationManager | None = None
 
     try:
         print("Mounting ephemeral storage...")
@@ -354,18 +374,27 @@ async def run_hub(name: str) -> None:
 
         print("Connecting to database...")
         await db.connect(config.database_url)
+        db_connected = True
 
         op_manager = OperationManager(db=db)
-        operation = await op_manager.create(name)
+        operation, resumed = await op_manager.create_or_resume(name)
 
         join_url = build_join_url(config.join_host, config.hub_port, operation.token)
         qr_path = _config_root() / "join-qr.png"
         generate_qr_png(join_url, qr_path)
-        _write_hub_state(name, config.hub_port)
+        token_path = _write_coordinator_token(operation.coordinator_token)
+        _write_hub_state(str(operation.id), operation.name, config.hub_port)
 
-        print("\nOperation started.")
-        print(f"Name: {name}")
+        if resumed:
+            print("\nOperation resumed.")
+            if name != operation.name:
+                print(f'Requested name "{name}" ignored; resuming "{operation.name}".')
+        else:
+            print("\nOperation started.")
+        print(f"Name: {operation.name}")
+        print(f"Operation ID: {operation.id}")
         print(f"Join URL: {join_url}")
+        print(f"Coordinator token file: {token_path}")
         print(f"Service mode: {local_service_mode(config)}")
         print(f"Storage backend: {storage.backend}")
         print(generate_qr_ascii(join_url))
@@ -392,7 +421,10 @@ async def run_hub(name: str) -> None:
         print("\nShutting down...")
         _clear_hub_state()
         _clear_stop_request()
+        _clear_coordinator_token()
         await conn_manager.broadcast({"type": "op_ended"})
+        if db_connected and op_manager is not None and op_manager.operation is not None:
+            await op_manager.stop()
         await db.close()
         if luks_open:
             storage.revoke_keyring()
@@ -429,6 +461,7 @@ def stop_hub(wait_seconds: float = 10.0, *, stop_services: bool = False) -> int:
     if pid <= 0 or not _pid_is_running(pid):
         print("Found stale Osk hub state; cleaning it up.")
         _clear_hub_state()
+        _clear_coordinator_token()
         if stop_services:
             stop_local_services(config)
         return 0
@@ -457,6 +490,7 @@ def stop_hub(wait_seconds: float = 10.0, *, stop_services: bool = False) -> int:
 
     _clear_hub_state()
     _clear_stop_request()
+    _clear_coordinator_token()
     if stop_services:
         stop_local_services(config)
     print("Osk hub stopped.")
@@ -501,6 +535,7 @@ def hub_status_snapshot(now: float | None = None) -> tuple[int, dict[str, object
 
     pid = int(state.get("pid", -1))
     operation_name = state.get("operation_name", "unknown")
+    operation_id = state.get("operation_id")
     port = state.get("port", "unknown")
     started_at = state.get("started_at")
     stopping = _shutdown_requested()
@@ -512,6 +547,8 @@ def hub_status_snapshot(now: float | None = None) -> tuple[int, dict[str, object
         uptime_human = _format_uptime(uptime_seconds)
 
     snapshot: dict[str, object] = {
+        "coordinator_token_path": str(_coordinator_token_path()),
+        "operation_id": operation_id,
         "operation_name": operation_name,
         "pid": pid,
         "port": port,
@@ -549,6 +586,8 @@ def status_hub(*, json_output: bool = False) -> int:
         return code
 
     print(f"operation = {snapshot['operation_name']}")
+    if operation_id := snapshot.get("operation_id"):
+        print(f"operation_id = {operation_id}")
     print(f"pid = {snapshot['pid']}")
     print(f"port = {snapshot['port']}")
     started_at_iso = snapshot.get("started_at_iso") or "unknown"
@@ -560,5 +599,7 @@ def status_hub(*, json_output: bool = False) -> int:
 
     if note := snapshot.get("note"):
         print(f"note = {note}")
+    if token_path := snapshot.get("coordinator_token_path"):
+        print(f"coordinator_token_file = {token_path}")
 
     return code

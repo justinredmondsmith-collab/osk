@@ -65,13 +65,25 @@ class Database:
                     )
             logger.info("Applied migration: %s", migration_file.name)
 
-    async def insert_operation(self, op_id: uuid.UUID, name: str, token: str) -> None:
+    async def insert_operation(
+        self,
+        op_id: uuid.UUID,
+        name: str,
+        token: str,
+        coordinator_token: str,
+        started_at: datetime,
+    ) -> None:
         pool = self._require_pool()
         await pool.execute(
-            "INSERT INTO operations (id, name, token) VALUES ($1, $2, $3)",
+            (
+                "INSERT INTO operations (id, name, token, coordinator_token, started_at) "
+                "VALUES ($1, $2, $3, $4, $5)"
+            ),
             op_id,
             name,
             token,
+            coordinator_token,
+            started_at,
         )
 
     async def update_operation_token(self, op_id: uuid.UUID, new_token: str) -> None:
@@ -85,6 +97,34 @@ class Database:
     async def get_operation_token(self, op_id: uuid.UUID) -> str | None:
         pool = self._require_pool()
         return await pool.fetchval("SELECT token FROM operations WHERE id = $1", op_id)
+
+    async def get_active_operation(self) -> dict | None:
+        pool = self._require_pool()
+        row = await pool.fetchrow(
+            """SELECT id, name, token, coordinator_token, started_at, stopped_at
+               FROM operations
+               WHERE stopped_at IS NULL
+               ORDER BY started_at DESC
+               LIMIT 1"""
+        )
+        return dict(row) if row else None
+
+    async def mark_operation_stopped(self, op_id: uuid.UUID, stopped_at: datetime) -> None:
+        pool = self._require_pool()
+        await pool.execute(
+            "UPDATE operations SET stopped_at = $1 WHERE id = $2",
+            stopped_at,
+            op_id,
+        )
+
+    async def mark_members_disconnected(self, operation_id: uuid.UUID) -> None:
+        pool = self._require_pool()
+        await pool.execute(
+            """UPDATE members
+               SET status = 'disconnected'
+               WHERE operation_id = $1 AND status = 'connected'""",
+            operation_id,
+        )
 
     async def insert_member(
         self,

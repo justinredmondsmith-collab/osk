@@ -23,6 +23,9 @@ def mock_op_manager(operation: Operation) -> MagicMock:
     mgr = MagicMock()
     mgr.operation = operation
     mgr.validate_token = MagicMock(return_value=True)
+    mgr.validate_coordinator_token = MagicMock(
+        side_effect=lambda token: token == operation.coordinator_token
+    )
     mgr.add_member = AsyncMock(
         return_value=MagicMock(
             id=member_id,
@@ -58,17 +61,31 @@ def mock_conn_mgr() -> MagicMock:
 
 @pytest.fixture
 def app(mock_op_manager: MagicMock, mock_conn_mgr: MagicMock, mock_db: MagicMock):
-    return create_app(op_manager=mock_op_manager, conn_manager=mock_conn_mgr, db=mock_db)
+    app = create_app(op_manager=mock_op_manager, conn_manager=mock_conn_mgr, db=mock_db)
+    app.state.mock_operation = mock_op_manager.operation
+    return app
 
 
 @pytest.fixture
 def client(app) -> TestClient:
-    return TestClient(app)
+    return TestClient(
+        app,
+        headers={"X-Osk-Coordinator-Token": app.state.mock_operation.coordinator_token},
+    )
 
 
 @pytest.fixture
 def remote_client(app) -> TestClient:
-    return TestClient(app, client=("10.8.0.15", 50000))
+    return TestClient(
+        app,
+        client=("10.8.0.15", 50000),
+        headers={"X-Osk-Coordinator-Token": app.state.mock_operation.coordinator_token},
+    )
+
+
+@pytest.fixture
+def unauthenticated_client(app) -> TestClient:
+    return TestClient(app)
 
 
 def test_join_page_valid_token(client: TestClient, mock_op_manager: MagicMock) -> None:
@@ -94,6 +111,14 @@ def test_operation_status_rejects_remote_client(remote_client: TestClient) -> No
     resp = remote_client.get("/api/operation/status")
     assert resp.status_code == 403
     assert resp.json()["error"] == "Local coordinator access only"
+
+
+def test_operation_status_requires_coordinator_token(
+    unauthenticated_client: TestClient,
+) -> None:
+    resp = unauthenticated_client.get("/api/operation/status")
+    assert resp.status_code == 401
+    assert resp.json()["error"] == "Missing coordinator token"
 
 
 def test_list_members(client: TestClient) -> None:

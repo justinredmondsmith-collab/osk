@@ -16,6 +16,7 @@ from osk.models import Event, EventCategory, EventSeverity, MemberRole, Pin
 from osk.operation import OperationManager
 
 logger = logging.getLogger(__name__)
+ADMIN_TOKEN_HEADER = "X-Osk-Coordinator-Token"
 LOCAL_ADMIN_TEST_HOSTS = {"testclient", "localhost"}
 
 
@@ -26,6 +27,17 @@ class ReportRequest(BaseModel):
 
 class PinRequest(BaseModel):
     member_id: str
+
+
+def _extract_coordinator_token(request: Request) -> str | None:
+    if token := request.headers.get(ADMIN_TOKEN_HEADER):
+        return token.strip()
+
+    authorization = request.headers.get("Authorization", "")
+    scheme, _, token = authorization.partition(" ")
+    if scheme.lower() == "bearer" and token.strip():
+        return token.strip()
+    return None
 
 
 def _is_loopback_host(host: str | None) -> bool:
@@ -39,10 +51,25 @@ def _is_loopback_host(host: str | None) -> bool:
         return False
 
 
-def _require_local_admin(request: Request) -> JSONResponse | None:
+def _require_local_admin(request: Request, op_manager: OperationManager) -> JSONResponse | None:
     client_host = request.client.host if request.client else None
     if _is_loopback_host(client_host):
-        return None
+        operation = op_manager.operation
+        if operation is None:
+            return None
+
+        token = _extract_coordinator_token(request)
+        if token is None:
+            return JSONResponse(
+                {"error": "Missing coordinator token"},
+                status_code=401,
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        if op_manager.validate_coordinator_token(token):
+            return None
+
+        logger.warning("Rejected admin request with invalid coordinator token from %s", client_host)
+        return JSONResponse({"error": "Invalid coordinator token"}, status_code=403)
 
     logger.warning("Rejected non-local admin request from %s", client_host)
     return JSONResponse({"error": "Local coordinator access only"}, status_code=403)
@@ -68,7 +95,7 @@ def create_app(op_manager: OperationManager, conn_manager: ConnectionManager, db
 
     @app.get("/api/operation/status")
     async def operation_status(request: Request):
-        if response := _require_local_admin(request):
+        if response := _require_local_admin(request, op_manager):
             return response
         operation = op_manager.operation
         if operation is None:
@@ -84,14 +111,18 @@ def create_app(op_manager: OperationManager, conn_manager: ConnectionManager, db
 
     @app.get("/api/members")
     async def list_members(request: Request):
-        if response := _require_local_admin(request):
+        if response := _require_local_admin(request, op_manager):
             return response
+        if op_manager.operation is None:
+            return JSONResponse({"error": "No active operation"}, status_code=503)
         return op_manager.get_member_list()
 
     @app.post("/api/members/{member_id}/promote")
     async def promote_member(member_id: uuid.UUID, request: Request):
-        if response := _require_local_admin(request):
+        if response := _require_local_admin(request, op_manager):
             return response
+        if op_manager.operation is None:
+            return JSONResponse({"error": "No active operation"}, status_code=503)
         if member_id not in op_manager.members:
             return JSONResponse({"error": "Member not found"}, status_code=404)
         await op_manager.promote_member(member_id)
@@ -104,8 +135,10 @@ def create_app(op_manager: OperationManager, conn_manager: ConnectionManager, db
 
     @app.post("/api/members/{member_id}/demote")
     async def demote_member(member_id: uuid.UUID, request: Request):
-        if response := _require_local_admin(request):
+        if response := _require_local_admin(request, op_manager):
             return response
+        if op_manager.operation is None:
+            return JSONResponse({"error": "No active operation"}, status_code=503)
         if member_id not in op_manager.members:
             return JSONResponse({"error": "Member not found"}, status_code=404)
         await op_manager.demote_member(member_id)
@@ -118,8 +151,10 @@ def create_app(op_manager: OperationManager, conn_manager: ConnectionManager, db
 
     @app.post("/api/members/{member_id}/kick")
     async def kick_member(member_id: uuid.UUID, request: Request):
-        if response := _require_local_admin(request):
+        if response := _require_local_admin(request, op_manager):
             return response
+        if op_manager.operation is None:
+            return JSONResponse({"error": "No active operation"}, status_code=503)
         if member_id not in op_manager.members:
             return JSONResponse({"error": "Member not found"}, status_code=404)
         await op_manager.kick_member(member_id)
@@ -128,7 +163,7 @@ def create_app(op_manager: OperationManager, conn_manager: ConnectionManager, db
 
     @app.post("/api/rotate-token")
     async def rotate_token(request: Request):
-        if response := _require_local_admin(request):
+        if response := _require_local_admin(request, op_manager):
             return response
         operation = op_manager.operation
         if operation is None:
@@ -138,15 +173,17 @@ def create_app(op_manager: OperationManager, conn_manager: ConnectionManager, db
 
     @app.post("/api/pin/{event_id}")
     async def pin_event(event_id: uuid.UUID, req: PinRequest, request: Request):
-        if response := _require_local_admin(request):
+        if response := _require_local_admin(request, op_manager):
             return response
+        if op_manager.operation is None:
+            return JSONResponse({"error": "No active operation"}, status_code=503)
         pin = Pin(event_id=event_id, pinned_by=uuid.UUID(req.member_id))
         await db.insert_pin(pin.id, pin.event_id, pin.pinned_by)
         return {"status": "pinned", "pin_id": str(pin.id)}
 
     @app.post("/api/report")
     async def submit_report(req: ReportRequest, request: Request):
-        if response := _require_local_admin(request):
+        if response := _require_local_admin(request, op_manager):
             return response
         operation = op_manager.operation
         if operation is None:
@@ -171,14 +208,16 @@ def create_app(op_manager: OperationManager, conn_manager: ConnectionManager, db
 
     @app.post("/api/wipe")
     async def trigger_wipe(request: Request):
-        if response := _require_local_admin(request):
+        if response := _require_local_admin(request, op_manager):
             return response
+        if op_manager.operation is None:
+            return JSONResponse({"error": "No active operation"}, status_code=503)
         await conn_manager.broadcast({"type": "wipe"})
         return {"status": "wipe_initiated"}
 
     @app.get("/api/events")
     async def get_events(request: Request, since: str = "1970-01-01T00:00:00Z"):
-        if response := _require_local_admin(request):
+        if response := _require_local_admin(request, op_manager):
             return response
         operation = op_manager.operation
         if operation is None:
@@ -187,7 +226,7 @@ def create_app(op_manager: OperationManager, conn_manager: ConnectionManager, db
 
     @app.get("/api/sitrep/latest")
     async def get_latest_sitrep(request: Request):
-        if response := _require_local_admin(request):
+        if response := _require_local_admin(request, op_manager):
             return response
         operation = op_manager.operation
         if operation is None:

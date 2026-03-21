@@ -76,6 +76,7 @@ class Operation(BaseModel):
     id: uuid.UUID = Field(default_factory=_new_id)
     name: str
     token: str = Field(default_factory=_new_token)
+    coordinator_token: str = Field(default_factory=_new_token)
     started_at: datetime = Field(default_factory=_utcnow)
     stopped_at: datetime | None = None
 

@@ -36,15 +36,47 @@ class OperationManager:
             self.operation.id,
             self.operation.name,
             self.operation.token,
+            self.operation.coordinator_token,
+            self.operation.started_at,
         )
         logger.info("Created operation %s (%s)", self.operation.name, self.operation.id)
         return self.operation
+
+    async def create_or_resume(self, requested_name: str) -> tuple[Operation, bool]:
+        active_operation = await self.db.get_active_operation()
+        if active_operation is None:
+            return await self.create(requested_name), False
+
+        self.operation = Operation.model_validate(active_operation)
+        await self.db.mark_members_disconnected(self.operation.id)
+        self.members.clear()
+
+        for row in await self.db.get_members(self.operation.id):
+            member_data = dict(row)
+            if member_data.get("status") == MemberStatus.CONNECTED.value:
+                member_data["status"] = MemberStatus.DISCONNECTED.value
+            member = Member.model_validate(member_data)
+            self.members[member.id] = member
+
+        logger.info(
+            "Resumed operation %s (%s); requested start name was %r",
+            self.operation.name,
+            self.operation.id,
+            requested_name,
+        )
+        return self.operation, True
 
     def validate_token(self, token: str) -> bool:
         operation = self.operation
         if operation is None:
             return False
         return secrets.compare_digest(operation.token, token)
+
+    def validate_coordinator_token(self, token: str) -> bool:
+        operation = self.operation
+        if operation is None:
+            return False
+        return secrets.compare_digest(operation.coordinator_token, token)
 
     async def rotate_token(self, op_id: uuid.UUID) -> str:
         operation = self._require_operation()
@@ -56,6 +88,16 @@ class OperationManager:
         await self.db.update_operation_token(op_id, new_token)
         logger.info("Rotated token for operation %s", op_id)
         return new_token
+
+    async def stop(self) -> None:
+        operation = self._require_operation()
+        if operation.stopped_at is not None:
+            return
+
+        stopped_at = datetime.now(timezone.utc)
+        operation.stopped_at = stopped_at
+        await self.db.mark_operation_stopped(operation.id, stopped_at)
+        logger.info("Marked operation %s as stopped", operation.id)
 
     async def add_member(self, operation_id: uuid.UUID, name: str) -> Member:
         operation = self._require_operation()
