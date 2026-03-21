@@ -24,6 +24,9 @@ changes manually while the project is in its early public setup phase.
 - Phase 1 startup hardening: install readiness checks, tracked database
   migrations, and optional Docker Compose management for default local
   services
+- Development-friendly host control: directory-backed storage mode, `osk stop`,
+  hub state tracking, and configurable local Postgres port mapping for smoke
+  runs on busy machines
 
 ### Changed
 

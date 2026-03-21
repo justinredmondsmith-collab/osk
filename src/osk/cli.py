@@ -91,9 +91,10 @@ def _cmd_start(args: argparse.Namespace) -> int:
     return run_hub_sync(args.name)
 
 
-def _cmd_stop(_: argparse.Namespace) -> int:
-    print("Stop is not implemented yet. Stop the running hub process directly for now.")
-    return 1
+def _cmd_stop(args: argparse.Namespace) -> int:
+    from .hub import stop_hub
+
+    return stop_hub(wait_seconds=args.timeout, stop_services=args.services)
 
 
 def _cmd_config(args: argparse.Namespace) -> int:
@@ -163,6 +164,17 @@ def build_parser() -> argparse.ArgumentParser:
     start_parser.set_defaults(func=_cmd_start)
 
     stop_parser = subparsers.add_parser("stop", help="Stop the current operation.")
+    stop_parser.add_argument(
+        "--services",
+        action="store_true",
+        help="Also stop local Compose-managed services used by the current phase.",
+    )
+    stop_parser.add_argument(
+        "--timeout",
+        type=float,
+        default=10.0,
+        help="Seconds to wait for the hub process to exit cleanly.",
+    )
     stop_parser.set_defaults(func=_cmd_stop)
 
     config_parser = subparsers.add_parser("config", help="View or set configuration.")

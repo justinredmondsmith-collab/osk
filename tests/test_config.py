@@ -15,6 +15,7 @@ def test_default_config() -> None:
     assert cfg.observer_clip_rate_limit == 3
     assert cfg.luks_volume_size_gb == 1
     assert cfg.hotspot_band == "5GHz"
+    assert cfg.storage_backend == "luks"
 
 
 def test_load_missing_config(tmp_path: Path) -> None:

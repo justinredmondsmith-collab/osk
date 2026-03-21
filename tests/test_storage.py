@@ -23,6 +23,7 @@ def storage(tmp_path: Path) -> StorageManager:
 def test_storage_init(storage: StorageManager) -> None:
     assert storage.tmpfs_path is not None
     assert storage.luks_image_path is not None
+    assert storage.backend == "luks"
 
 
 @patch("osk.storage.subprocess")
@@ -86,3 +87,28 @@ def test_revoke_keyring(mock_subprocess: MagicMock, storage: StorageManager) -> 
     cmd = mock_subprocess.run.call_args[0][0]
     assert "keyctl" in cmd
     assert "revoke" in cmd
+
+
+@pytest.fixture
+def directory_storage(tmp_path: Path) -> StorageManager:
+    return StorageManager(
+        tmpfs_path=tmp_path / "runtime",
+        luks_image_path=tmp_path / "unused.luks",
+        luks_mount_path=tmp_path / "evidence",
+        backend="directory",
+    )
+
+
+@patch("osk.storage.subprocess")
+def test_directory_backend_skips_privileged_commands(
+    mock_subprocess: MagicMock,
+    directory_storage: StorageManager,
+) -> None:
+    directory_storage.mount_tmpfs()
+    directory_storage.create_luks_volume("")
+    directory_storage.open_luks("")
+    directory_storage.close_luks()
+    directory_storage.revoke_keyring()
+    directory_storage.unmount_tmpfs()
+    assert mock_subprocess.run.call_count == 0
+    assert directory_storage.luks_mount_path.exists()

@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import subprocess
 from pathlib import Path
+from typing import Literal
 
 
 logger = logging.getLogger(__name__)
@@ -19,15 +20,20 @@ class StorageManager:
         luks_image_path: Path,
         luks_mount_path: Path,
         luks_size_gb: int = 1,
+        backend: Literal["luks", "directory"] = "luks",
     ) -> None:
         self.tmpfs_path = tmpfs_path
         self.luks_image_path = luks_image_path
         self.luks_mount_path = luks_mount_path
         self.luks_size_gb = luks_size_gb
+        self.backend = backend
         self._keyring_id: str | None = None
 
     def mount_tmpfs(self) -> None:
         self.tmpfs_path.mkdir(parents=True, exist_ok=True)
+        if self.backend == "directory":
+            logger.warning("Using directory-backed runtime storage at %s", self.tmpfs_path)
+            return
         subprocess.run(
             ["sudo", "mount", "-t", "tmpfs", "-o", "size=512M", "tmpfs", str(self.tmpfs_path)],
             check=True,
@@ -35,10 +41,17 @@ class StorageManager:
         logger.info("Mounted tmpfs at %s", self.tmpfs_path)
 
     def unmount_tmpfs(self) -> None:
+        if self.backend == "directory":
+            logger.info("Directory-backed runtime storage does not require tmpfs unmount.")
+            return
         subprocess.run(["sudo", "umount", str(self.tmpfs_path)], check=True)
         logger.info("Unmounted tmpfs at %s", self.tmpfs_path)
 
     def create_luks_volume(self, passphrase: str) -> None:
+        if self.backend == "directory":
+            self.luks_mount_path.mkdir(parents=True, exist_ok=True)
+            logger.warning("Using directory-backed evidence storage at %s", self.luks_mount_path)
+            return
         if self.luks_image_path.exists():
             logger.info("LUKS volume already exists at %s", self.luks_image_path)
             return
@@ -61,6 +74,10 @@ class StorageManager:
         logger.info("Created LUKS volume at %s", self.luks_image_path)
 
     def open_luks(self, passphrase: str) -> None:
+        if self.backend == "directory":
+            self.luks_mount_path.mkdir(parents=True, exist_ok=True)
+            logger.info("Opened directory-backed evidence storage at %s", self.luks_mount_path)
+            return
         subprocess.run(
             ["sudo", "cryptsetup", "open", str(self.luks_image_path), LUKS_MAPPER_NAME, "--type", "luks"],
             input=passphrase.encode(),
@@ -75,11 +92,17 @@ class StorageManager:
         logger.info("Opened LUKS volume at %s", self.luks_mount_path)
 
     def close_luks(self) -> None:
+        if self.backend == "directory":
+            logger.info("Directory-backed evidence storage does not require close.")
+            return
         subprocess.run(["sudo", "umount", str(self.luks_mount_path)], check=False)
         subprocess.run(["sudo", "cryptsetup", "close", LUKS_MAPPER_NAME], check=False)
         logger.info("Closed LUKS volume")
 
     def store_passphrase_in_keyring(self, passphrase: str) -> None:
+        if self.backend == "directory":
+            logger.info("Directory-backed storage does not persist a passphrase in kernel keyring.")
+            return
         result = subprocess.run(
             ["keyctl", "add", "user", "osk-passphrase", passphrase, "@s"],
             capture_output=True,
@@ -90,6 +113,10 @@ class StorageManager:
         logger.info("Stored passphrase in kernel keyring")
 
     def revoke_keyring(self) -> None:
+        if self.backend == "directory":
+            self._keyring_id = None
+            logger.info("Directory-backed storage does not require keyring revocation.")
+            return
         if self._keyring_id:
             subprocess.run(["keyctl", "revoke", self._keyring_id], check=False)
             self._keyring_id = None

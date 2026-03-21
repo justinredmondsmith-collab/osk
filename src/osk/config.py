@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Any
+from typing import Literal
 
 from pydantic import BaseModel
 
@@ -41,6 +42,7 @@ class OskConfig(BaseModel):
     database_url: str = "postgresql://osk:osk@localhost:5432/osk"
     ollama_base_url: str = "http://localhost:11434"
     auto_manage_local_services: bool = True
+    storage_backend: Literal["luks", "directory"] = "luks"
 
 
 def _toml_literal(value: Any) -> str:
