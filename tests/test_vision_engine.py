@@ -2,13 +2,14 @@ from __future__ import annotations
 
 import asyncio
 from datetime import datetime, timezone
+from types import SimpleNamespace
 from uuid import uuid4
 
 from osk.fake_intelligence import FakeVisionAnalyzer
 from osk.frame_ingest import FrameIngest
 from osk.intelligence_contracts import FrameSample, IngestPriority, IngestSource, ObservationKind
 from osk.models import MemberRole
-from osk.vision_engine import VisionWorker
+from osk.vision_engine import OllamaVisionAnalyzer, VisionWorker
 
 
 def _source(
@@ -141,3 +142,83 @@ async def test_vision_worker_records_errors() -> None:
     assert worker.metrics.processed_items == 1
     assert worker.metrics.errors == 1
     assert "bad frame" in str(worker.metrics.last_error)
+
+
+async def test_ollama_vision_analyzer_posts_frame_and_returns_result() -> None:
+    response = SimpleNamespace(
+        raise_for_status=lambda: None,
+        json=lambda: {"response": "Mounted officers near the south curb."},
+    )
+
+    class MockClient:
+        def __init__(self) -> None:
+            self.calls = []
+
+        async def post(self, url, json):
+            self.calls.append((url, json))
+            return response
+
+    client = MockClient()
+    analyzer = OllamaVisionAnalyzer(client=client, model="llava:test")
+    frame = FrameSample(
+        source=_source(),
+        width=1280,
+        height=720,
+        change_score=0.9,
+        payload=b"jpeg-bytes",
+    )
+
+    result = await analyzer.analyze(frame)
+
+    assert result is not None
+    assert result.adapter == "ollama-vision"
+    assert result.summary == "Mounted officers near the south curb."
+    assert client.calls[0][0].endswith("/api/generate")
+    assert client.calls[0][1]["model"] == "llava:test"
+    assert client.calls[0][1]["images"] == ["anBlZy1ieXRlcw=="]
+
+
+async def test_ollama_vision_analyzer_parses_json_list_response() -> None:
+    response = SimpleNamespace(
+        raise_for_status=lambda: None,
+        json=lambda: {
+            "response": (
+                "```json\n"
+                '[{"event_type":"vehicle_description","detail":"Police van parked curbside."}]\n'
+                "```"
+            )
+        },
+    )
+
+    class MockClient:
+        async def post(self, url, json):
+            del url, json
+            return response
+
+    analyzer = OllamaVisionAnalyzer(client=MockClient())
+    frame = FrameSample(source=_source(), width=1280, height=720, change_score=0.7, payload=b"jpeg")
+
+    result = await analyzer.analyze(frame)
+
+    assert result is not None
+    assert result.summary == "Police van parked curbside."
+    assert result.tags == ["vehicle_description"]
+
+
+async def test_ollama_vision_analyzer_returns_none_for_empty_response() -> None:
+    response = SimpleNamespace(
+        raise_for_status=lambda: None,
+        json=lambda: {"response": ""},
+    )
+
+    class MockClient:
+        async def post(self, url, json):
+            del url, json
+            return response
+
+    analyzer = OllamaVisionAnalyzer(client=MockClient())
+    frame = FrameSample(source=_source(), width=1280, height=720, change_score=0.5, payload=b"jpeg")
+
+    result = await analyzer.analyze(frame)
+
+    assert result is None

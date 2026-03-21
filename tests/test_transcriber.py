@@ -2,13 +2,19 @@ from __future__ import annotations
 
 import asyncio
 from datetime import datetime, timezone
+from types import SimpleNamespace
 from uuid import uuid4
 
 from osk.audio_ingest import AudioIngest
 from osk.fake_intelligence import FakeTranscriber
 from osk.intelligence_contracts import AudioChunk, IngestPriority, IngestSource, ObservationKind
 from osk.models import MemberRole
-from osk.transcriber import TranscriptionWorker
+from osk.transcriber import (
+    TranscriptionWorker,
+    WhisperTranscriber,
+    collapse_repetition_loops,
+    normalize_uncertain_tokens,
+)
 
 
 def _source(
@@ -139,3 +145,71 @@ async def test_transcription_worker_records_errors() -> None:
     assert worker.metrics.processed_items == 1
     assert worker.metrics.errors == 1
     assert "bad chunk" in str(worker.metrics.last_error)
+
+
+def test_normalize_uncertain_tokens_rewrites_placeholder_runs() -> None:
+    assert normalize_uncertain_tokens("he said __ something") == "he said [inaudible] something"
+
+
+def test_collapse_repetition_loops_reduces_obvious_loops() -> None:
+    collapsed, changed = collapse_repetition_loops("go go go go go go go go go go go go")
+    assert changed is True
+    assert collapsed.count("go") < 12
+
+
+async def test_whisper_transcriber_returns_normalized_result() -> None:
+    class MockRuntimeManager:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def transcribe_sync(self, audio, **kwargs):
+            del audio
+            self.calls += 1
+            segments = [
+                SimpleNamespace(text="crowd __ moving east", avg_logprob=-0.1),
+            ]
+            info = SimpleNamespace(language="en", language_probability=0.88)
+            return segments, info
+
+    chunk = AudioChunk(
+        source=_source(),
+        duration_ms=500,
+        codec="audio/webm",
+        payload=b"ignored",
+    )
+    transcriber = WhisperTranscriber(
+        runtime_manager=MockRuntimeManager(),
+        decoder=lambda _: object(),
+    )
+
+    result = await transcriber.transcribe(chunk)
+
+    assert result is not None
+    assert result.adapter == "whisper-local"
+    assert result.text == "crowd [inaudible] moving east"
+    assert result.language == "en"
+    assert 0.0 <= result.confidence <= 1.0
+
+
+async def test_whisper_transcriber_drops_duplicate_segments() -> None:
+    class MockRuntimeManager:
+        def transcribe_sync(self, audio, **kwargs):
+            del audio, kwargs
+            segments = [
+                SimpleNamespace(text="stay together", avg_logprob=-0.2),
+                SimpleNamespace(text="stay together", avg_logprob=-0.2),
+                SimpleNamespace(text="stay together", avg_logprob=-0.2),
+            ]
+            info = SimpleNamespace(language="en", language_probability=0.8)
+            return segments, info
+
+    chunk = AudioChunk(source=_source(), duration_ms=300, codec="audio/webm", payload=b"payload")
+    transcriber = WhisperTranscriber(
+        runtime_manager=MockRuntimeManager(),
+        decoder=lambda _: object(),
+    )
+
+    result = await transcriber.transcribe(chunk)
+
+    assert result is not None
+    assert result.text == "stay together stay together"

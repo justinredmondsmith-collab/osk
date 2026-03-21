@@ -50,6 +50,9 @@ changes manually while the project is in its early public setup phase.
   frame ingest with dedupe, observer rate limits, and per-member queue caps
 - Phase 2 worker loops: fake-backed background transcription and vision workers
   with callback hooks, metrics, and queue-drain lifecycle tests
+- Phase 2 runtime adapters: local Whisper profile fallback manager, transcript
+  cleanup heuristics, and an Ollama vision analyzer behind the worker
+  interfaces, with provenance recorded for adapted predecessor code
 
 ### Changed
 
