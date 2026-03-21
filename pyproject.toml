@@ -14,8 +14,12 @@ authors = [
 ]
 dependencies = [
   "asyncpg>=0.29,<1",
+  "cryptography>=42,<46",
   "fastapi>=0.115,<1",
   "pydantic>=2.7,<3",
+  "pypng>=0.20220715.0",
+  "qrcode>=8,<9",
+  "uvicorn>=0.30,<1",
 ]
 
 [project.optional-dependencies]

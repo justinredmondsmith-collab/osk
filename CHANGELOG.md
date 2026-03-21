@@ -19,6 +19,8 @@ changes manually while the project is in its early public setup phase.
   and initial migration SQL
 - Phase 1 operation and server slice: operation lifecycle, connection manager,
   and initial FastAPI REST/WebSocket wiring
+- Phase 1 host-side setup: TLS certificate generation, QR generation, CLI
+  command parsing, hub orchestration stub, and local compose files
 
 ### Changed
 

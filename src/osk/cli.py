@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import argparse
+import logging
 from pathlib import Path
 from typing import Sequence
 
 from . import __version__
+from .config import OskConfig, load_config, save_config
 
 
 def _repo_root() -> Path:
@@ -48,6 +50,75 @@ def _cmd_version(_: argparse.Namespace) -> int:
     return 0
 
 
+def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
+    return build_parser().parse_args(argv)
+
+
+def _coerce_config_value(cfg: OskConfig, key: str, raw_value: str):
+    if key not in cfg.model_fields:
+        raise KeyError(key)
+    current = getattr(cfg, key)
+    target_type = type(current)
+    if target_type is bool:
+        return raw_value.lower() in {"1", "true", "yes", "on"}
+    return target_type(raw_value)
+
+
+def _cmd_install(_: argparse.Namespace) -> int:
+    from .hub import install
+
+    install()
+    return 0
+
+
+def _cmd_start(args: argparse.Namespace) -> int:
+    from .hub import run_hub_sync
+
+    return run_hub_sync(args.name)
+
+
+def _cmd_stop(_: argparse.Namespace) -> int:
+    print("Stop is not implemented yet. Stop the running hub process directly for now.")
+    return 1
+
+
+def _cmd_config(args: argparse.Namespace) -> int:
+    cfg = load_config()
+    if args.set:
+        key, sep, value = args.set.partition("=")
+        if not sep:
+            print("Expected config assignment in the form key=value.")
+            return 1
+        try:
+            coerced = _coerce_config_value(cfg, key, value)
+        except (KeyError, ValueError, TypeError):
+            print(f"Invalid config setting: {args.set}")
+            return 1
+        cfg = cfg.model_copy(update={key: coerced})
+        save_config(cfg)
+        print(f"Set {key} = {getattr(cfg, key)}")
+        return 0
+
+    for key, value in cfg.model_dump().items():
+        print(f"{key} = {value}")
+    return 0
+
+
+def _cmd_rotate_token(_: argparse.Namespace) -> int:
+    print("Token rotation requires a running hub and is not wired through the CLI yet.")
+    return 1
+
+
+def _cmd_evidence(args: argparse.Namespace) -> int:
+    messages = {
+        "unlock": "Evidence unlock is not implemented yet.",
+        "export": "Evidence export is not implemented yet.",
+        "destroy": "Evidence destroy is not implemented yet.",
+    }
+    print(messages.get(args.evidence_command, "Unknown evidence command."))
+    return 1
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="osk",
@@ -70,21 +141,40 @@ def build_parser() -> argparse.ArgumentParser:
     )
     doctor_parser.set_defaults(func=_cmd_doctor)
 
+    install_parser = subparsers.add_parser("install", help="Install local prerequisites and assets.")
+    install_parser.set_defaults(func=_cmd_install)
+
+    start_parser = subparsers.add_parser("start", help="Start an operation.")
+    start_parser.add_argument("name", help="Operation name")
+    start_parser.set_defaults(func=_cmd_start)
+
+    stop_parser = subparsers.add_parser("stop", help="Stop the current operation.")
+    stop_parser.set_defaults(func=_cmd_stop)
+
+    config_parser = subparsers.add_parser("config", help="View or set configuration.")
+    config_parser.add_argument("--set", dest="set", help="Set a config value in the form key=value.")
+    config_parser.set_defaults(func=_cmd_config)
+
+    rotate_parser = subparsers.add_parser("rotate-token", help="Rotate the operation token.")
+    rotate_parser.set_defaults(func=_cmd_rotate_token)
+
+    evidence_parser = subparsers.add_parser("evidence", help="Manage pinned evidence.")
+    evidence_sub = evidence_parser.add_subparsers(dest="evidence_command")
     for name, help_text in (
-        ("start", "Planned operation startup command."),
-        ("stop", "Planned operation shutdown command."),
-        ("config", "Planned configuration command."),
-        ("evidence", "Planned evidence management command."),
+        ("unlock", "Unlock and view pinned evidence."),
+        ("export", "Export pinned evidence."),
+        ("destroy", "Destroy preserved evidence."),
     ):
-        subparser = subparsers.add_parser(name, help=help_text)
-        subparser.set_defaults(func=_cmd_placeholder, command=name)
+        subparser = evidence_sub.add_parser(name, help=help_text)
+        subparser.set_defaults(func=_cmd_evidence)
 
     return parser
 
 
 def main(argv: Sequence[str] | None = None) -> int:
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
     parser = build_parser()
-    args = parser.parse_args(argv)
+    args = parse_args(argv)
 
     if not hasattr(args, "func"):
         parser.print_help()
