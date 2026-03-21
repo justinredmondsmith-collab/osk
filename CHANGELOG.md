@@ -44,6 +44,8 @@ changes manually while the project is in its early public setup phase.
   hub status
 - `osk members`, extra operator audit events for bootstrap expiry/session
   refresh/logout, and clearer startup failure logging with runtime log hints
+- Phase 2 contract-first slice: intelligence contracts, deterministic fake
+  adapters, and a normalization pipeline for audio, frame, and location inputs
 
 ### Changed
 
