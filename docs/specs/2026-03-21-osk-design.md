@@ -2,13 +2,15 @@
 
 **Date:** 2026-03-21
 **Status:** Design approved
-**Repository:** tiny-elite-answer
+**Repository:** osk
 
 ## Overview
 
 Osk is a civilian situational awareness platform that gives groups of people LEO/IC-grade intelligence capabilities for protests, gatherings, public meetings, large events, and personal safety. It uses a hub-and-spoke architecture where a coordinator runs a laptop-based intelligence hub and group members connect via their phones.
 
-The project is a new codebase that transplants proven intelligence engines from the existing `bodycam-summarizer` project (Whisper transcription, Ollama vision analysis, AI summarization, temporal fusion) into a civilian-focused platform with fundamentally different data models, security posture, and user experience.
+The project is a new codebase that plans to transplant proven intelligence engines from the existing `bodycam-summarizer` project (Whisper transcription, Ollama vision analysis, AI summarization, temporal fusion) into a civilian-focused platform with fundamentally different data models, security posture, and user experience.
+
+Unless stated otherwise in the repository root, all code added to Osk is intended to be released under `AGPL-3.0-only`. Any future copied or adapted code from predecessor repositories must retain required attribution and be recorded in `docs/PROVENANCE.md`.
 
 ## Design Decisions
 
@@ -138,23 +140,36 @@ Core entities — all ephemeral (RAM-only) unless explicitly pinned:
 
 ## Security & Privacy
 
+This section describes the intended security model for a future implementation.
+It should be read as a design target, not as a statement that the current
+repository has already implemented or validated these properties.
+
 ### Threat Model
 
 Users may face real consequences if their data is accessed by adversaries (law enforcement, counter-protesters, bad actors). The security model prioritizes data minimization and operator control.
 
 ### Ephemeral-by-Default Storage
 
-- PostgreSQL runs on **tmpfs** (RAM filesystem). No disk writes for operational data. Power loss or shutdown = data gone.
-- All transcripts, observations, events, GPS data, and member info are RAM-only during operation.
+- PostgreSQL is intended to run on **tmpfs** (RAM filesystem) so operational
+  data does not rely on normal disk persistence.
+- Transcripts, observations, events, GPS data, and member info are intended to
+  remain RAM-only during operation unless explicitly preserved.
 
 ### Selective Pinning
 
 - Members or coordinator explicitly pin events for preservation.
 - Pinned items (event + source transcript segments + key frames) are written to a **LUKS-encrypted volume**.
-- The LUKS volume is a sparse file created during `osk install` (default 1 GB, configurable). `cryptsetup luksFormat` runs at install time (requires `sudo`). At operation start, `cryptsetup luksOpen` unlocks it with the coordinator's passphrase. The passphrase is stored in the **Linux kernel keyring** (`keyctl` / `KEY_SPEC_SESSION_KEYRING`) — not in a Python variable. This means the passphrase survives process restarts without being exposed in process memory or environment variables. On `osk stop`, the keyring entry is revoked.
-- If the hub process crashes and restarts, the LUKS volume remains open (kernel-level). The keyring entry persists in the session. No re-entry needed unless the entire machine reboots.
-- Raw audio is never stored. Only transcript text is preserved if pinned.
-- GPS data is never pinned unless explicitly included with a pinned event.
+- The current design uses a sparse LUKS volume created during `osk install`
+  (default 1 GB, configurable). The planned flow is for `cryptsetup luksFormat`
+  to run at install time and `cryptsetup luksOpen` to unlock it at operation
+  start.
+- The current design assumes the passphrase is handled via the **Linux kernel
+  keyring** (`keyctl` / `KEY_SPEC_SESSION_KEYRING`) rather than normal app
+  config or process environment.
+- A future implementation is intended to preserve transcript text rather than
+  raw audio when events are pinned.
+- GPS data is intended to remain unpinned unless explicitly included with a
+  preserved event.
 
 ### Emergency Wipe
 
@@ -162,17 +177,22 @@ Users may face real consequences if their data is accessed by adversaries (law e
 - **Action sequence:**
   1. Hub broadcasts `{"type": "wipe"}` to all connected members. The PWA client responds by clearing `sessionStorage`, service worker cache, and any `IndexedDB` data. (Browser history and OS-level caches are outside the app's control — documented as accepted risk.)
   2. Kernel keyring passphrase entry revoked (`keyctl revoke`).
-  3. LUKS volume closed (`cryptsetup luksClose`) — without the passphrase in the keyring, the encrypted data is inaccessible. Full header overwrite is not performed (it requires disk I/O that may be slow and is unnecessary — the passphrase is already destroyed).
+  3. LUKS volume closed (`cryptsetup luksClose`) — the design assumes that once
+     the key is no longer available through the keyring, the encrypted data is
+     not practically accessible without the passphrase.
   4. tmpfs unmounted (all ephemeral data vanishes).
   5. Docker containers killed, all network connections dropped.
-- **Target:** under 3 seconds from trigger to clean state. All steps are in-memory or kernel operations except the LUKS close, which is fast.
-- **Privilege model:** `osk` requires `sudo` for `cryptsetup` and `tmpfs` operations. The install step configures a `sudoers.d` entry for the specific `cryptsetup` and `mount` commands needed, so the coordinator does not need to run the entire application as root.
+- **Target:** under 3 seconds from trigger to clean state. This is a design
+  goal that must be benchmarked and validated in implementation.
+- **Privilege model:** the current design assumes limited privileged operations
+  for `cryptsetup` and `tmpfs` management rather than running the whole
+  application as root.
 
 ### Member Privacy
 
 - No real names required — display names only.
-- No persistent identity across operations — each QR scan creates a fresh ephemeral member.
-- No accounts, no passwords, no sign-up.
+- No persistent identity across operations is intended in the current design.
+- No account system is planned for the baseline join flow.
 
 ### Authentication Protocol
 
@@ -180,16 +200,26 @@ Users may face real consequences if their data is accessed by adversaries (law e
 - The QR code encodes a URL: `http://<hub-ip>:<port>/join?token=<operation-token>`
 - When a member opens this URL, the join page stores the token in `sessionStorage`.
 - On WebSocket upgrade, the token is sent as the first JSON message: `{"type": "auth", "token": "<token>", "name": "<display-name>"}`. The hub validates the token and assigns a member ID. Invalid tokens get an immediate close frame.
-- Tokens are per-operation (shared secret). All members use the same token.
+- Tokens are planned to be per-operation shared secrets, with all members in an
+  operation using the same token.
 - **Token rotation:** Coordinator can run `osk rotate-token` or tap "New QR" in the dashboard. This generates a new token; existing authenticated members stay connected, but new joins require the new QR code.
-- **Kick:** Coordinator can kick individual members from the dashboard. Kicked members' WebSocket is closed. A determined attacker could rejoin with a new display name since the token is shared. To block a kicked member permanently, the coordinator should rotate the token (`osk rotate-token`) after kicking — existing members stay connected, but the kicked member cannot rejoin with the old QR. For stronger isolation, a future enhancement could add per-member tokens, but the shared-token model is sufficient for the trust level implied by physically sharing a QR code.
+- **Kick:** The current design allows the coordinator to kick individual
+  members, but because the token is shared, a determined user could rejoin with
+  a new display name until the token is rotated. Per-member tokens remain a
+  possible future hardening step.
 
 ### Network Security
 
-- Hub serves over **self-signed TLS** (certificate generated at `osk install`). The QR URL uses `https://`. Mobile browsers will show a certificate warning on first connect. The coordinator should verbally guide members through accepting the cert warning ("tap Advanced → Proceed" on Android, "tap Continue" on iOS). The setup guide will include screenshots for common mobile browsers. This prevents passive WiFi sniffing of audio streams and GPS data.
-- Hub operates on local WiFi / hotspot — no internet required.
-- WPA3 on the hotspot recommended in setup guide for defense-in-depth.
-- **Accepted risk:** A member who has joined (has the token) can theoretically proxy or record data on their device. Osk trusts authenticated members — the trust boundary is the operation token.
+- The design currently assumes **self-signed TLS** for local transport, with
+  the QR URL using `https://`. This choice still needs usability validation on
+  target mobile browsers.
+- Hub operation is intended to work on local WiFi / hotspot without an internet
+  requirement.
+- WPA3 on the hotspot is a recommended defense-in-depth measure in the planned
+  setup guide.
+- **Accepted risk:** A member who has joined can still proxy, record, or relay
+  what they receive. The trust boundary in the baseline design is the
+  operation-level shared token.
 
 ## User Experience
 
@@ -202,11 +232,12 @@ git clone <repo> && cd osk
 
 # Start an operation
 ./osk start "March for Justice — Downtown"
-# → prompts for operation passphrase
-# → launches Docker stack (PostgreSQL on tmpfs)
-# → starts WiFi hotspot (or prints manual config instructions)
-# → generates QR code (ASCII in terminal + PNG file)
-# → opens coordinator dashboard in browser
+# intended flow:
+# → prompt for operation passphrase
+# → launch Docker stack (PostgreSQL on tmpfs)
+# → start WiFi hotspot (or print manual config instructions)
+# → generate QR code (ASCII in terminal + PNG file)
+# → open coordinator dashboard in browser
 ```
 
 ### Member Join Flow
@@ -334,6 +365,8 @@ Single WebSocket endpoint: `wss://<hub>/ws`
 
 ## Hardware Requirements
 
+These are expected requirements for the planned local-first deployment model.
+
 | Component | Minimum | Recommended |
 |---|---|---|
 | GPU | NVIDIA with 6+ GB VRAM, CUDA support | NVIDIA with 8+ GB VRAM (RTX 3060 or better) |
@@ -343,11 +376,14 @@ Single WebSocket endpoint: `wss://<hub>/ws`
 | WiFi | Capable of AP mode (hostapd/nmcli) | Dual-band (5 GHz for less interference in crowds) |
 | OS | **Linux only** (required for tmpfs, LUKS, nmcli, NVIDIA Docker) | Fedora, Ubuntu, or Arch with NetworkManager |
 
-Hotspot management requires the hub to run on the **host Linux OS** (not inside a container). The Docker stack handles the AI engines and database; the `osk` CLI and hotspot management run on the host. The coordinator's laptop must have an NVIDIA GPU with proprietary drivers installed.
+The current design assumes hotspot management runs on the **host Linux OS** and
+not purely inside a container. It also assumes coordinator hardware with an
+NVIDIA GPU and proprietary drivers for the intended accelerated workloads.
 
 ## Configuration
 
-Key tunable parameters, set via `osk config` command or `~/.config/osk/config.toml`:
+Planned tunable parameters, expected to be set via `osk config` or
+`~/.config/osk/config.toml`:
 
 | Parameter | Default | Description |
 |---|---|---|
@@ -382,6 +418,8 @@ Key tunable parameters, set via `osk config` command or `~/.config/osk/config.to
 
 ## Tech Stack
 
+Planned stack for the initial implementation:
+
 | Layer | Technology | Source |
 |---|---|---|
 | API server | FastAPI + Uvicorn | Carry over from bodycam-summarizer |
@@ -399,6 +437,8 @@ Key tunable parameters, set via `osk config` command or `~/.config/osk/config.to
 | Map tiles | Leaflet.js with offline tile cache | New |
 
 ## Project Structure
+
+Intended repository/application structure once implementation begins:
 
 ```
 osk/

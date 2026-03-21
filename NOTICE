@@ -1,0 +1,16 @@
+Osk
+Copyright (C) 2026 Justin Smith
+
+This repository is licensed under the GNU Affero General Public License,
+version 3 only ("AGPL-3.0-only"). See the LICENSE file for the full text.
+
+Project provenance matters here because Osk is a spin-off project.
+
+- This repository is maintained as a separate public project.
+- Future code copied or adapted from predecessor repositories must preserve
+  required copyright and license notices.
+- Material transplants should be recorded in docs/PROVENANCE.md with source
+  repository, path, commit reference when available, and a short note about
+  modifications.
+
+No trademark rights are granted by this notice.
