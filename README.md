@@ -1,198 +1,196 @@
 # Osk
 
-Design-stage civilian situational awareness platform. Osk is intended to use a
-hub-and-spoke architecture to help groups coordinate during protests,
-gatherings, public meetings, large events, travel, and personal safety
-scenarios.
+Local-first situational awareness for civilian groups.
+
+Osk is a design-stage project for a hub-and-spoke system that helps groups
+coordinate during protests, public meetings, large events, travel, and other
+situations where shared awareness matters.
+
+> Status: Osk is currently a public design repository. The repo contains specs,
+> plans, and governance documents. It does not yet contain a runnable
+> application.
+
+## At a Glance
+
+- **Local-first**: the planned system runs on coordinator-managed hardware
+  without requiring cloud APIs
+- **Browser-based**: members are intended to join from a mobile browser rather
+  than an app-store install
+- **Role-based**: one coordinator manages the hub; sensors and observers get
+  different capabilities and alert levels
+- **Privacy-focused**: the planned storage model is ephemeral by default, with
+  selective preservation to encrypted storage
+- **Publicly designed**: architecture, tradeoffs, and implementation phases are
+  documented in the open before the codebase lands
 
 ## Why Osk Exists
 
-When you attend a protest, a large public event, or travel in an unfamiliar area, you're operating blind. You don't know what's happening three blocks away. You don't know if an exit route just got blocked. You don't know if the situation is escalating until it's too late.
+When a group is moving through a protest, rally, hearing, festival, or an
+unfamiliar area, situational awareness is uneven. People know what they can see
+and hear directly, but not what is unfolding a block away, which route just
+changed, or whether the overall situation is escalating.
 
-Law enforcement and intelligence agencies have had real-time situational
-awareness tools for decades — live audio feeds, computer vision, team
-coordination, AI-powered analysis. Osk is intended to bring similar local-first
-coordination capabilities to everyday people without requiring a cloud service.
+Osk is intended to close that gap with a local-first coordination model:
+member phones act as lightweight edge clients, a coordinator laptop acts as the
+hub, and the system synthesizes audio, location, manual reports, and key visual
+signals into alerts and situation reports.
 
-## Planned Architecture
+## What This Repository Contains
 
+Right now, this repo is best understood as the public groundwork for the
+project:
+
+- [Design specification](docs/specs/2026-03-21-osk-design.md): architecture,
+  data model, API contract, privacy model, and operating assumptions
+- [Implementation plans](docs/plans/): phased build plans for the first working
+  version
+- [Security policy](SECURITY.md): how to report sensitive issues
+- [Safety and use limits](SAFETY.md): non-guarantees, trust boundaries, and
+  misuse concerns
+- [Contributing guide](CONTRIBUTING.md): how to contribute while the repo is
+  still design-first
+- [Provenance record](docs/PROVENANCE.md): how spin-off and future code reuse
+  are tracked
+
+If you are looking for runnable code, it has not landed yet.
+
+## Planned Operating Model
+
+```mermaid
+flowchart TD
+    subgraph EDGE["Edge: member phones"]
+        S["Sensors\n5-10 active\n\nAudio stream\nKey frame sampling\nGPS broadcast"]
+        O["Observers\n40+ members\n\nGPS broadcast\nReceive alerts\nManual reports\nPhoto / clip capture"]
+    end
+
+    S --> NET["Local WiFi / hotspot\nNo internet required"]
+    O --> NET
+
+    subgraph HUB["Coordinator hub"]
+        I["Ingest\nAudio queue\nFrame queue\nGPS + reports"]
+        P["Processing\nWhisper\nVision\nLocation engine"]
+        Y["Synthesis\nEvent generation\nEscalation detection\nAlerting\nSitReps"]
+        D["Outputs\nCoordinator dashboard\nMember alerts\nPinned evidence"]
+        T["Storage\nPostgreSQL on tmpfs\nEncrypted preserved evidence"]
+        I --> P --> Y --> D
+        Y --> T
+    end
+
+    NET --> I
 ```
-                    EDGE (Member Phones)
-     ┌──────────────┐    ┌───────────────────┐
-     │   Sensors     │    │    Observers       │
-     │  (5-10 active)│    │   (40+ members)    │
-     │               │    │                    │
-     │  Audio stream  │    │  GPS broadcast     │
-     │  Key frame     │    │  Receive alerts    │
-     │   sampling     │    │  Manual reports    │
-     │  GPS broadcast  │    │  Snap photo/clip   │
-     └──────┬────────┘    └────────┬───────────┘
-            │   Local WiFi /       │
-            │   Hotspot            │
-            │   (no internet)      │
-     ┌──────┼──────────────────────┼───────────┐
-     │      ▼          HUB         ▼           │
-     │                                         │
-     │  Whisper ── AI Summarizer ── Alerts     │
-     │  Vision  ── Event Fusion  ── SitReps    │
-     │  Location ── Escalation Detection       │
-     │                                         │
-     │  Coordinator Dashboard (full picture)   │
-     │  PostgreSQL on tmpfs (ephemeral)        │
-     │  LUKS encrypted volume (pinned evidence)│
-     └─────────────────────────────────────────┘
-```
 
-In the planned design, **a coordinator** runs a laptop-based intelligence hub
-and **group members** (50+) connect via their phones by scanning a QR code.
+In the current design:
 
-- **Sensors** (5-10 designated members) would stream audio and video to the hub
-  for local analysis
-- **Observers** (everyone else) would share GPS location, receive alerts, and
-  submit manual reports
-- **The hub** is intended to run Whisper, local vision models, and synthesis
-  logic to fuse events into a unified picture
-- **The coordinator** would see the event timeline, member map, and periodic
-  situation reports
-- **Members** would receive severity-filtered alerts rather than the full feed
+- A **coordinator** runs the hub on a Linux laptop
+- **Sensors** stream audio and selected visual signals for local processing
+- **Observers** share location, receive alerts, and submit manual reports
+- The **hub** fuses those inputs into alerts, events, and periodic situation
+  reports
+- Members receive **role-appropriate output** rather than the full picture
+
+## Design Principles
+
+- **Local-first by default**: no required cloud dependency in the baseline
+  design
+- **Ephemeral by default**: operational data should be treated as temporary
+  unless explicitly preserved
+- **Low-friction participation**: joining should work from a QR code and a
+  mobile browser
+- **Tiered roles**: not every participant should generate the same ingest load
+- **Actionable output**: members should receive filtered alerts, not raw noise
+- **Public reasoning**: design choices, risks, and tradeoffs should be visible
+  in the repository
 
 ## Planned Capabilities
 
-### Real-Time Audio Intelligence
-Members would stream audio to the hub. Whisper would transcribe it in
-real-time. Analysis pipelines would look for events such as crowd movements,
-route changes, and escalation patterns.
-
-### Edge Computer Vision
-Phones would do smart frame sampling locally using a Web Worker so the hub only
-receives key frames when the scene changes materially.
-
-### Ephemeral by Default
-Operational data is intended to live in RAM by default, with selective pinning
-to encrypted storage for preserved evidence.
-
-### Emergency Wipe
-A design goal is a fast emergency wipe path that revokes keys, unmounts
-storage, and drops active connections. This has not been implemented or
-validated in this repository yet.
-
-### Fully Local
-The system is intended to run without cloud APIs or internet dependency,
-serving members over a local network from coordinator-controlled hardware.
-
-### Zero-Friction Join
-The planned join flow is QR-based in a mobile browser, with no account system
-and no app-store installation requirement.
+| Area | Intended Behavior |
+|---|---|
+| **Audio intelligence** | Sensors stream audio to the hub for local transcription and event detection |
+| **Edge vision** | Phones send key frames rather than continuous video, reducing bandwidth and processing load |
+| **Location awareness** | Member GPS updates support clustering, proximity alerts, and map-based coordination |
+| **Situation reports** | The coordinator receives periodic summaries and trend signals |
+| **Selective preservation** | Important events can be pinned for encrypted preservation while the rest remains ephemeral |
+| **Emergency controls** | The design includes a fast wipe path, but it is not implemented or validated in this repo yet |
 
 ## Intended Use Cases
 
-- **Protests and marches** — know where police are staging, which exits are clear, when the situation is escalating
-- **Public meetings and hearings** — coordinate a group attending a contentious meeting, document what happens
-- **Large events** — keep track of your group at festivals, conferences, or rallies
-- **Travel** — groups traveling in unfamiliar or potentially hostile environments
-- **Community safety** — neighborhood watch with real-time intelligence instead of a group chat
+- **Protests and marches**: route changes, police movement, blocked exits, and
+  escalation signals
+- **Public meetings and hearings**: group coordination in contentious spaces
+- **Large events**: conferences, festivals, rallies, and other dense crowds
+- **Travel**: groups moving through unfamiliar environments
+- **Community safety**: local coordination beyond ad hoc group chats
 
-## Design Summary
+## Roadmap
 
-| Layer | What It Does |
-|---|---|
-| **Edge (phones)** | Audio capture, key frame sampling, GPS, manual reports. PWA in mobile browser. |
-| **Ingest** | Receives streams, queues by priority, deduplicates frames, rate-limits observers |
-| **Processing** | Whisper (audio → text), Ollama Vision (frames → descriptions), Location Engine (GPS → clusters) |
-| **Synthesis** | Event Generator (fuse sources → events), Alert Engine (filter + push), SitRep Generator (periodic summaries) |
-| **Output** | Coordinator: full dashboard. Sensors: filtered alerts. Observers: critical alerts only. |
-| **Storage** | tmpfs (ephemeral), LUKS volume (pinned evidence), kernel keyring (passphrase) |
+The initial implementation is split into six phases:
 
-### Member Roles
-
-| Role | Count | Streams | Receives | Can Do |
-|---|---|---|---|---|
-| **Coordinator** | 1 | — | Everything | Full dashboard, role management, emergency controls |
-| **Sensor** | 5-10 | Audio + video continuously | Advisory+ alerts | Pause/mute stream, pin events, manual reports |
-| **Observer** | 40+ | GPS only | Critical alerts only | Snap photo, record clip, pin events, manual reports |
-
-## Hardware Requirements
-
-| Component | Minimum | Recommended |
+| Phase | Scope | Status |
 |---|---|---|
-| GPU | NVIDIA, 6+ GB VRAM, CUDA | NVIDIA RTX 3060 or better (8+ GB VRAM) |
-| RAM | 16 GB | 32 GB |
-| Storage | 20 GB free | 40 GB free |
-| CPU | 4 cores | 8+ cores |
-| WiFi | AP mode capable | Dual-band 5 GHz |
-| OS | **Linux** (Fedora, Ubuntu, Arch) | With NetworkManager |
+| [1. Core Hub + Connection](docs/plans/2026-03-21-plan-1-core-hub-connection.md) | Scaffolding, models, DB, auth, server, CLI | Planned |
+| [2. Intelligence Pipeline](docs/plans/2026-03-21-plan-2-intelligence-pipeline.md) | Whisper, vision, ingest queues, location engine | Planned |
+| [3. Synthesis Layer](docs/plans/2026-03-21-plan-3-synthesis-layer.md) | Events, alerts, SitReps | Planned |
+| [4. Coordinator Dashboard](docs/plans/2026-03-21-plan-4-coordinator-dashboard.md) | Map, timeline, sensor management | Planned |
+| [5. Mobile PWA](docs/plans/2026-03-21-plan-5-mobile-pwa.md) | Join flow, alert feed, edge sampling | Planned |
+| [6. Operations Tooling](docs/plans/2026-03-21-plan-6-operations-tooling.md) | Hotspot, evidence, tile caching | Planned |
 
-## Quick Start
+See the [design specification](docs/specs/2026-03-21-osk-design.md) for the
+full architecture, API contract, and threat-model assumptions.
 
-> Osk is currently in the **design phase**. The commands below describe the intended workflow — implementation is in progress.
+## What You Can Do Right Now
 
-```bash
-# One-time setup
-git clone https://github.com/justinredmondsmith-collab/osk.git
-cd osk
-./osk install
+- Read the [design specification](docs/specs/2026-03-21-osk-design.md)
+- Review the [implementation plans](docs/plans/)
+- Open a `Design feedback` issue if you see a gap or bad assumption
+- Open a `Bug report` issue for contradictions, broken links, or repo problems
+- Use Discussions for broader proposals and open-ended questions
 
-# Start an operation
-./osk start "Saturday March — Downtown"
+## Hardware Assumptions
 
-# Share the QR code with your group
-# Members scan → join via phone browser → done
+The current design assumes a Linux-based coordinator machine with:
 
-# When finished
-./osk stop
-```
+- NVIDIA GPU with CUDA support
+- 16 GB RAM minimum, 32 GB recommended
+- WiFi hardware capable of AP mode
+- Enough local storage for models and encrypted preserved evidence
 
-## Project Status
+These are design assumptions for the planned first implementation, not tested
+runtime requirements for a released build.
 
-**Phase: Design Complete, Implementation Starting**
+## Security and Safety
 
-- Current repository contents: design docs, planning docs, and public project governance files. Runnable application code has not landed yet.
-- [Design Specification](docs/specs/2026-03-21-osk-design.md) — full architecture, data model, API contract, security model
-- [Implementation Plans](docs/plans/) — 6-phase build plan with TDD steps
-- [Changelog](CHANGELOG.md) — public-facing repo and documentation changes
+Osk is being designed for environments where data compromise can have serious
+consequences. The privacy and security model in this repo describes intended
+properties, not verified guarantees.
 
-| Plan | Scope | Status |
-|---|---|---|
-| 1. Core Hub + Connection | Scaffolding, models, DB, auth, server, CLI | Planned |
-| 2. Intelligence Pipeline | Whisper, vision, location engines | Planned |
-| 3. Synthesis Layer | Events, alerts, SitReps | Planned |
-| 4. Coordinator Dashboard | Map, timeline, sensor management | Planned |
-| 5. Mobile PWA | Join flow, alert feed, edge sampling | Planned |
-| 6. Operations Tooling | Hotspot, evidence, tile caching | Planned |
+Key design goals:
 
-## Security Principles
+- **Ephemeral-by-default operation**
+- **Selective encrypted preservation**
+- **No persistent account system in the baseline join model**
+- **Local-network encrypted transport**
+- **No required cloud dependency**
 
-Osk is being designed for environments where data compromise can have real
-consequences. The items below are design goals and intended properties, not
-validated guarantees in the current repository state.
-
-- **Ephemeral by default** — the planned storage model keeps operational data in
-  RAM and treats shutdown as data disposal
-- **Selective pinning** — only explicitly preserved evidence should go to
-  encrypted storage
-- **LUKS encryption** — preserved evidence is intended to use an encrypted
-  volume with a key-handling path outside normal app config
-- **Emergency wipe** — a fast wipe path is a design goal, but not yet
-  implemented or benchmarked here
-- **No persistent identity** — the planned join model uses display names rather
-  than persistent accounts
-- **Local-network encryption** — encrypted local transport is planned, including
-  self-signed TLS in the current design
-- **No cloud dependency** — the design aims to keep core operation on
-  coordinator-controlled local hardware
-
-See [SECURITY.md](SECURITY.md) for responsible disclosure and [SAFETY.md](SAFETY.md) for current limitations and non-guarantees.
+Read [SECURITY.md](SECURITY.md) for responsible disclosure and
+[SAFETY.md](SAFETY.md) for current limitations, non-guarantees, and misuse
+boundaries.
 
 ## Contributing
 
-Contributions are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+Contributions are welcome, especially around documentation quality, threat
+modeling, design review, and repo hygiene while the implementation is still
+forming.
 
-This project follows the [Contributor Covenant Code of Conduct](CODE_OF_CONDUCT.md).
+Start with [CONTRIBUTING.md](CONTRIBUTING.md). This project also follows the
+[Code of Conduct](CODE_OF_CONDUCT.md).
 
 ## License
 
-Osk is licensed under the [GNU Affero General Public License v3.0 only](LICENSE) (`AGPL-3.0-only`).
+Osk is licensed under the [GNU Affero General Public License v3.0 only](LICENSE)
+(`AGPL-3.0-only`).
 
-AGPL ensures that Osk and derivative networked deployments remain open source. This is a deliberate choice: a civilian safety tool should not be co-opted into proprietary products.
+That choice is deliberate: if Osk becomes a networked tool, the project and its
+derivative deployments should remain open source.
 
-See [NOTICE](NOTICE) for copyright and attribution guidance, and [docs/PROVENANCE.md](docs/PROVENANCE.md) for the spin-off and code-transplant record.
+See [NOTICE](NOTICE) for attribution guidance and [docs/PROVENANCE.md](docs/PROVENANCE.md)
+for spin-off and code-reuse tracking.
