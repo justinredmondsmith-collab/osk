@@ -43,6 +43,7 @@ class OskConfig(BaseModel):
     database_url: str = "postgresql://osk:osk@localhost:5432/osk"
     ollama_base_url: str = "http://localhost:11434"
     auto_manage_local_services: bool = True
+    operator_bootstrap_ttl_minutes: int = 15
     operator_session_ttl_minutes: int = 240
     storage_backend: Literal["luks", "directory"] = "luks"
 

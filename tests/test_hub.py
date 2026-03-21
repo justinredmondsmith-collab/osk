@@ -28,7 +28,7 @@ from osk.hub import (
     watch_for_stop_request,
     watch_member_heartbeats,
 )
-from osk.local_operator import create_operator_session, write_bootstrap_token
+from osk.local_operator import create_bootstrap_session, create_operator_session
 
 
 def test_installation_issues_report_missing_assets(tmp_path: Path) -> None:
@@ -115,8 +115,13 @@ def test_ensure_local_services_requires_compose_runtime(mock_which: MagicMock) -
     assert mock_which.call_count >= 1
 
 
-@patch("osk.hub.asyncio.run", side_effect=HubBootstrapError("boom"))
+@patch("osk.hub.asyncio.run")
 def test_run_hub_sync_returns_error_code_on_bootstrap_failure(mock_run: MagicMock, capsys) -> None:
+    def raise_bootstrap_error(coro) -> None:
+        coro.close()
+        raise HubBootstrapError("boom")
+
+    mock_run.side_effect = raise_bootstrap_error
     code = run_hub_sync("Test Op")
     out = capsys.readouterr().out
     assert code == 1
@@ -150,11 +155,11 @@ def test_read_hub_state_missing(tmp_path: Path) -> None:
 def test_ensure_hub_not_running_cleans_stale_state(tmp_path: Path) -> None:
     state_path = tmp_path / "hub-state.json"
     stop_path = tmp_path / "hub-stop-request.json"
-    token_path = tmp_path / "coordinator-token.txt"
+    bootstrap_path = tmp_path / "operator-bootstrap.json"
     session_path = tmp_path / "operator-session.json"
     state_path.write_text('{"pid": 999999, "operation_name": "Old Op"}\n')
     stop_path.write_text('{"requested_at": 1}\n')
-    token_path.write_text("secret\n")
+    bootstrap_path.write_text("{}\n")
     session_path.write_text('{"token":"session"}\n')
     with (
         patch("osk.hub._config_root", return_value=tmp_path),
@@ -163,7 +168,7 @@ def test_ensure_hub_not_running_cleans_stale_state(tmp_path: Path) -> None:
         ensure_hub_not_running()
     assert not state_path.exists()
     assert not stop_path.exists()
-    assert not token_path.exists()
+    assert not bootstrap_path.exists()
     assert not session_path.exists()
 
 
@@ -246,10 +251,10 @@ def test_stop_hub_falls_back_to_sigterm(
 
 def test_stop_hub_cleans_stale_state(tmp_path: Path) -> None:
     state_path = tmp_path / "hub-state.json"
-    token_path = tmp_path / "coordinator-token.txt"
+    bootstrap_path = tmp_path / "operator-bootstrap.json"
     session_path = tmp_path / "operator-session.json"
     state_path.write_text('{"pid": 4321, "operation_name": "March"}\n')
-    token_path.write_text("secret\n")
+    bootstrap_path.write_text("{}\n")
     session_path.write_text('{"token":"session"}\n')
     with (
         patch("osk.hub._config_root", return_value=tmp_path),
@@ -264,7 +269,7 @@ def test_stop_hub_cleans_stale_state(tmp_path: Path) -> None:
 
     assert code == 0
     assert not state_path.exists()
-    assert not token_path.exists()
+    assert not bootstrap_path.exists()
     assert not session_path.exists()
 
 
@@ -348,7 +353,7 @@ def test_status_hub_reports_not_running(tmp_path: Path, capsys) -> None:
 def test_hub_status_snapshot_json_payload(tmp_path: Path) -> None:
     state_path = tmp_path / "hub-state.json"
     stop_path = tmp_path / "hub-stop-request.json"
-    token_path = tmp_path / "coordinator-token.txt"
+    bootstrap_path = tmp_path / "operator-bootstrap.json"
     session_path = tmp_path / "operator-session.json"
     state_path.write_text(
         '{"pid": 4321, "operation_name": "March", "port": 8443, "started_at": 123}\n'
@@ -362,14 +367,16 @@ def test_hub_status_snapshot_json_payload(tmp_path: Path) -> None:
             return_value=True,
         ),
     ):
-        write_bootstrap_token("bootstrap-token")
+        create_bootstrap_session("op-123", 15)
         create_operator_session("op-123", 60)
         code, snapshot = hub_status_snapshot(now=130)
     assert code == 0
     assert snapshot["message"] == "Osk hub is running."
     assert snapshot["operation_id"] is None
     assert snapshot["operation_name"] == "March"
-    assert snapshot["operator_bootstrap_path"] == str(token_path)
+    assert snapshot["operator_bootstrap_path"] == str(bootstrap_path)
+    assert snapshot["operator_bootstrap_active"] is True
+    assert snapshot["operator_bootstrap_expires_at"]
     assert snapshot["operator_session_active"] is True
     assert snapshot["operator_session_expires_at"]
     assert snapshot["operator_session_path"] == str(session_path)
@@ -381,6 +388,87 @@ def test_hub_status_snapshot_json_payload(tmp_path: Path) -> None:
     assert snapshot["stopping"] is True
     assert snapshot["uptime_human"] == "7s"
     assert snapshot["uptime_seconds"] == 7
+    assert snapshot["runtime_log_path"].endswith("hub.log")
+
+
+@patch("osk.hub.asyncio.run")
+def test_login_operator_session_consumes_bootstrap(
+    mock_asyncio_run: MagicMock,
+    tmp_path: Path,
+    capsys,
+) -> None:
+    def close_audit_coro(coro) -> None:
+        coro.close()
+        return None
+
+    mock_asyncio_run.side_effect = close_audit_coro
+
+    with (
+        patch("osk.hub._config_root", return_value=tmp_path),
+        patch("osk.local_operator._state_root", return_value=tmp_path),
+        patch("osk.hub.load_config", return_value=OskConfig()),
+    ):
+        (tmp_path / "hub-state.json").write_text(
+            '{"operation_id":"11111111-1111-1111-1111-111111111111"}\n'
+        )
+        create_bootstrap_session("11111111-1111-1111-1111-111111111111", 15)
+
+        from osk.hub import login_operator_session
+
+        code = login_operator_session()
+        assert not (tmp_path / "operator-bootstrap.json").exists()
+
+    out = capsys.readouterr().out
+    assert code == 0
+    assert "one-time bootstrap" in out
+    mock_asyncio_run.assert_called_once()
+
+
+@patch("osk.hub.asyncio.run")
+def test_show_audit_events_formats_rows(
+    mock_asyncio_run: MagicMock,
+    tmp_path: Path,
+    capsys,
+) -> None:
+    audit_events = [
+        {
+            "timestamp": "2026-03-21T12:00:00Z",
+            "actor_type": "system",
+            "action": "operator_session_created",
+            "details": {"issued_from": "bootstrap"},
+        }
+    ]
+
+    def return_audit_events(coro):
+        coro.close()
+        return audit_events
+
+    mock_asyncio_run.side_effect = return_audit_events
+
+    with patch("osk.hub._config_root", return_value=tmp_path):
+        (tmp_path / "hub-state.json").write_text(
+            '{"operation_id":"11111111-1111-1111-1111-111111111111"}\n'
+        )
+        from osk.hub import show_audit_events
+
+        code = show_audit_events(limit=5)
+
+    out = capsys.readouterr().out
+    assert code == 0
+    assert "operator_session_created" in out
+    assert '"issued_from": "bootstrap"' in out
+
+
+def test_show_runtime_logs_returns_tail(tmp_path: Path, capsys) -> None:
+    with patch("osk.hub._state_root", return_value=tmp_path):
+        (tmp_path / "hub.log").write_text("one\ntwo\nthree\n")
+        from osk.hub import show_runtime_logs
+
+        code = show_runtime_logs(tail=2)
+
+    out = capsys.readouterr().out
+    assert code == 0
+    assert out.splitlines() == ["two", "three"]
 
 
 async def test_watch_member_heartbeats_disconnects_stale_members() -> None:

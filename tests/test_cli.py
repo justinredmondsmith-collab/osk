@@ -37,6 +37,12 @@ def test_parse_status_json() -> None:
     assert args.json_output is True
 
 
+def test_parse_doctor_json() -> None:
+    args = parse_args(["doctor", "--json"])
+    assert args.command == "doctor"
+    assert args.json_output is True
+
+
 def test_parse_operator_login() -> None:
     args = parse_args(["operator", "login", "--ttl-minutes", "30", "--json"])
     assert args.command == "operator"
@@ -56,6 +62,19 @@ def test_parse_operator_logout() -> None:
     args = parse_args(["operator", "logout"])
     assert args.command == "operator"
     assert args.operator_command == "logout"
+
+
+def test_parse_audit() -> None:
+    args = parse_args(["audit", "--limit", "5", "--json"])
+    assert args.command == "audit"
+    assert args.limit == 5
+    assert args.json_output is True
+
+
+def test_parse_logs() -> None:
+    args = parse_args(["logs", "--tail", "25"])
+    assert args.command == "logs"
+    assert args.tail == 25
 
 
 def test_parse_install() -> None:
@@ -146,6 +165,41 @@ def test_doctor_reports_scaffold_ready(
 
 
 @patch("osk.cli._repo_root")
+@patch(
+    "osk.hub.hub_status_snapshot",
+    return_value=(
+        1,
+        {"message": "Osk hub is not running.", "status": "stopped", "stopping": False},
+    ),
+)
+@patch("osk.hub.default_storage_manager")
+@patch("osk.hub.installation_issues", return_value=[])
+@patch("osk.hub.local_service_mode", return_value="compose-managed local services")
+def test_doctor_json_output(
+    _: MagicMock,
+    __: MagicMock,
+    ___: MagicMock,
+    ____: MagicMock,
+    mock_repo_root: MagicMock,
+    tmp_path,
+    capsys,
+) -> None:
+    root = tmp_path / "repo"
+    (root / "src" / "osk").mkdir(parents=True)
+    (root / "tests").mkdir(parents=True)
+    (root / "docs" / "specs").mkdir(parents=True)
+    (root / "docs" / "plans").mkdir(parents=True)
+    (root / "pyproject.toml").write_text("")
+    (root / "docs" / "specs" / "2026-03-21-osk-design.md").write_text("")
+    mock_repo_root.return_value = root
+    code = main(["doctor", "--json"])
+    out = capsys.readouterr().out
+    assert code == 0
+    assert '"ready": true' in out
+    assert '"service_mode": "compose-managed local services"' in out
+
+
+@patch("osk.cli._repo_root")
 @patch("osk.hub.default_storage_manager")
 @patch("osk.hub.installation_issues", return_value=["missing TLS certificate"])
 @patch("osk.hub.local_service_mode", return_value="compose-managed local services")
@@ -216,3 +270,17 @@ def test_operator_logout_command_invokes_hub_helper(
     code = main(["operator", "logout"])
     assert code == 0
     mock_logout_operator_session.assert_called_once_with()
+
+
+@patch("osk.hub.show_audit_events", return_value=0)
+def test_audit_command_invokes_hub_helper(mock_show_audit_events: MagicMock) -> None:
+    code = main(["audit", "--limit", "5", "--json"])
+    assert code == 0
+    mock_show_audit_events.assert_called_once_with(limit=5, json_output=True)
+
+
+@patch("osk.hub.show_runtime_logs", return_value=0)
+def test_logs_command_invokes_hub_helper(mock_show_runtime_logs: MagicMock) -> None:
+    code = main(["logs", "--tail", "25"])
+    assert code == 0
+    mock_show_runtime_logs.assert_called_once_with(tail=25)

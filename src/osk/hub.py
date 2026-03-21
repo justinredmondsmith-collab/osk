@@ -12,6 +12,7 @@ import shutil
 import signal
 import subprocess
 import time
+import uuid
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -22,14 +23,15 @@ from osk.config import OskConfig, load_config, save_config
 from osk.connection_manager import ConnectionManager
 from osk.db import Database
 from osk.local_operator import (
-    bootstrap_token_path,
-    clear_bootstrap_token,
+    bootstrap_session_path,
+    clear_bootstrap_session,
     clear_operator_session,
+    consume_bootstrap_session,
+    create_bootstrap_session,
     create_operator_session,
     operator_session_path,
-    read_bootstrap_token,
+    read_bootstrap_session,
     read_operator_session,
-    write_bootstrap_token,
 )
 from osk.operation import OperationManager
 from osk.qr import build_join_url, generate_qr_ascii, generate_qr_png
@@ -53,6 +55,10 @@ def _config_root() -> Path:
 
 def _state_root() -> Path:
     return Path.home() / ".local" / "state" / "osk"
+
+
+def _runtime_log_path() -> Path:
+    return _state_root() / "hub.log"
 
 
 def default_storage_manager(config: OskConfig) -> StorageManager:
@@ -131,6 +137,22 @@ def _hub_state_path() -> Path:
 
 def _hub_stop_request_path() -> Path:
     return _config_root() / "hub-stop-request.json"
+
+
+def _configure_runtime_log_handler() -> Path:
+    log_path = _runtime_log_path()
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    root_logger = logging.getLogger()
+    for handler in root_logger.handlers:
+        if getattr(handler, "_osk_runtime_log", False):
+            return log_path
+
+    handler = logging.FileHandler(log_path, encoding="utf-8")
+    handler._osk_runtime_log = True  # type: ignore[attr-defined]
+    handler.setLevel(logging.INFO)
+    handler.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s"))
+    root_logger.addHandler(handler)
+    return log_path
 
 
 def _find_compose_command() -> list[str]:
@@ -224,7 +246,7 @@ def ensure_hub_not_running() -> None:
     logger.warning("Removing stale hub state at %s", _hub_state_path())
     _clear_hub_state()
     _clear_stop_request()
-    clear_bootstrap_token()
+    clear_bootstrap_session()
     clear_operator_session()
 
 
@@ -303,6 +325,36 @@ async def watch_member_heartbeats(
             except KeyError:
                 continue
         await asyncio.sleep(poll_seconds)
+
+
+async def _get_audit_events(operation_id: uuid.UUID, limit: int) -> list[dict]:
+    config = load_config()
+    db = Database()
+    await db.connect(config.database_url)
+    try:
+        return await db.get_audit_events(operation_id, limit)
+    finally:
+        await db.close()
+
+
+async def _record_local_audit_event(
+    operation_id: uuid.UUID,
+    action: str,
+    *,
+    details: dict | None = None,
+) -> None:
+    config = load_config()
+    db = Database()
+    await db.connect(config.database_url)
+    try:
+        await db.insert_audit_event(
+            operation_id,
+            "system",
+            action,
+            details=details,
+        )
+    finally:
+        await db.close()
 
 
 def install() -> None:
@@ -395,10 +447,10 @@ async def run_hub(name: str) -> None:
         join_url = build_join_url(config.join_host, config.hub_port, operation.token)
         qr_path = _config_root() / "join-qr.png"
         generate_qr_png(join_url, qr_path)
-        bootstrap_path = write_bootstrap_token(operation.coordinator_token)
-        session = create_operator_session(
+        clear_operator_session()
+        bootstrap = create_bootstrap_session(
             str(operation.id),
-            config.operator_session_ttl_minutes,
+            config.operator_bootstrap_ttl_minutes,
         )
         _write_hub_state(str(operation.id), operation.name, config.hub_port)
 
@@ -411,9 +463,9 @@ async def run_hub(name: str) -> None:
         print(f"Name: {operation.name}")
         print(f"Operation ID: {operation.id}")
         print(f"Join URL: {join_url}")
-        print(f"Operator bootstrap file: {bootstrap_path}")
-        print(f"Operator session file: {operator_session_path()}")
-        print(f"Operator session expires: {session['expires_at']}")
+        print(f"Operator bootstrap file: {bootstrap_session_path()}")
+        print(f"Operator bootstrap expires: {bootstrap['expires_at']}")
+        print(f"Runtime log file: {_runtime_log_path()}")
         print(f"Service mode: {local_service_mode(config)}")
         print(f"Storage backend: {storage.backend}")
         print(generate_qr_ascii(join_url))
@@ -449,7 +501,7 @@ async def run_hub(name: str) -> None:
         print("\nShutting down...")
         _clear_hub_state()
         _clear_stop_request()
-        clear_bootstrap_token()
+        clear_bootstrap_session()
         clear_operator_session()
         await conn_manager.broadcast({"type": "op_ended"})
         if db_connected and op_manager is not None and op_manager.operation is not None:
@@ -468,6 +520,8 @@ async def run_hub(name: str) -> None:
 
 def run_hub_sync(name: str) -> int:
     try:
+        log_path = _configure_runtime_log_handler()
+        logger.info("Starting Osk hub runtime; log file at %s", log_path)
         asyncio.run(run_hub(name))
     except HubBootstrapError as exc:
         print(exc)
@@ -490,7 +544,7 @@ def stop_hub(wait_seconds: float = 10.0, *, stop_services: bool = False) -> int:
     if pid <= 0 or not _pid_is_running(pid):
         print("Found stale Osk hub state; cleaning it up.")
         _clear_hub_state()
-        clear_bootstrap_token()
+        clear_bootstrap_session()
         clear_operator_session()
         if stop_services:
             stop_local_services(config)
@@ -520,7 +574,7 @@ def stop_hub(wait_seconds: float = 10.0, *, stop_services: bool = False) -> int:
 
     _clear_hub_state()
     _clear_stop_request()
-    clear_bootstrap_token()
+    clear_bootstrap_session()
     clear_operator_session()
     if stop_services:
         stop_local_services(config)
@@ -578,18 +632,25 @@ def hub_status_snapshot(now: float | None = None) -> tuple[int, dict[str, object
         uptime_human = _format_uptime(uptime_seconds)
 
     snapshot: dict[str, object] = {
-        "operator_bootstrap_path": str(bootstrap_token_path()),
+        "operator_bootstrap_path": str(bootstrap_session_path()),
         "operation_id": operation_id,
         "operation_name": operation_name,
         "operator_session_path": str(operator_session_path()),
         "pid": pid,
         "port": port,
+        "runtime_log_path": str(_runtime_log_path()),
         "started_at_unix": started_at_unix,
         "started_at_iso": started_at_iso,
         "uptime_seconds": uptime_seconds,
         "uptime_human": uptime_human,
         "stopping": stopping,
     }
+    if bootstrap := read_bootstrap_session():
+        snapshot["operator_bootstrap_active"] = True
+        snapshot["operator_bootstrap_expires_at"] = bootstrap.get("expires_at")
+    else:
+        snapshot["operator_bootstrap_active"] = False
+        snapshot["operator_bootstrap_expires_at"] = None
     if session := read_operator_session():
         snapshot["operator_session_active"] = True
         snapshot["operator_session_expires_at"] = session.get("expires_at")
@@ -643,6 +704,10 @@ def status_hub(*, json_output: bool = False) -> int:
         print(f"operator_session_expires_at = {session_expires_at}")
     if bootstrap_path := snapshot.get("operator_bootstrap_path"):
         print(f"operator_bootstrap_file = {bootstrap_path}")
+    if bootstrap_expires_at := snapshot.get("operator_bootstrap_expires_at"):
+        print(f"operator_bootstrap_expires_at = {bootstrap_expires_at}")
+    if runtime_log_path := snapshot.get("runtime_log_path"):
+        print(f"runtime_log_file = {runtime_log_path}")
 
     return code
 
@@ -654,20 +719,50 @@ def login_operator_session(*, ttl_minutes: int | None = None, json_output: bool 
         print("No running Osk hub state found.")
         return 1
 
-    if read_bootstrap_token() is None:
-        print("Operator bootstrap token is not available for this hub instance.")
-        return 1
-
     operation_id = str(state.get("operation_id", "")).strip()
     if not operation_id:
         print("Hub state is missing an operation id.")
         return 1
 
+    issued_from = "session_refresh"
+    bootstrap_consumed = False
+    existing_session = read_operator_session()
+    if existing_session is None or existing_session.get("operation_id") != operation_id:
+        bootstrap = read_bootstrap_session()
+        if bootstrap is None:
+            print("No active operator bootstrap is available for this hub instance.")
+            return 1
+        bootstrap_token = bootstrap.get("bootstrap_token")
+        if not isinstance(bootstrap_token, str):
+            print("Operator bootstrap file is invalid.")
+            clear_bootstrap_session()
+            return 1
+        if not consume_bootstrap_session(operation_id, bootstrap_token):
+            print("Operator bootstrap could not be consumed.")
+            return 1
+        issued_from = "bootstrap"
+        bootstrap_consumed = True
+
     session = create_operator_session(
         operation_id,
         ttl_minutes if ttl_minutes is not None else config.operator_session_ttl_minutes,
     )
+    try:
+        asyncio.run(
+            _record_local_audit_event(
+                uuid.UUID(operation_id),
+                "operator_session_created",
+                details={
+                    "expires_at": session["expires_at"],
+                    "issued_from": issued_from,
+                },
+            )
+        )
+    except Exception as exc:  # pragma: no cover - defensive logging path
+        logger.warning("Failed to record operator session audit event: %s", exc)
     response = {
+        "bootstrap_consumed": bootstrap_consumed,
+        "issued_from": issued_from,
         "operation_id": operation_id,
         "operator_session_active": True,
         "operator_session_path": str(operator_session_path()),
@@ -677,8 +772,12 @@ def login_operator_session(*, ttl_minutes: int | None = None, json_output: bool 
         print(json.dumps(response, indent=2, sort_keys=True))
         return 0
 
-    print("Created local operator session.")
+    if bootstrap_consumed:
+        print("Created local operator session from one-time bootstrap.")
+    else:
+        print("Refreshed local operator session.")
     print(f"operation_id = {response['operation_id']}")
+    print(f"issued_from = {response['issued_from']}")
     print(f"operator_session_file = {response['operator_session_path']}")
     print(f"operator_session_expires_at = {response['operator_session_expires_at']}")
     return 0
@@ -686,12 +785,14 @@ def login_operator_session(*, ttl_minutes: int | None = None, json_output: bool 
 
 def status_operator_session(*, json_output: bool = False) -> int:
     state = read_hub_state()
+    bootstrap = read_bootstrap_session()
     session = read_operator_session()
     response = {
         "hub_running": state is not None,
         "operation_id": state.get("operation_id") if state else None,
-        "operator_bootstrap_available": read_bootstrap_token() is not None,
-        "operator_bootstrap_path": str(bootstrap_token_path()),
+        "operator_bootstrap_active": bootstrap is not None,
+        "operator_bootstrap_expires_at": bootstrap.get("expires_at") if bootstrap else None,
+        "operator_bootstrap_path": str(bootstrap_session_path()),
         "operator_session_active": session is not None,
         "operator_session_expires_at": session.get("expires_at") if session else None,
         "operator_session_path": str(operator_session_path()),
@@ -708,8 +809,10 @@ def status_operator_session(*, json_output: bool = False) -> int:
     print(f"hub_running = {str(response['hub_running']).lower()}")
     if response["operation_id"]:
         print(f"operation_id = {response['operation_id']}")
-    print(f"operator_bootstrap_available = {str(response['operator_bootstrap_available']).lower()}")
+    print(f"operator_bootstrap_active = {str(response['operator_bootstrap_active']).lower()}")
     print(f"operator_bootstrap_file = {response['operator_bootstrap_path']}")
+    if response["operator_bootstrap_expires_at"]:
+        print(f"operator_bootstrap_expires_at = {response['operator_bootstrap_expires_at']}")
     print(f"operator_session_file = {response['operator_session_path']}")
     if response["operator_session_expires_at"]:
         print(f"operator_session_expires_at = {response['operator_session_expires_at']}")
@@ -719,4 +822,54 @@ def status_operator_session(*, json_output: bool = False) -> int:
 def logout_operator_session() -> int:
     clear_operator_session()
     print("Local operator session removed.")
+    return 0
+
+
+def show_audit_events(*, limit: int = 20, json_output: bool = False) -> int:
+    state = read_hub_state()
+    if state is None:
+        print("No running Osk hub state found.")
+        return 1
+
+    operation_id_raw = str(state.get("operation_id", "")).strip()
+    if not operation_id_raw:
+        print("Hub state is missing an operation id.")
+        return 1
+
+    try:
+        events = asyncio.run(_get_audit_events(uuid.UUID(operation_id_raw), max(1, limit)))
+    except Exception as exc:
+        print(f"Failed to load audit events: {exc}")
+        return 1
+
+    if json_output:
+        print(json.dumps(events, indent=2, sort_keys=True, default=str))
+        return 0
+
+    if not events:
+        print("No audit events recorded.")
+        return 0
+
+    for event in events:
+        timestamp = event.get("timestamp", "unknown")
+        actor_type = event.get("actor_type", "unknown")
+        action = event.get("action", "unknown")
+        actor_member_id = event.get("actor_member_id")
+        details = event.get("details") or {}
+        detail_text = ""
+        if details:
+            detail_text = f" details={json.dumps(details, sort_keys=True)}"
+        actor_text = f" actor_member_id={actor_member_id}" if actor_member_id else ""
+        print(f"{timestamp} {actor_type} {action}{actor_text}{detail_text}")
+    return 0
+
+
+def show_runtime_logs(*, tail: int = 100) -> int:
+    log_path = _runtime_log_path()
+    if not log_path.exists():
+        print("No runtime log file found.")
+        return 1
+
+    for line in log_path.read_text().splitlines()[-max(1, tail) :]:
+        print(line)
     return 0

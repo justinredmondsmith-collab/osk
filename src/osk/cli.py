@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 from pathlib import Path
 from typing import Sequence
@@ -13,7 +14,7 @@ def _repo_root() -> Path:
     return Path(__file__).resolve().parents[2]
 
 
-def _cmd_doctor(_: argparse.Namespace) -> int:
+def _doctor_snapshot() -> tuple[int, dict[str, object]]:
     root = _repo_root()
     checks = [
         ("pyproject.toml", root / "pyproject.toml"),
@@ -23,28 +24,67 @@ def _cmd_doctor(_: argparse.Namespace) -> int:
         ("phase plans", root / "docs" / "plans"),
     ]
 
-    print("Osk scaffold status")
-    ok = True
+    scaffold_checks: list[dict[str, object]] = []
     for label, path in checks:
         present = path.exists()
-        ok = ok and present
-        status = "ok" if present else "missing"
-        print(f"- {label}: {status} ({path})")
+        scaffold_checks.append(
+            {
+                "label": label,
+                "path": str(path),
+                "present": present,
+                "status": "ok" if present else "missing",
+            }
+        )
 
-    if ok:
+    scaffold_ok = all(check["present"] for check in scaffold_checks)
+
+    from .hub import (
+        default_storage_manager,
+        hub_status_snapshot,
+        installation_issues,
+        local_service_mode,
+    )
+
+    cfg = load_config()
+    issues = installation_issues(cfg, default_storage_manager(cfg))
+    _, hub_status = hub_status_snapshot()
+
+    payload = {
+        "scaffold": {
+            "checks": scaffold_checks,
+            "ready": scaffold_ok,
+        },
+        "install": {
+            "issues": issues,
+            "ready": not issues,
+            "service_mode": local_service_mode(cfg),
+        },
+        "hub": hub_status,
+    }
+    code = 0 if scaffold_ok and not issues else 1
+    return code, payload
+
+
+def _cmd_doctor(args: argparse.Namespace) -> int:
+    code, payload = _doctor_snapshot()
+    if args.json_output:
+        print(json.dumps(payload, indent=2, sort_keys=True))
+        return code
+
+    print("Osk scaffold status")
+    for check in payload["scaffold"]["checks"]:
+        print(f"- {check['label']}: {check['status']} ({check['path']})")
+
+    if payload["scaffold"]["ready"]:
         print("Scaffold ready for Phase 1 implementation work.")
     else:
         print("Scaffold incomplete. Fix missing paths before continuing.")
         return 1
 
-    from .hub import default_storage_manager, installation_issues, local_service_mode
-
-    cfg = load_config()
-    issues = installation_issues(cfg, default_storage_manager(cfg))
-    print(f"Service mode: {local_service_mode(cfg)}")
-    if issues:
+    print(f"Service mode: {payload['install']['service_mode']}")
+    if payload["install"]["issues"]:
         print("Install readiness: missing")
-        for issue in issues:
+        for issue in payload["install"]["issues"]:
             print(f"- {issue}")
         print("Run `osk install` before starting the hub.")
         return 1
@@ -143,6 +183,18 @@ def _cmd_operator_logout(_: argparse.Namespace) -> int:
     return logout_operator_session()
 
 
+def _cmd_audit(args: argparse.Namespace) -> int:
+    from .hub import show_audit_events
+
+    return show_audit_events(limit=args.limit, json_output=args.json_output)
+
+
+def _cmd_logs(args: argparse.Namespace) -> int:
+    from .hub import show_runtime_logs
+
+    return show_runtime_logs(tail=args.tail)
+
+
 def _cmd_rotate_token(_: argparse.Namespace) -> int:
     print("Token rotation requires a running hub and is not wired through the CLI yet.")
     return 1
@@ -177,6 +229,12 @@ def build_parser() -> argparse.ArgumentParser:
     doctor_parser = subparsers.add_parser(
         "doctor",
         help="Report whether the local Phase 1 scaffold is present.",
+    )
+    doctor_parser.add_argument(
+        "--json",
+        dest="json_output",
+        action="store_true",
+        help="Emit machine-readable JSON output.",
     )
     doctor_parser.set_defaults(func=_cmd_doctor)
 
@@ -249,6 +307,30 @@ def build_parser() -> argparse.ArgumentParser:
 
     operator_logout = operator_sub.add_parser("logout", help="Remove the local operator session.")
     operator_logout.set_defaults(func=_cmd_operator_logout)
+
+    audit_parser = subparsers.add_parser("audit", help="Show recent audit events from the hub.")
+    audit_parser.add_argument(
+        "--limit",
+        type=int,
+        default=20,
+        help="Maximum number of audit events to display.",
+    )
+    audit_parser.add_argument(
+        "--json",
+        dest="json_output",
+        action="store_true",
+        help="Emit machine-readable JSON output.",
+    )
+    audit_parser.set_defaults(func=_cmd_audit)
+
+    logs_parser = subparsers.add_parser("logs", help="Show recent hub runtime logs.")
+    logs_parser.add_argument(
+        "--tail",
+        type=int,
+        default=100,
+        help="Number of log lines to display.",
+    )
+    logs_parser.set_defaults(func=_cmd_logs)
 
     rotate_parser = subparsers.add_parser("rotate-token", help="Rotate the operation token.")
     rotate_parser.set_defaults(func=_cmd_rotate_token)

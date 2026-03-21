@@ -39,6 +39,9 @@ changes manually while the project is in its early public setup phase.
   storage plus local admin audit retrieval
 - Local operator sessions, CLI operator login/status/logout flows, member
   heartbeat tracking, and stale-connection disconnect handling
+- One-time local operator bootstrap exchange, `osk audit`, `osk logs`,
+  machine-readable `osk doctor --json`, and runtime log file visibility in
+  hub status
 
 ### Changed
 
