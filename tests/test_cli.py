@@ -297,3 +297,10 @@ def test_members_command_invokes_hub_helper(mock_show_members: MagicMock) -> Non
     code = main(["members", "--json"])
     assert code == 0
     mock_show_members.assert_called_once_with(json_output=True)
+
+
+@patch("osk.hub.show_findings", return_value=0)
+def test_findings_command_invokes_hub_helper(mock_show_findings: MagicMock) -> None:
+    code = main(["findings", "--limit", "7", "--json"])
+    assert code == 0
+    mock_show_findings.assert_called_once_with(limit=7, json_output=True)

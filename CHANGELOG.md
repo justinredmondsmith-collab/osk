@@ -62,6 +62,9 @@ changes manually while the project is in its early public setup phase.
 - Phase 2 media/runtime hardening: `ffmpeg`-backed compressed audio decode for
   real Whisper mode, transport payload ceilings, corroboration-aware synthesis,
   and rolling sitrep generation
+- Phase 2 operator review slice: persisted synthesis findings, local
+  `osk findings`, `/api/intelligence/findings`, and duplicate-safe media
+  acknowledgements when clients reuse stable ingest keys across reconnects
 
 ### Changed
 
@@ -76,3 +79,5 @@ changes manually while the project is in its early public setup phase.
   current heuristic synthesis bridge
 - Docs now call out the current `ffmpeg` requirement for real Whisper browser
   audio ingest and the more stateful heuristic synthesis behavior
+- Docs now call out the current local findings surface and the expectation that
+  reconnecting clients preserve media ingest keys when resubmitting uploads

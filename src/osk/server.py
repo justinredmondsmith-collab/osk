@@ -21,6 +21,7 @@ from osk.intelligence_contracts import (
     IngestSource,
     LocationSample,
 )
+from osk.intelligence_service import IngestSubmissionResult
 from osk.local_operator import validate_operator_session
 from osk.models import Event, EventCategory, EventSeverity, MemberRole, Pin
 from osk.operation import OperationManager
@@ -31,6 +32,7 @@ OPERATOR_SESSION_HEADER = "X-Osk-Operator-Session"
 LOCAL_ADMIN_TEST_HOSTS = {"testclient", "localhost"}
 MAX_AUDIT_LIMIT = 200
 MAX_OBSERVATION_LIMIT = 200
+MAX_FINDING_LIMIT = 100
 
 
 class ReportRequest(BaseModel):
@@ -118,6 +120,26 @@ def _coerce_timestamp(value) -> dt.datetime:
     return _utcnow()
 
 
+def _coerce_uuid(value) -> uuid.UUID | None:
+    if value is None:
+        return None
+    raw = str(value).strip()
+    if not raw:
+        return None
+    try:
+        return uuid.UUID(raw)
+    except ValueError:
+        return None
+
+
+def _coerce_ingest_key(data: dict, *, preferred_id_key: str) -> str | None:
+    for key in ("ingest_key", preferred_id_key):
+        raw = str(data.get(key) or "").strip()
+        if raw:
+            return raw[:128]
+    return None
+
+
 def _decode_inline_payload(data: dict) -> bytes:
     payload_b64 = str(data.get("payload_b64") or "").strip()
     if not payload_b64:
@@ -127,7 +149,10 @@ def _decode_inline_payload(data: dict) -> bytes:
 
 def _build_audio_chunk(member, data: dict, payload: bytes) -> AudioChunk:
     received_at = _coerce_timestamp(data.get("captured_at") or data.get("received_at"))
+    chunk_id = _coerce_uuid(data.get("chunk_id")) or uuid.uuid4()
     return AudioChunk(
+        chunk_id=chunk_id,
+        ingest_key=_coerce_ingest_key(data, preferred_id_key="chunk_id"),
         source=IngestSource(
             member_id=member.id,
             member_role=member.role,
@@ -144,7 +169,10 @@ def _build_audio_chunk(member, data: dict, payload: bytes) -> AudioChunk:
 
 def _build_frame_sample(member, data: dict, payload: bytes) -> FrameSample:
     captured_at = _coerce_timestamp(data.get("captured_at"))
+    frame_id = _coerce_uuid(data.get("frame_id")) or uuid.uuid4()
     return FrameSample(
+        frame_id=frame_id,
+        ingest_key=_coerce_ingest_key(data, preferred_id_key="frame_id"),
         source=IngestSource(
             member_id=member.id,
             member_role=member.role,
@@ -183,6 +211,56 @@ def _build_location_sample(member, data: dict) -> LocationSample:
         speed_mps=float(data["speed_mps"]) if data.get("speed_mps") is not None else None,
         captured_at=captured_at,
     )
+
+
+def _normalize_submission_result(result) -> IngestSubmissionResult:
+    if isinstance(result, IngestSubmissionResult):
+        return result
+    return IngestSubmissionResult(accepted=bool(result))
+
+
+def _submission_ack_payload(
+    *,
+    ack_type: str,
+    item_field: str,
+    item_id: uuid.UUID,
+    ingest_key: str | None,
+    result,
+) -> dict[str, object]:
+    submission = _normalize_submission_result(result)
+    payload: dict[str, object] = {
+        "type": ack_type,
+        "accepted": submission.accepted,
+        item_field: str(item_id),
+    }
+    if ingest_key:
+        payload["ingest_key"] = ingest_key
+    if submission.duplicate:
+        payload["duplicate"] = True
+    if submission.reason:
+        payload["reason"] = submission.reason
+    return payload
+
+
+def _oversized_ingest_ack_payload(
+    *,
+    data: dict,
+    ack_type: str,
+    item_field: str,
+    preferred_id_key: str,
+    reason: str,
+) -> dict[str, object]:
+    item_id = _coerce_uuid(data.get(preferred_id_key)) or uuid.uuid4()
+    payload: dict[str, object] = {
+        "type": ack_type,
+        "accepted": False,
+        item_field: str(item_id),
+        "reason": reason,
+    }
+    ingest_key = _coerce_ingest_key(data, preferred_id_key=preferred_id_key)
+    if ingest_key:
+        payload["ingest_key"] = ingest_key
+    return payload
 
 
 def create_app(
@@ -244,6 +322,16 @@ def create_app(
             return JSONResponse({"error": "No active operation"}, status_code=503)
         clamped_limit = max(1, min(limit, MAX_OBSERVATION_LIMIT))
         return await db.get_recent_intelligence_observations(operation.id, clamped_limit)
+
+    @app.get("/api/intelligence/findings")
+    async def intelligence_findings(request: Request, limit: int = 25):
+        if response := _require_local_admin(request, op_manager):
+            return response
+        operation = op_manager.operation
+        if operation is None:
+            return JSONResponse({"error": "No active operation"}, status_code=503)
+        clamped_limit = max(1, min(limit, MAX_FINDING_LIMIT))
+        return await db.get_recent_synthesis_findings(operation.id, clamped_limit)
 
     @app.get("/api/members")
     async def list_members(request: Request):
@@ -531,25 +619,32 @@ def create_app(
                             limit_bytes=intelligence_service.config.max_audio_payload_bytes,
                         ):
                             await ws.send_json(
-                                {
-                                    "type": "audio_ack",
-                                    "accepted": False,
-                                    "reason": "audio payload too large",
-                                }
+                                _oversized_ingest_ack_payload(
+                                    data=data,
+                                    ack_type="audio_ack",
+                                    item_field="chunk_id",
+                                    preferred_id_key="chunk_id",
+                                    reason="audio payload too large",
+                                )
                             )
                             continue
                         chunk = _build_audio_chunk(member, data, payload)
-                        accepted = (
+                        submission = (
                             await intelligence_service.submit_audio(chunk)
                             if intelligence_service is not None
-                            else False
+                            else IngestSubmissionResult(
+                                accepted=False,
+                                reason="intelligence service unavailable",
+                            )
                         )
                         await ws.send_json(
-                            {
-                                "type": "audio_ack",
-                                "accepted": accepted,
-                                "chunk_id": str(chunk.chunk_id),
-                            }
+                            _submission_ack_payload(
+                                ack_type="audio_ack",
+                                item_field="chunk_id",
+                                item_id=chunk.chunk_id,
+                                ingest_key=chunk.ingest_key,
+                                result=submission,
+                            )
                         )
                     elif msg_type == "frame_sample":
                         payload = _decode_inline_payload(data)
@@ -558,25 +653,32 @@ def create_app(
                             limit_bytes=intelligence_service.config.max_frame_payload_bytes,
                         ):
                             await ws.send_json(
-                                {
-                                    "type": "frame_ack",
-                                    "accepted": False,
-                                    "reason": "frame payload too large",
-                                }
+                                _oversized_ingest_ack_payload(
+                                    data=data,
+                                    ack_type="frame_ack",
+                                    item_field="frame_id",
+                                    preferred_id_key="frame_id",
+                                    reason="frame payload too large",
+                                )
                             )
                             continue
                         frame = _build_frame_sample(member, data, payload)
-                        accepted = (
+                        submission = (
                             await intelligence_service.submit_frame(frame)
                             if intelligence_service is not None
-                            else False
+                            else IngestSubmissionResult(
+                                accepted=False,
+                                reason="intelligence service unavailable",
+                            )
                         )
                         await ws.send_json(
-                            {
-                                "type": "frame_ack",
-                                "accepted": accepted,
-                                "frame_id": str(frame.frame_id),
-                            }
+                            _submission_ack_payload(
+                                ack_type="frame_ack",
+                                item_field="frame_id",
+                                item_id=frame.frame_id,
+                                ingest_key=frame.ingest_key,
+                                result=submission,
+                            )
                         )
                     elif msg_type in {"pong", "clip_meta"}:
                         continue
@@ -587,28 +689,36 @@ def create_app(
                             payload,
                             limit_bytes=intelligence_service.config.max_audio_payload_bytes,
                         ):
+                            audio_meta = pending_audio_meta
                             pending_audio_meta = None
                             await ws.send_json(
-                                {
-                                    "type": "audio_ack",
-                                    "accepted": False,
-                                    "reason": "audio payload too large",
-                                }
+                                _oversized_ingest_ack_payload(
+                                    data=audio_meta,
+                                    ack_type="audio_ack",
+                                    item_field="chunk_id",
+                                    preferred_id_key="chunk_id",
+                                    reason="audio payload too large",
+                                )
                             )
                             continue
                         chunk = _build_audio_chunk(member, pending_audio_meta, payload)
-                        accepted = (
+                        submission = (
                             await intelligence_service.submit_audio(chunk)
                             if intelligence_service is not None
-                            else False
+                            else IngestSubmissionResult(
+                                accepted=False,
+                                reason="intelligence service unavailable",
+                            )
                         )
                         pending_audio_meta = None
                         await ws.send_json(
-                            {
-                                "type": "audio_ack",
-                                "accepted": accepted,
-                                "chunk_id": str(chunk.chunk_id),
-                            }
+                            _submission_ack_payload(
+                                ack_type="audio_ack",
+                                item_field="chunk_id",
+                                item_id=chunk.chunk_id,
+                                ingest_key=chunk.ingest_key,
+                                result=submission,
+                            )
                         )
                         continue
                     if pending_frame_meta is not None:
@@ -616,28 +726,36 @@ def create_app(
                             payload,
                             limit_bytes=intelligence_service.config.max_frame_payload_bytes,
                         ):
+                            frame_meta = pending_frame_meta
                             pending_frame_meta = None
                             await ws.send_json(
-                                {
-                                    "type": "frame_ack",
-                                    "accepted": False,
-                                    "reason": "frame payload too large",
-                                }
+                                _oversized_ingest_ack_payload(
+                                    data=frame_meta,
+                                    ack_type="frame_ack",
+                                    item_field="frame_id",
+                                    preferred_id_key="frame_id",
+                                    reason="frame payload too large",
+                                )
                             )
                             continue
                         frame = _build_frame_sample(member, pending_frame_meta, payload)
-                        accepted = (
+                        submission = (
                             await intelligence_service.submit_frame(frame)
                             if intelligence_service is not None
-                            else False
+                            else IngestSubmissionResult(
+                                accepted=False,
+                                reason="intelligence service unavailable",
+                            )
                         )
                         pending_frame_meta = None
                         await ws.send_json(
-                            {
-                                "type": "frame_ack",
-                                "accepted": accepted,
-                                "frame_id": str(frame.frame_id),
-                            }
+                            _submission_ack_payload(
+                                ack_type="frame_ack",
+                                item_field="frame_id",
+                                item_id=frame.frame_id,
+                                ingest_key=frame.ingest_key,
+                                result=submission,
+                            )
                         )
                         continue
                     await ws.send_json(

@@ -81,6 +81,7 @@ async def test_intelligence_service_processes_audio_and_frames() -> None:
     assert snapshot["frame_ingest"]["accepted_frames"] == 1
     assert snapshot["observation_counts"] == {"transcript": 1, "vision": 1}
     assert len(snapshot["recent_observations"]) == 2
+    assert isinstance(snapshot["recent_findings"], list)
     assert len(observed) == 2
 
     await service.stop()
@@ -151,6 +152,7 @@ async def test_intelligence_service_persists_and_synthesizes_audio_observations(
     db.insert_intelligence_observation = AsyncMock()
     db.insert_event = AsyncMock()
     db.insert_alert = AsyncMock()
+    db.upsert_synthesis_finding = AsyncMock()
     db.insert_sitrep = AsyncMock()
     conn_manager = MagicMock()
     conn_manager.broadcast_alert = AsyncMock()
@@ -204,6 +206,7 @@ async def test_intelligence_service_persists_and_synthesizes_audio_observations(
     db.insert_intelligence_observation.assert_awaited_once()
     db.insert_event.assert_awaited_once()
     db.insert_alert.assert_awaited_once()
+    db.upsert_synthesis_finding.assert_awaited_once()
     conn_manager.broadcast_alert.assert_awaited_once()
     insert_event_call = db.insert_event.await_args.args
     assert insert_event_call[2] == EventSeverity.WARNING
@@ -246,6 +249,7 @@ async def test_intelligence_service_persists_sitrep_from_synthesizer() -> None:
     db.insert_intelligence_observation = AsyncMock()
     db.insert_event = AsyncMock()
     db.insert_alert = AsyncMock()
+    db.upsert_synthesis_finding = AsyncMock()
     db.insert_sitrep = AsyncMock()
     source_member = Member(name="Observer", role=MemberRole.OBSERVER)
     operation_manager = SimpleNamespace(
@@ -309,3 +313,23 @@ async def test_intelligence_service_persists_sitrep_from_synthesizer() -> None:
     await service.stop()
 
     db.insert_sitrep.assert_awaited_once()
+    db.upsert_synthesis_finding.assert_not_awaited()
+
+
+async def test_intelligence_service_dedupes_audio_by_ingest_key() -> None:
+    config = OskConfig(transcriber_backend="fake")
+    service = IntelligenceService(config=config)
+    chunk = AudioChunk(
+        ingest_key="member-1:chunk-7",
+        source=_source(),
+        duration_ms=250,
+    )
+
+    first = await service.submit_audio(chunk)
+    second = await service.submit_audio(chunk)
+
+    assert first.accepted is True
+    assert first.duplicate is False
+    assert second.accepted is True
+    assert second.duplicate is True
+    assert service.snapshot()["audio_ingest"]["duplicate_submissions"] == 1

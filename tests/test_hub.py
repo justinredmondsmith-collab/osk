@@ -630,6 +630,40 @@ def test_show_members_formats_rows(mock_asyncio_run: MagicMock, tmp_path: Path, 
     assert "gps=39.75,-104.99" in out
 
 
+@patch("osk.hub.asyncio.run")
+def test_show_findings_formats_rows(mock_asyncio_run: MagicMock, tmp_path: Path, capsys) -> None:
+    finding_rows = [
+        {
+            "title": "Police Action",
+            "severity": "warning",
+            "status": "open",
+            "corroborated": True,
+            "last_seen_at": "2026-03-21T12:03:00Z",
+            "summary": "Police advancing north. Corroborated by 2 sources across 2 signals.",
+        }
+    ]
+
+    def return_findings(coro):
+        coro.close()
+        return finding_rows
+
+    mock_asyncio_run.side_effect = return_findings
+
+    with patch("osk.hub._config_root", return_value=tmp_path):
+        (tmp_path / "hub-state.json").write_text(
+            '{"operation_id":"11111111-1111-1111-1111-111111111111"}\n'
+        )
+        from osk.hub import show_findings
+
+        code = show_findings(limit=5)
+
+    out = capsys.readouterr().out
+    assert code == 0
+    assert "Police Action" in out
+    assert "corroborated" in out
+    assert "severity=warning" in out
+
+
 async def test_watch_member_heartbeats_disconnects_stale_members() -> None:
     op_manager = MagicMock()
     op_manager.mark_disconnected = AsyncMock()

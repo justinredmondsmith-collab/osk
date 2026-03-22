@@ -26,6 +26,8 @@ def test_default_config() -> None:
     assert cfg.synthesis_cooldown_seconds == 60
     assert cfg.max_audio_payload_bytes == 2_000_000
     assert cfg.max_frame_payload_bytes == 4_000_000
+    assert cfg.ingest_idempotency_window_seconds == 900
+    assert cfg.ingest_idempotency_cache_size == 4096
     assert cfg.frame_change_threshold == 0.15
     assert cfg.observer_clip_rate_limit == 3
     assert cfg.luks_volume_size_gb == 1

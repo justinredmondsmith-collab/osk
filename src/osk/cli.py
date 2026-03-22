@@ -201,6 +201,12 @@ def _cmd_members(args: argparse.Namespace) -> int:
     return show_members(json_output=args.json_output)
 
 
+def _cmd_findings(args: argparse.Namespace) -> int:
+    from .hub import show_findings
+
+    return show_findings(limit=args.limit, json_output=args.json_output)
+
+
 def _cmd_rotate_token(_: argparse.Namespace) -> int:
     print("Token rotation requires a running hub and is not wired through the CLI yet.")
     return 1
@@ -346,6 +352,24 @@ def build_parser() -> argparse.ArgumentParser:
         help="Emit machine-readable JSON output.",
     )
     members_parser.set_defaults(func=_cmd_members)
+
+    findings_parser = subparsers.add_parser(
+        "findings",
+        help="Show reviewable synthesis findings from the hub.",
+    )
+    findings_parser.add_argument(
+        "--limit",
+        type=int,
+        default=20,
+        help="Maximum number of findings to display.",
+    )
+    findings_parser.add_argument(
+        "--json",
+        dest="json_output",
+        action="store_true",
+        help="Emit machine-readable JSON output.",
+    )
+    findings_parser.set_defaults(func=_cmd_findings)
 
     rotate_parser = subparsers.add_parser("rotate-token", help="Rotate the operation token.")
     rotate_parser.set_defaults(func=_cmd_rotate_token)

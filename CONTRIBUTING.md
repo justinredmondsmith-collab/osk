@@ -16,11 +16,12 @@ The repository now includes:
 - A lightweight GitHub Actions CI workflow
 - Local hub runtime commands (`install`, `start`, `status`, `stop`)
 - Local operator and observability commands (`operator`, `audit`, `logs`,
-  `members`)
+  `members`, `findings`)
 - A hub-owned Phase 2 intelligence service with config-selectable fake or real
   transcript/vision adapters, live GPS/audio/frame ingest wiring, persisted
-  intelligence observations, `ffmpeg`-backed compressed audio decode, and a
-  heuristic synthesis layer with corroboration and sitrep output
+  intelligence observations, persisted reviewable findings, `ffmpeg`-backed
+  compressed audio decode, and a heuristic synthesis layer with corroboration
+  and sitrep output
 
 The repository does **not** yet contain the full intelligence pipeline,
 synthesis layer, coordinator dashboard, or mobile client described in the
@@ -117,6 +118,9 @@ Code contributions should:
   for persistence, synthesis, or alert heuristics
 - Treat mobile/browser media formats as first-class inputs; avoid narrowing the
   runtime back down to raw PCM-only happy paths
+- Preserve reconnect-safe ingest semantics: if client code resends media after
+  a transport break, reuse the same `chunk_id`, `frame_id`, or `ingest_key`
+  instead of generating a fresh key for the retry
 
 ## How to Contribute
 

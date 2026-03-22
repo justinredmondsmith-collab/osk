@@ -28,6 +28,9 @@ async def test_heuristic_synthesizer_emits_police_event_and_alert() -> None:
     assert decision.events[0].latitude == 39.75
     assert len(decision.alerts) == 1
     assert decision.alerts[0].event_id == decision.events[0].id
+    assert len(decision.findings) == 1
+    assert decision.findings[0].category == EventCategory.POLICE_ACTION
+    assert decision.findings[0].latest_event_id == decision.events[0].id
     assert decision.sitrep is None
 
 
@@ -55,6 +58,10 @@ async def test_heuristic_synthesizer_emits_corroborated_follow_up() -> None:
     assert second_decision.events[0].category == EventCategory.POLICE_ACTION
     assert "Corroborated by 2 sources" in second_decision.events[0].text
     assert len(second_decision.alerts) == 1
+    assert len(second_decision.findings) == 1
+    assert second_decision.findings[0].corroborated is True
+    assert second_decision.findings[0].source_count == 2
+    assert second_decision.findings[0].signal_count == 2
 
 
 async def test_heuristic_synthesizer_generates_periodic_sitrep() -> None:
@@ -83,6 +90,7 @@ async def test_heuristic_synthesizer_generates_periodic_sitrep() -> None:
     assert second_decision.sitrep is not None
     assert "Recent updates:" in second_decision.sitrep.text
     assert second_decision.sitrep.trend in {"active", "escalating", "stable"}
+    assert len(second_decision.findings) == 1
 
 
 async def test_heuristic_synthesizer_ignores_low_signal_observations() -> None:
@@ -99,3 +107,4 @@ async def test_heuristic_synthesizer_ignores_low_signal_observations() -> None:
 
     assert decision.events == []
     assert decision.alerts == []
+    assert decision.findings == []

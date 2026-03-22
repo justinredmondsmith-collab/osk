@@ -12,8 +12,9 @@ situations where shared awareness matters.
 > member visibility. Phase 2 now also includes a hub-owned intelligence service
 > with config-selectable fake or real transcript/vision adapters, live
 > member audio/frame/GPS ingest wiring, persisted observations, `ffmpeg`-backed
-> compressed audio decode for Whisper mode, and a heuristic synthesis layer with
-> corroboration and sitrep output. Full dashboard and mobile product work are
+> compressed audio decode for Whisper mode, duplicate-safe media resubmission
+> hooks, and a heuristic synthesis layer with reviewable findings,
+> corroboration, and sitrep output. Full dashboard and mobile product work are
 > still planned.
 
 ## At a Glance
@@ -76,7 +77,8 @@ What exists today:
   `osk stop`
 - Local operator flow: `osk operator login`, `osk operator status`, and
   `osk operator logout`
-- Local observability commands: `osk audit`, `osk logs`, and `osk members`
+- Local observability commands: `osk audit`, `osk logs`, `osk members`, and
+  `osk findings`
 - Database migrations, coordinator auth boundary, member reconnect handling,
   and heartbeat-based stale-session cleanup
 - Early REST/WebSocket hub surface for the coordinator and member join/runtime
@@ -88,9 +90,11 @@ What exists today:
   runtime status surface
 - Live member WebSocket ingest for GPS, audio, and frame samples using the
   same owned service boundary
+- Duplicate-safe ingest acknowledgements when clients resend audio/frame media
+  with a stable `chunk_id`, `frame_id`, or `ingest_key`
 - Heuristic synthesis with cross-source corroboration, alert fan-out, rolling
-  sitrep generation, and recent intelligence observation retrieval for local
-  admins
+  sitrep generation, persisted reviewable findings, and local admin retrieval
+  for recent observations and findings
 - `ffmpeg`-backed decode path for compressed audio uploads such as WebM/Ogg
   when using the real Whisper backend
 
@@ -98,7 +102,7 @@ What is still missing:
 
 - Higher-quality synthesis beyond the current heuristic correlation model
 - Production-grade media ingest, including broader client compatibility and
-  stronger transport controls
+  stronger end-to-end resend/session semantics across restarts
 - Coordinator dashboard and mobile PWA user experience
 - Validated wipe timing and production-grade evidence/export tooling
 
@@ -191,10 +195,13 @@ full architecture, API contract, and threat-model assumptions.
 - Review the [implementation plans](docs/plans/)
 - Run `PYTHONPATH=src python -m osk doctor --json` locally, or `osk doctor --json`
   after installing the package
-- Use `osk status`, `osk operator status`, `osk audit`, `osk members`, and
-  `osk logs` to inspect the local foundation runtime
-- Use `/api/intelligence/status` and `/api/intelligence/observations` from the
-  local coordinator surface to inspect live Phase 2 runtime state
+- Use `osk status`, `osk operator status`, `osk audit`, `osk members`,
+  `osk findings`, and `osk logs` to inspect the local foundation runtime
+- Use `/api/intelligence/status`, `/api/intelligence/observations`, and
+  `/api/intelligence/findings` from the local coordinator surface to inspect
+  live Phase 2 runtime state
+- Reuse the same `chunk_id`, `frame_id`, or `ingest_key` when retransmitting
+  media from a reconnecting client if you want duplicate-safe local acks
 - Configure `transcriber_backend` / `vision_backend` in `~/.config/osk/config.toml`
   if you want the hub-owned intelligence service to use real Whisper or Ollama
   adapters instead of the default fake backends

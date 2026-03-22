@@ -4,21 +4,32 @@ from __future__ import annotations
 
 import re
 import time
+import uuid
 from collections import Counter, deque
 from collections.abc import Sequence
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Protocol, runtime_checkable
 from uuid import UUID
 
 from pydantic import BaseModel, Field
 
 from osk.intelligence_contracts import IntelligenceObservation, ObservationKind
-from osk.models import Alert, Event, EventCategory, EventSeverity, Member, SitRep
+from osk.models import (
+    Alert,
+    Event,
+    EventCategory,
+    EventSeverity,
+    Member,
+    SitRep,
+    SynthesisFinding,
+)
 
 
 class SynthesisDecision(BaseModel):
     events: list[Event] = Field(default_factory=list)
     alerts: list[Alert] = Field(default_factory=list)
+    findings: list[SynthesisFinding] = Field(default_factory=list)
     sitrep: SitRep | None = None
 
 
@@ -34,12 +45,20 @@ class ObservationSynthesizer(Protocol):
 
 @dataclass(slots=True)
 class _IncidentState:
+    finding_id: UUID
+    signature: str
     category: EventCategory
     first_seen_at: float
     last_seen_at: float
     last_emitted_at: float
+    first_observed_at: datetime
+    last_observed_at: datetime
     member_ids: set[UUID] = field(default_factory=set)
     kinds: set[ObservationKind] = field(default_factory=set)
+    observation_count: int = 1
+    latest_observation_id: UUID | None = None
+    recent_observation_ids: list[UUID] = field(default_factory=list)
+    latest_event_id: UUID | None = None
     corroboration_emitted: bool = False
     severity: EventSeverity = EventSeverity.INFO
     latest_summary: str = ""
@@ -87,12 +106,19 @@ class HeuristicObservationSynthesizer:
         incident = self._incidents.get(signature)
         if incident is None:
             incident = _IncidentState(
+                finding_id=uuid.uuid4(),
+                signature=signature,
                 category=category,
                 first_seen_at=now,
                 last_seen_at=now,
                 last_emitted_at=now,
+                first_observed_at=observation.created_at,
+                last_observed_at=observation.created_at,
                 member_ids={observation.source_member_id},
                 kinds={observation.kind},
+                observation_count=1,
+                latest_observation_id=observation.id,
+                recent_observation_ids=[observation.id],
                 severity=severity,
                 latest_summary=observation.summary,
             )
@@ -103,17 +129,25 @@ class HeuristicObservationSynthesizer:
                 severity=severity,
                 source_member=source_member,
             )
+            incident.latest_event_id = event.id
             alerts = self._alerts_for_event(event)
             self._record_highlight(event, now)
+            finding = self._finding_from_incident(incident)
             return SynthesisDecision(
                 events=[event],
                 alerts=alerts,
+                findings=[finding],
                 sitrep=self._maybe_generate_sitrep(now),
             )
 
         incident.last_seen_at = now
+        incident.last_observed_at = observation.created_at
         incident.member_ids.add(observation.source_member_id)
         incident.kinds.add(observation.kind)
+        incident.observation_count += 1
+        incident.latest_observation_id = observation.id
+        incident.recent_observation_ids.append(observation.id)
+        incident.recent_observation_ids = incident.recent_observation_ids[-8:]
         incident.latest_summary = observation.summary
         if severity.level > incident.severity.level:
             incident.severity = severity
@@ -144,12 +178,15 @@ class HeuristicObservationSynthesizer:
 
         alerts: list[Alert] = []
         if event is not None:
+            incident.latest_event_id = event.id
             alerts = self._alerts_for_event(event)
             self._record_highlight(event, now)
 
+        finding = self._finding_from_incident(incident)
         return SynthesisDecision(
             events=[event] if event is not None else [],
             alerts=alerts,
+            findings=[finding],
             sitrep=self._maybe_generate_sitrep(now),
         )
 
@@ -245,6 +282,46 @@ class HeuristicObservationSynthesizer:
         if isinstance(value, list):
             return value
         return []
+
+    def _finding_from_incident(self, incident: _IncidentState) -> SynthesisFinding:
+        finding_severity = (
+            self._escalate_severity(incident.severity)
+            if incident.corroboration_emitted
+            else incident.severity
+        )
+        corroboration_text = ""
+        if incident.corroboration_emitted:
+            signal_text = "signals" if len(incident.kinds) != 1 else "signal"
+            corroboration_text = (
+                f" Corroborated by {len(incident.member_ids)} sources across "
+                f"{len(incident.kinds)} {signal_text}."
+            )
+        return SynthesisFinding(
+            id=incident.finding_id,
+            signature=incident.signature,
+            category=incident.category,
+            severity=finding_severity,
+            title=self._title_for(incident.category),
+            summary=f"{incident.latest_summary}{corroboration_text}",
+            corroborated=incident.corroboration_emitted,
+            source_count=len(incident.member_ids),
+            signal_count=len(incident.kinds),
+            observation_count=incident.observation_count,
+            first_seen_at=incident.first_observed_at,
+            last_seen_at=incident.last_observed_at,
+            latest_observation_id=incident.latest_observation_id,
+            latest_event_id=incident.latest_event_id,
+            details={
+                "member_ids": sorted(str(member_id) for member_id in incident.member_ids),
+                "observation_ids": [
+                    str(observation_id) for observation_id in incident.recent_observation_ids
+                ],
+                "kinds": sorted(kind.value for kind in incident.kinds),
+            },
+        )
+
+    def _title_for(self, category: EventCategory) -> str:
+        return category.value.replace("_", " ").title()
 
     def _fallback_terms(self, summary: str) -> list[str]:
         words = re.findall(r"[a-z0-9]+", summary)

@@ -7,6 +7,7 @@ import logging
 import time
 from collections import Counter, deque
 from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 from datetime import timezone
 from typing import Any
 
@@ -31,6 +32,13 @@ from osk.worker_runtime import ProcessingWorkerMetrics
 logger = logging.getLogger(__name__)
 
 ObservationSink = Callable[[IntelligenceObservation], Awaitable[None] | None]
+
+
+@dataclass(slots=True)
+class IngestSubmissionResult:
+    accepted: bool
+    duplicate: bool = False
+    reason: str | None = None
 
 
 def build_transcriber(config: OskConfig):
@@ -125,8 +133,12 @@ class IntelligenceService:
         self._recent_observations: deque[IntelligenceObservation] = deque(
             maxlen=max(1, config.intelligence_recent_observation_limit)
         )
+        self._recent_findings = deque(maxlen=max(1, config.intelligence_recent_observation_limit))
         self._observation_counts: Counter[str] = Counter()
         self._recent_location_samples: dict[Any, LocationSample] = {}
+        self._ingest_receipts: dict[tuple[str, object, str], float] = {}
+        self._audio_duplicate_submissions = 0
+        self._frame_duplicate_submissions = 0
         self._started = False
         self.location_metrics = ProcessingWorkerMetrics()
         self.transcription_worker = TranscriptionWorker(
@@ -173,11 +185,33 @@ class IntelligenceService:
         self._started = False
         logger.info("Stopped intelligence service")
 
-    async def submit_audio(self, chunk: AudioChunk) -> bool:
-        return await self.audio_ingest.put(chunk)
+    async def submit_audio(self, chunk: AudioChunk) -> IngestSubmissionResult:
+        if self._is_duplicate_ingest(
+            kind="audio",
+            member_id=chunk.source.member_id,
+            ingest_key=chunk.ingest_key,
+        ):
+            self._audio_duplicate_submissions += 1
+            return IngestSubmissionResult(accepted=True, duplicate=True)
+        accepted = await self.audio_ingest.put(chunk)
+        return IngestSubmissionResult(
+            accepted=accepted,
+            reason=None if accepted else "audio queue full",
+        )
 
-    async def submit_frame(self, frame: FrameSample) -> bool:
-        return await self.frame_ingest.put(frame)
+    async def submit_frame(self, frame: FrameSample) -> IngestSubmissionResult:
+        if self._is_duplicate_ingest(
+            kind="frame",
+            member_id=frame.source.member_id,
+            ingest_key=frame.ingest_key,
+        ):
+            self._frame_duplicate_submissions += 1
+            return IngestSubmissionResult(accepted=True, duplicate=True)
+        accepted = await self.frame_ingest.put(frame)
+        return IngestSubmissionResult(
+            accepted=accepted,
+            reason=None if accepted else "frame queue full",
+        )
 
     async def submit_location(self, sample: LocationSample) -> bool:
         self._recent_location_samples[sample.source.member_id] = sample
@@ -231,6 +265,7 @@ class IntelligenceService:
             ),
             "audio_ingest": {
                 "accepted_chunks": self.audio_ingest.accepted_chunks,
+                "duplicate_submissions": self._audio_duplicate_submissions,
                 "evicted_chunks": self.audio_ingest.evicted_chunks,
                 "rejected_chunks": self.audio_ingest.rejected_chunks,
                 "queue_size": self.audio_ingest.qsize(),
@@ -238,6 +273,7 @@ class IntelligenceService:
             },
             "frame_ingest": {
                 "accepted_frames": self.frame_ingest.accepted_frames,
+                "duplicate_submissions": self._frame_duplicate_submissions,
                 "duplicate_frames": self.frame_ingest.duplicate_frames,
                 "evicted_frames": self.frame_ingest.evicted_frames,
                 "rate_limited_frames": self.frame_ingest.rate_limited_frames,
@@ -271,6 +307,18 @@ class IntelligenceService:
                 }
                 for observation in list(self._recent_observations)
             ],
+            "recent_findings": [
+                {
+                    "id": str(finding.id),
+                    "title": finding.title,
+                    "category": finding.category.value,
+                    "severity": finding.severity.value,
+                    "summary": finding.summary,
+                    "corroborated": finding.corroborated,
+                    "last_seen_at": finding.last_seen_at.isoformat().replace("+00:00", "Z"),
+                }
+                for finding in list(self._recent_findings)
+            ],
         }
 
     async def _handle_observation(self, observation: IntelligenceObservation) -> None:
@@ -292,7 +340,7 @@ class IntelligenceService:
 
     async def _synthesize_observation(self, observation: IntelligenceObservation) -> None:
         operation = getattr(self.operation_manager, "operation", None)
-        if self.db is None or operation is None or self.synthesizer is None:
+        if self.synthesizer is None:
             return
         source_member = None
         if self.operation_manager is not None:
@@ -301,6 +349,9 @@ class IntelligenceService:
             observation,
             source_member=source_member,
         )
+        self._recent_findings.extend(decision.findings)
+        if self.db is None or operation is None:
+            return
         for event in decision.events:
             await self.db.insert_event(
                 event.id,
@@ -326,6 +377,8 @@ class IntelligenceService:
                 await self.conn_manager.broadcast_alert(
                     self._alert_payload(alert, event),
                 )
+        for finding in decision.findings:
+            await self.db.upsert_synthesis_finding(operation.id, finding)
         if decision.sitrep is not None:
             await self.db.insert_sitrep(
                 decision.sitrep.id,
@@ -386,3 +439,38 @@ class IntelligenceService:
             "backend": backend,
             "class": adapter.__class__.__name__,
         }
+
+    def _is_duplicate_ingest(
+        self,
+        *,
+        kind: str,
+        member_id,
+        ingest_key: str | None,
+    ) -> bool:
+        if not ingest_key:
+            return False
+        now = time.monotonic()
+        self._prune_ingest_receipts(now)
+        receipt_key = (kind, member_id, ingest_key)
+        seen_at = self._ingest_receipts.pop(receipt_key, None)
+        if seen_at is not None and (
+            now - seen_at <= max(int(self.config.ingest_idempotency_window_seconds), 1)
+        ):
+            self._ingest_receipts[receipt_key] = now
+            return True
+        self._ingest_receipts[receipt_key] = now
+        cache_limit = max(int(self.config.ingest_idempotency_cache_size), 1)
+        while len(self._ingest_receipts) > cache_limit:
+            oldest_key = next(iter(self._ingest_receipts))
+            self._ingest_receipts.pop(oldest_key, None)
+        return False
+
+    def _prune_ingest_receipts(self, now: float) -> None:
+        ttl_seconds = max(int(self.config.ingest_idempotency_window_seconds), 1)
+        expired_keys = [
+            receipt_key
+            for receipt_key, seen_at in self._ingest_receipts.items()
+            if now - seen_at > ttl_seconds
+        ]
+        for receipt_key in expired_keys:
+            self._ingest_receipts.pop(receipt_key, None)

@@ -11,7 +11,7 @@ from pathlib import Path
 import asyncpg
 
 from osk.intelligence_contracts import IntelligenceObservation
-from osk.models import EventCategory, EventSeverity, MemberRole
+from osk.models import EventCategory, EventSeverity, MemberRole, SynthesisFinding
 
 logger = logging.getLogger(__name__)
 
@@ -402,6 +402,70 @@ class Database:
             """SELECT * FROM intelligence_observations
                WHERE operation_id = $1
                ORDER BY created_at DESC
+               LIMIT $2""",
+            operation_id,
+            limit,
+        )
+        return [dict(row) for row in rows]
+
+    async def upsert_synthesis_finding(
+        self,
+        operation_id: uuid.UUID,
+        finding: SynthesisFinding,
+    ) -> None:
+        pool = self._require_pool()
+        await pool.execute(
+            """INSERT INTO synthesis_findings
+               (id, operation_id, signature, category, severity, title, summary, status,
+                corroborated, source_count, signal_count, observation_count, first_seen_at,
+                last_seen_at, latest_observation_id, latest_event_id, details)
+               VALUES (
+                 $1, $2, $3, $4, $5, $6, $7, $8, $9,
+                 $10, $11, $12, $13, $14, $15, $16, $17::jsonb
+               )
+               ON CONFLICT (id) DO UPDATE SET
+                 severity = EXCLUDED.severity,
+                 title = EXCLUDED.title,
+                 summary = EXCLUDED.summary,
+                 status = EXCLUDED.status,
+                 corroborated = EXCLUDED.corroborated,
+                 source_count = EXCLUDED.source_count,
+                 signal_count = EXCLUDED.signal_count,
+                 observation_count = EXCLUDED.observation_count,
+                 last_seen_at = EXCLUDED.last_seen_at,
+                 latest_observation_id = EXCLUDED.latest_observation_id,
+                 latest_event_id = EXCLUDED.latest_event_id,
+                 details = EXCLUDED.details,
+                 updated_at = NOW()""",
+            finding.id,
+            operation_id,
+            finding.signature,
+            finding.category.value,
+            finding.severity.value,
+            finding.title,
+            finding.summary,
+            finding.status.value,
+            finding.corroborated,
+            finding.source_count,
+            finding.signal_count,
+            finding.observation_count,
+            finding.first_seen_at,
+            finding.last_seen_at,
+            finding.latest_observation_id,
+            finding.latest_event_id,
+            json.dumps(finding.details),
+        )
+
+    async def get_recent_synthesis_findings(
+        self,
+        operation_id: uuid.UUID,
+        limit: int = 25,
+    ) -> list[dict]:
+        pool = self._require_pool()
+        rows = await pool.fetch(
+            """SELECT * FROM synthesis_findings
+               WHERE operation_id = $1
+               ORDER BY last_seen_at DESC, updated_at DESC
                LIMIT $2""",
             operation_id,
             limit,

@@ -9,6 +9,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from fastapi.testclient import TestClient
 
+from osk.intelligence_service import IngestSubmissionResult
 from osk.models import MemberRole, Operation
 from osk.server import create_app
 
@@ -204,6 +205,16 @@ def test_intelligence_observations(client: TestClient, mock_db: MagicMock) -> No
     mock_db.get_recent_intelligence_observations.assert_called_once()
 
 
+def test_intelligence_findings(client: TestClient, mock_db: MagicMock) -> None:
+    mock_db.get_recent_synthesis_findings.return_value = [{"title": "Police Action"}]
+
+    resp = client.get("/api/intelligence/findings?limit=10")
+
+    assert resp.status_code == 200
+    assert resp.json() == [{"title": "Police Action"}]
+    mock_db.get_recent_synthesis_findings.assert_called_once()
+
+
 def test_intelligence_status_reports_missing_service(
     mock_op_manager: MagicMock,
     mock_conn_mgr: MagicMock,
@@ -300,6 +311,7 @@ def test_websocket_submits_audio_frame_and_location_to_intelligence_service(
                 "sample_rate_hz": 16000,
                 "duration_ms": 250,
                 "sequence_no": 7,
+                "chunk_id": "client-chunk-7",
             }
         )
         websocket.send_bytes(b"\x00\x01\x02\x03")
@@ -313,6 +325,7 @@ def test_websocket_submits_audio_frame_and_location_to_intelligence_service(
                 "height": 360,
                 "change_score": 0.8,
                 "sequence_no": 9,
+                "frame_id": "client-frame-9",
             }
         )
         websocket.send_bytes(b"jpeg-payload")
@@ -340,8 +353,10 @@ def test_websocket_submits_audio_frame_and_location_to_intelligence_service(
     submitted_location = mock_intelligence_service.submit_location.await_args.args[0]
     assert submitted_chunk.codec == "audio/raw"
     assert submitted_chunk.payload == b"\x00\x01\x02\x03"
+    assert submitted_chunk.ingest_key == "client-chunk-7"
     assert submitted_frame.width == 640
     assert submitted_frame.payload == b"jpeg-payload"
+    assert submitted_frame.ingest_key == "client-frame-9"
     assert submitted_location.latitude == 39.75
     assert submitted_location.longitude == -104.99
 
@@ -368,6 +383,47 @@ def test_websocket_rejects_oversized_audio_payload(
     assert audio_ack["accepted"] is False
     assert audio_ack["reason"] == "audio payload too large"
     mock_intelligence_service.submit_audio.assert_not_awaited()
+
+
+def test_websocket_audio_duplicate_ack(
+    client: TestClient, mock_intelligence_service: MagicMock
+) -> None:
+    mock_intelligence_service.submit_audio.side_effect = [
+        IngestSubmissionResult(accepted=True),
+        IngestSubmissionResult(accepted=True, duplicate=True),
+    ]
+
+    with client.websocket_connect("/ws") as websocket:
+        websocket.send_json({"type": "auth", "token": "valid-token", "name": "Jay"})
+        websocket.receive_json()
+        websocket.send_json(
+            {
+                "type": "audio_chunk",
+                "codec": "audio/raw",
+                "sample_rate_hz": 16000,
+                "duration_ms": 250,
+                "chunk_id": "client-chunk-1",
+                "payload_b64": "AAEC",
+            }
+        )
+        first_ack = websocket.receive_json()
+        websocket.send_json(
+            {
+                "type": "audio_chunk",
+                "codec": "audio/raw",
+                "sample_rate_hz": 16000,
+                "duration_ms": 250,
+                "chunk_id": "client-chunk-1",
+                "payload_b64": "AAEC",
+            }
+        )
+        second_ack = websocket.receive_json()
+
+    assert first_ack["accepted"] is True
+    assert first_ack.get("duplicate") is None
+    assert second_ack["accepted"] is True
+    assert second_ack["duplicate"] is True
+    assert second_ack["ingest_key"] == "client-chunk-1"
 
 
 def test_wipe_rejects_remote_client(remote_client: TestClient) -> None:

@@ -43,6 +43,7 @@ class IngestSource(BaseModel):
 
 class AudioChunk(BaseModel):
     chunk_id: uuid.UUID = Field(default_factory=_new_id)
+    ingest_key: str | None = None
     source: IngestSource
     codec: str = "audio/webm"
     sample_rate_hz: int = 16000
@@ -57,6 +58,7 @@ class AudioChunk(BaseModel):
 
 class FrameSample(BaseModel):
     frame_id: uuid.UUID = Field(default_factory=_new_id)
+    ingest_key: str | None = None
     source: IngestSource
     content_type: str = "image/jpeg"
     width: int

@@ -353,6 +353,16 @@ async def _get_members(operation_id: uuid.UUID) -> list[dict]:
         await db.close()
 
 
+async def _get_findings(operation_id: uuid.UUID, limit: int) -> list[dict]:
+    config = load_config()
+    db = Database()
+    await db.connect(config.database_url)
+    try:
+        return await db.get_recent_synthesis_findings(operation_id, limit)
+    finally:
+        await db.close()
+
+
 async def _record_local_audit_event(
     operation_id: uuid.UUID,
     action: str,
@@ -1053,6 +1063,50 @@ def show_members(*, json_output: bool = False) -> int:
             f"{member['name']} role={member['role']} status={member['status']} "
             f"heartbeat={member['heartbeat_state']} last_seen={member['last_seen_at']}"
             f"{coords} id={member['id']}"
+        )
+    return 0
+
+
+def show_findings(*, limit: int = 20, json_output: bool = False) -> int:
+    state = read_hub_state()
+    if state is None:
+        print("No running Osk hub state found.")
+        return 1
+
+    operation_id_raw = str(state.get("operation_id", "")).strip()
+    if not operation_id_raw:
+        print("Hub state is missing an operation id.")
+        return 1
+
+    operation_uuid = _parse_operation_id(operation_id_raw)
+    if operation_uuid is None:
+        print("Hub state contains an invalid operation id.")
+        return 1
+
+    try:
+        findings = asyncio.run(_get_findings(operation_uuid, max(1, limit)))
+    except Exception as exc:
+        print(f"Failed to load findings: {exc}")
+        return 1
+
+    if json_output:
+        print(json.dumps(findings, indent=2, sort_keys=True, default=str))
+        return 0
+
+    if not findings:
+        print("No synthesis findings recorded.")
+        return 0
+
+    for finding in findings:
+        title = finding.get("title", "Untitled Finding")
+        severity = finding.get("severity", "unknown")
+        status = finding.get("status", "unknown")
+        last_seen_at = finding.get("last_seen_at", "unknown")
+        summary = finding.get("summary", "")
+        corroborated = " corroborated" if finding.get("corroborated") else ""
+        print(
+            f"{title} severity={severity} status={status}{corroborated} "
+            f"last_seen={last_seen_at} summary={summary}"
         )
     return 0
 

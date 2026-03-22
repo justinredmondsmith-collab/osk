@@ -73,6 +73,11 @@ class EventCategory(str, Enum):
     MANUAL_REPORT = "manual_report"
 
 
+class FindingStatus(str, Enum):
+    OPEN = "open"
+    RESOLVED = "resolved"
+
+
 class Operation(BaseModel):
     id: uuid.UUID = Field(default_factory=_new_id)
     name: str
@@ -136,6 +141,25 @@ class SitRep(BaseModel):
     text: str
     trend: str
     timestamp: datetime = Field(default_factory=_utcnow)
+
+
+class SynthesisFinding(BaseModel):
+    id: uuid.UUID = Field(default_factory=_new_id)
+    signature: str
+    category: EventCategory
+    severity: EventSeverity
+    title: str
+    summary: str
+    status: FindingStatus = FindingStatus.OPEN
+    corroborated: bool = False
+    source_count: int = 1
+    signal_count: int = 1
+    observation_count: int = 1
+    first_seen_at: datetime = Field(default_factory=_utcnow)
+    last_seen_at: datetime = Field(default_factory=_utcnow)
+    latest_observation_id: uuid.UUID | None = None
+    latest_event_id: uuid.UUID | None = None
+    details: dict[str, Any] = Field(default_factory=dict)
 
 
 class AuditEvent(BaseModel):

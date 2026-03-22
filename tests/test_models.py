@@ -17,6 +17,7 @@ from osk.models import (
     Stream,
     StreamStatus,
     StreamType,
+    SynthesisFinding,
 )
 
 
@@ -85,6 +86,19 @@ def test_sitrep_creation() -> None:
     sitrep = SitRep(text="Crowd stable, two exits clear", trend="stable")
     assert sitrep.timestamp is not None
     assert sitrep.trend == "stable"
+
+
+def test_synthesis_finding_creation() -> None:
+    finding = SynthesisFinding(
+        signature="police_action:movement-north",
+        category=EventCategory.POLICE_ACTION,
+        severity=EventSeverity.WARNING,
+        title="Police Action",
+        summary="Police advancing north.",
+    )
+    assert finding.id is not None
+    assert finding.status.value == "open"
+    assert finding.observation_count == 1
 
 
 def test_operation_serialization() -> None:

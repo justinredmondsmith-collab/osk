@@ -11,7 +11,7 @@ import pytest
 
 from osk.db import Database
 from osk.intelligence_contracts import IntelligenceObservation, ObservationKind
-from osk.models import EventCategory, EventSeverity, MemberRole
+from osk.models import EventCategory, EventSeverity, MemberRole, SynthesisFinding
 
 
 @pytest.fixture
@@ -42,12 +42,13 @@ def mock_pool() -> MagicMock:
 
 async def test_migration_files_exist(db: Database) -> None:
     migrations = db._get_migration_files()
-    assert len(migrations) >= 5
+    assert len(migrations) >= 6
     assert migrations[0].name == "001_initial.sql"
     assert migrations[1].name == "002_operation_coordinator_token.sql"
     assert migrations[2].name == "003_members_reconnect_and_audit.sql"
     assert migrations[3].name == "004_member_heartbeat.sql"
     assert migrations[4].name == "005_intelligence_observations.sql"
+    assert migrations[5].name == "006_synthesis_findings.sql"
 
 
 async def test_insert_operation(db: Database, mock_pool: MagicMock) -> None:
@@ -168,6 +169,31 @@ async def test_get_recent_intelligence_observations(db: Database, mock_pool: Mag
     result = await db.get_recent_intelligence_observations(uuid.uuid4(), 10)
 
     assert result == [{"summary": "Police moving east."}]
+
+
+async def test_upsert_synthesis_finding(db: Database, mock_pool: MagicMock) -> None:
+    db._pool = mock_pool
+    finding = SynthesisFinding(
+        signature="police_action:movement-north",
+        category=EventCategory.POLICE_ACTION,
+        severity=EventSeverity.WARNING,
+        title="Police Action",
+        summary="Police advancing north. Corroborated by 2 sources across 2 signals.",
+    )
+
+    await db.upsert_synthesis_finding(uuid.uuid4(), finding)
+
+    mock_pool.execute.assert_called_once()
+    assert "INSERT INTO synthesis_findings" in mock_pool.execute.call_args.args[0]
+
+
+async def test_get_recent_synthesis_findings(db: Database, mock_pool: MagicMock) -> None:
+    db._pool = mock_pool
+    mock_pool.fetch = AsyncMock(return_value=[{"title": "Police Action"}])
+
+    result = await db.get_recent_synthesis_findings(uuid.uuid4(), 10)
+
+    assert result == [{"title": "Police Action"}]
 
 
 async def test_get_events_since(db: Database, mock_pool: MagicMock) -> None:

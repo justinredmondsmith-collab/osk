@@ -55,6 +55,10 @@ stage should still stay disciplined:
 - Keep Whisper/Ollama calls behind explicit interfaces rather than wiring them
   directly into route or WebSocket handlers
 - Treat observability as part of the feature, not follow-up cleanup
+- Prefer reviewable synthesized state over ephemeral-only outputs when adding
+  new coordinator-facing intelligence features
+- Make reconnect/retry behavior explicit for ingest protocols rather than
+  assuming lossy mobile transport will behave perfectly
 
 ## Suggested Order For The Next Stage
 
@@ -62,8 +66,8 @@ For the next implementation stage, follow this order:
 
 1. Better client compatibility and transport hardening beyond the current
    ffmpeg-backed browser-audio path
-2. Richer synthesis and cross-observation correlation beyond the current
-   heuristic corroboration model
+2. Richer reviewable synthesis and cross-observation correlation beyond the
+   current heuristic corroboration model
 3. Coordinator-facing sitrep and event review UX
 4. Coordinator dashboard
 5. Mobile client

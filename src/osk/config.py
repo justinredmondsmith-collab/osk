@@ -42,6 +42,8 @@ class OskConfig(BaseModel):
     synthesis_cooldown_seconds: int = 60
     max_audio_payload_bytes: int = 2_000_000
     max_frame_payload_bytes: int = 4_000_000
+    ingest_idempotency_window_seconds: int = 900
+    ingest_idempotency_cache_size: int = 4096
     frame_change_threshold: float = 0.15
     frame_baseline_interval_seconds: int = 30
     frame_sampling_fps: float = 2.0
