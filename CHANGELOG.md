@@ -154,6 +154,9 @@ changes manually while the project is in its early public setup phase.
 - The member-shell smoke helper now exposes smoke-only status/promote/wipe
   controls, and the Playwright smoke path now exercises reload/resume and live
   wipe clearing in addition to offline queue replay
+- The disposable member-shell smoke path has now also been exercised on a real
+  WLAN browser for join, offline field-note replay after reconnect,
+  reload/session resume, and live wipe clearing
 
 ### Changed
 

@@ -74,6 +74,13 @@ the device that receives the broadcast. That is still not a full browser wipe.
 Browser history, OS-level caches, disconnected devices, and preserved evidence
 destruction remain outside that one live message.
 
+That connected-browser path is no longer only theoretical: the disposable
+member-shell smoke flow has now been exercised on a real WLAN browser for
+join, offline queued field-note replay after reconnect, page reload/session
+resume, and live wipe clearing. Keep the claim scoped to that path. It does
+not mean disconnected browsers, preserved evidence destruction, or every mobile
+browser variant are now fully validated.
+
 While an operation is still live, check `osk status --json`, `osk members`, or
 the coordinator dashboard's wipe-readiness panel before running `osk wipe`.
 Those surfaces now call out stale/disconnected member browsers that may miss

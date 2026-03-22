@@ -162,6 +162,10 @@ If your change touches the coordinator shell, member shell, install/wipe flows,
 or browser persistence behavior, prefer running one of the smoke paths above on
 a real machine and update the relevant runbook/docs in the same change.
 
+The manual helper path has already been exercised on a real WLAN browser for
+queued field-note replay, reload/session resume, and live wipe clearing. Treat
+that as the current minimum validation bar for related changes.
+
 Inspect the current local tile cache:
 
 ```bash

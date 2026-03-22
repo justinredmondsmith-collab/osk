@@ -131,6 +131,10 @@ What exists today:
   offline fallback behavior for previously loaded join/member pages, plus a
   connected-browser leave/wipe teardown that clears the current member session,
   local outbox data, cached shell assets, and the installed service worker
+- First external browser/device validation of the member shell smoke path:
+  `/join` -> `/member`, offline queued field-note replay after reconnect,
+  reload/session resume, and live wipe clearing have now been exercised on a
+  real WLAN-connected browser outside this sandbox
 - Hub-owned Phase 2 intelligence service: shared ingest/result models,
   config-selectable fake or real transcript/vision adapters, bounded
   audio/frame ingest queues, location processing, background audio/vision
@@ -176,8 +180,9 @@ What is still missing:
   reports, queued manual observer media, early sensor streaming, and a first
   installable/offline shell layer, but not the fuller resilient mobile client
   described in Phase 5
-- Validated wipe timing, disconnected-client cleanup, and field-tested
-  evidence/export operations
+- Broader field validation beyond the first smoke-proven member path,
+  especially disconnected-client cleanup, wider device/browser coverage, and
+  field-tested evidence/export operations
 
 ## Planned Operating Model
 
@@ -366,6 +371,10 @@ flows on real devices and tightening the gaps those exercises expose.
   target for phone/browser testing outside the main hub runtime; the helper now
   also exposes smoke-only control routes for status, role promotion, and live
   wipe / `op_ended` testing
+- That smoke path has now been exercised on a real WLAN browser for
+  join, offline field-note queueing, reconnect replay, page reload / session
+  resume, and live wipe clearing; treat that as validated behavior for the
+  helper path, not for every browser/device or for disconnected wipe cleanup
 - Run `scripts/member_shell_playwright_smoke.sh` in an environment where
   localhost is reachable from Playwright if you want a browser-driven smoke of
   join, member-shell load, offline queueing, reconnect replay, page reload /
