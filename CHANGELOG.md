@@ -168,6 +168,9 @@ changes manually while the project is in its early public setup phase.
   signal path in addition to the raw/trended buffer counts
 - Dashboard/contributor docs now describe transient signal acknowledge/snooze
   behavior and the expectation that this state stays local/config-driven
+- README/workflow/spec docs now distinguish the current partial Phase 2-5
+  implementation state from the still-planned end-state platform and field
+  tooling
 - Member docs now reflect that the current sensor runtime includes early audio
   and key-frame capture, while fuller media and offline PWA work remain planned
 - Member/browser docs now reflect that browser reload/reconnect auth is

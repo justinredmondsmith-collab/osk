@@ -1,12 +1,18 @@
 # Osk — Civilian Situational Awareness Platform
 
 **Date:** 2026-03-21
-**Status:** Design approved
+**Status:** Design-and-foundation, partially implemented
 **Repository:** osk
 
 ## Overview
 
 Osk is a civilian situational awareness platform that gives groups of people LEO/IC-grade intelligence capabilities for protests, gatherings, public meetings, large events, and personal safety. It uses a hub-and-spoke architecture where a coordinator runs a laptop-based intelligence hub and group members connect via their phones.
+
+This specification should be read as a design target layered on top of a
+partially implemented public foundation repository. The current repo already
+contains early real slices of the host runtime, intelligence service,
+heuristic synthesis/review path, coordinator dashboard shell, and member
+join/runtime PWA shell, but not the full validated end-state described here.
 
 The project is a new codebase that plans to transplant proven intelligence engines from the existing `bodycam-summarizer` project (Whisper transcription, Ollama vision analysis, AI summarization, temporal fusion) into a civilian-focused platform with fundamentally different data models, security posture, and user experience.
 
@@ -390,28 +396,51 @@ NVIDIA GPU and proprietary drivers for the intended accelerated workloads.
 
 ## Configuration
 
-Planned tunable parameters, expected to be set via `osk config` or
-`~/.config/osk/config.toml`:
+The repo now has a real `~/.config/osk/config.toml` surface backed by
+`src/osk/config.py`. The table below calls out representative implemented
+settings plus a few still-planned operational knobs. `src/osk/config.py`
+should be treated as the authoritative current list.
 
 | Parameter | Default | Description |
 |---|---|---|
 | `max_sensors` | 10 | Maximum simultaneous sensor streams |
+| `transcriber_backend` | `fake` | Transcript backend (`fake` or `whisper`) |
 | `whisper_model` | `small` | Whisper model size (tiny/base/small/medium/large-v3) |
+| `vision_backend` | `fake` | Vision backend (`fake` or `ollama`) |
 | `vision_model` | `llama3.2-vision:11b-instruct-q4_K_M` | Ollama vision model |
+| `synthesis_backend` | `heuristic` | Current synthesis backend; heuristic today |
 | `summarizer_model` | `mistral` | Ollama model for event generation and SitReps |
 | `sitrep_interval_minutes` | 10 | Minutes between automatic SitReps |
 | `alert_cooldown_seconds` | 60 | Minimum seconds between alerts of same category |
+| `audio_queue_size` | 128 | Max queued audio chunks before backpressure |
+| `frame_queue_size` | 64 | Max queued key frames before backpressure |
+| `max_audio_payload_bytes` | 2000000 | Member audio payload ceiling |
+| `max_frame_payload_bytes` | 4000000 | Member frame payload ceiling |
+| `ingest_idempotency_window_seconds` | 900 | Duplicate-safe ingest receipt window |
 | `gps_interval_moving_seconds` | 10 | GPS broadcast interval when member is moving |
 | `gps_interval_stationary_seconds` | 60 | GPS broadcast interval when member is stationary |
 | `frame_change_threshold` | 0.15 | Key frame pixel-difference threshold (0.0-1.0) |
 | `frame_baseline_interval_seconds` | 30 | Force a key frame even without change |
 | `frame_sampling_fps` | 2.0 | Edge-side video sampling rate |
 | `observer_clip_rate_limit` | 3 | Max manual clips per minute per observer |
+| `member_outbox_max_items` | 12 | Max queued manual browser outbox items |
+| `sensor_audio_buffer_limit` | 3 | Max bounded audio chunks buffered in-browser on reconnect |
+| `sensor_frame_buffer_limit` | 4 | Max bounded key frames buffered in-browser on reconnect |
+| `dashboard_buffer_signal_min_items` | 2 | Minimum buffered items before sustained dashboard signal tracking starts |
+| `dashboard_buffer_signal_warning_items` | 5 | Warning threshold for sustained member-buffer dashboard signals |
+| `dashboard_buffer_signal_critical_items` | 9 | Critical threshold for sustained member-buffer dashboard signals |
+| `dashboard_buffer_signal_snooze_minutes` | 15 | Default snooze duration for transient coordinator dashboard signals |
 | `luks_volume_size_gb` | 1 | Size of the encrypted evidence volume |
 | `tls_cert_path` | `~/.config/osk/cert.pem` | Self-signed TLS certificate |
+| `tls_key_path` | `~/.config/osk/key.pem` | Self-signed TLS private key |
+| `hub_host` | `0.0.0.0` | Local bind host for the hub server |
+| `hub_port` | 8443 | Local bind port for the hub server |
+| `join_host` | `127.0.0.1` | Advertised host for generated join links/QRs |
+| `database_url` | `postgresql://osk:osk@localhost:5432/osk` | Local Postgres connection string |
 | `hotspot_ssid` | `osk-<random>` | WiFi hotspot SSID |
 | `hotspot_band` | `5GHz` | WiFi band (2.4GHz/5GHz) |
 | `map_tile_cache_path` | `~/.config/osk/tiles/` | Offline map tile cache location |
+| `storage_backend` | `luks` | Evidence storage mode (`luks` or dev-only `directory`) |
 
 ## Offline Map Tiles
 
@@ -426,7 +455,7 @@ Planned tunable parameters, expected to be set via `osk config` or
 
 ## Tech Stack
 
-Planned stack for the initial implementation:
+Current and planned stack for the implementation track:
 
 | Layer | Technology | Source |
 |---|---|---|

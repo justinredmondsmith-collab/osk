@@ -4,9 +4,22 @@
 
 **Goal:** Build the synthesis layer that fuses raw intelligence (transcripts, observations, GPS, manual reports) into unified Events, filters them into role-appropriate Alerts, and generates periodic SitReps for the coordinator.
 
-**Architecture:** Three components: Event Generator consumes outputs from all processing engines and produces Events. Alert Engine filters Events by severity/proximity and pushes to members. SitRep Generator periodically summarizes the event stream for the coordinator. All use Ollama for AI inference (local only).
+**Current state:** The repository already has a working heuristic synthesis path
+in `src/osk/synthesis.py` and `src/osk/intelligence_service.py`. Live member
+GPS/audio/frame ingest can now produce persisted observations, events, alerts,
+reviewable findings, and periodic SitReps, with coordinator triage/review
+surfaces exposed through the CLI, admin APIs, and local dashboard shell. The
+remaining work in this phase is to improve synthesis quality, correlation, and
+operator review depth rather than to start from zero.
 
-**Tech Stack:** Ollama (httpx), asyncio, Pydantic
+**Architecture:** The current repo uses a heuristic synthesizer that fuses
+persisted observations and live ingest context into Events, role-filtered
+Alerts, findings, and periodic SitReps. A future evolution may add more
+model-assisted local synthesis, but current coordinator review and alert flows
+depend on the heuristic path already in repo.
+
+**Tech Stack:** Current path: Python, asyncio, Pydantic. Future deeper
+model-assisted synthesis may also use Ollama (httpx).
 
 **Spec:** `docs/specs/2026-03-21-osk-design.md` — "Synthesis Layer" section
 **Depends on:** Plan 1 (models, db, connection_manager), Plan 2 (transcriber, vision_engine, location_engine)
@@ -17,14 +30,19 @@
 
 | File | Responsibility |
 |---|---|
-| `src/osk/event_generator.py` | Fuse transcripts + observations + spatial data + reports → Events |
-| `src/osk/alert_engine.py` | Filter Events → Alerts, proximity targeting, rate limiting, escalation detection |
-| `src/osk/sitrep_generator.py` | Periodic AI situation reports for coordinator |
-| `tests/test_event_generator.py` | Event generation tests |
-| `tests/test_alert_engine.py` | Alert filtering tests |
-| `tests/test_sitrep_generator.py` | SitRep generation tests |
+| `src/osk/synthesis.py` | Current heuristic synthesis, incident correlation, findings, alerts, SitReps |
+| `src/osk/intelligence_service.py` | Owns observation persistence, synthesis invocation, and alert fan-out |
+| `src/osk/server.py` | Review/feed/query surfaces and coordinator actions for synthesis output |
+| `src/osk/hub.py` | Local CLI review and finding triage flows |
+| `tests/test_synthesis.py` | Synthesis heuristics and SitRep cadence tests |
+| `tests/test_intelligence_service.py` | Service persistence and synthesis-wiring tests |
+| `tests/test_server.py` | Review/feed/dashboard API coverage |
 
 ---
+
+The checklist below now describes the broader target for this phase. Any new
+work should extend or replace the existing heuristic implementation rather than
+assuming the repo has no synthesis layer yet.
 
 ### Task 1: Event Generator
 
@@ -147,6 +165,11 @@ In `run_hub()`, instantiate EventGenerator, AlertEngine, and SitRepGenerator. Wi
 git add src/osk/hub.py src/osk/server.py tests/
 git commit -m "feat: wire synthesis layer into hub orchestrator"
 ```
+
+Note: the current repo already wires synthesis through
+`src/osk/intelligence_service.py`. Treat the checklist above as the broader
+direction for replacing or deepening that existing path, not as a literal
+description of today's file layout.
 
 ---
 

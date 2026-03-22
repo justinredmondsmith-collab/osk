@@ -56,9 +56,12 @@ The repository now includes:
   `scripts/member_shell_playwright_smoke.sh` for environments where localhost
   is reachable from the browser runtime
 
-The repository does **not** yet contain the full intelligence pipeline,
-synthesis layer, full coordinator dashboard, or mobile client described in the
-design documents.
+The repository does **not** yet contain the full production-grade or full
+planned versions of the intelligence pipeline, synthesis/review system,
+coordinator dashboard, mobile client, or operations tooling described in the
+design documents. It does contain early real slices of those phases, so
+contributions should extend the current surfaces rather than assuming they do
+not exist.
 
 That means the most useful contributions right now are:
 

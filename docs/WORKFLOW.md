@@ -47,36 +47,42 @@ Before merging, confirm:
 
 ## Current Gate
 
-The repo now has enough Phase 1 foundation to start Phase 2 work, but the next
-stage should still stay disciplined:
+The repo now has meaningful implementation slices across Phases 1 through 5.
+The next stage should stay disciplined in a different way:
 
+- Prefer operational hardening and real-world validation over new surface area
 - Keep fake and real adapters behind the same owned service boundary
-- Add operator-visible diagnostics for new subsystems when practical
 - Keep Whisper/Ollama calls behind explicit interfaces rather than wiring them
   directly into route or WebSocket handlers
 - Treat observability as part of the feature, not follow-up cleanup
+- Preserve the current browser auth posture: one-time bootstrap inputs should
+  exchange into short-lived `HttpOnly` cookie/session flows instead of
+  long-lived browser-managed JS storage
+- Keep reconnect/retry behavior explicit for ingest protocols rather than
+  assuming lossy mobile transport will behave perfectly
+- Keep transient coordinator telemetry and dashboard signals config-driven and
+  local to runtime state unless there is a deliberate design change to persist
+  them
 - Prefer reviewable synthesized state over ephemeral-only outputs when adding
   new coordinator-facing intelligence features
-- Make reconnect/retry behavior explicit for ingest protocols rather than
-  assuming lossy mobile transport will behave perfectly
-- Make manual review state explicit and durable before building coordinator UI
-  against a new intelligence surface
-- Land stable dashboard query surfaces before frontend-specific state or view
-  logic; the backend should own filtered finding/event/sitrep review feeds and
-  correlation lookups
+- Validate real browser/device behavior outside the sandbox before claiming
+  mobile or PWA flows are field-ready
 
 ## Suggested Order For The Next Stage
 
 For the next implementation stage, follow this order:
 
-1. Better client compatibility and transport hardening beyond the current
-   ffmpeg-backed browser-audio path
-2. Richer reviewable synthesis and cross-observation correlation beyond the
-   current heuristic corroboration model
-3. Coordinator-facing sitrep, finding, and event review UX
-4. Coordinator dashboard
-5. Mobile client
-6. Operations tooling
+1. Real browser/device validation for `/join` -> `/member`, offline/outbox
+   replay, installability, and reconnect behavior
+2. Operations tooling: hotspot control, tile caching, evidence/export, wipe
+   drills, and the host-side install path that makes the current runtime more
+   field-usable
+3. Broader resend/session hardening across hub restarts so member/mobile
+   capture survives more than transient reconnects
+4. Higher-quality synthesis and review ergonomics beyond the current heuristic
+   correlation model
+5. Dashboard and mobile UX expansion on top of those hardened/runtime-validated
+   surfaces
 
 ## When To Require Extra Human Attention
 

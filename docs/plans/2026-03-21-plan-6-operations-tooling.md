@@ -6,6 +6,13 @@
 
 **Architecture:** Host-side Python modules that wrap system commands (nmcli, cryptsetup, keyctl). These run outside the Docker stack on the coordinator's Linux laptop. The CLI commands (`osk install`, `osk tiles cache`, `osk evidence`) invoke these modules.
 
+**Current state:** The repo already has pieces of the operational boundary:
+`osk install`, evidence-volume creation/open/close paths in `src/osk/storage.py`,
+runtime preflight checks in `osk doctor`, and a dashboard tile-consumption path
+that reads cached local PNG tiles from `map_tile_cache_path`. The missing work
+in this phase is the broader field tooling around hotspot control, tile
+acquisition, evidence export/viewing, and validated wipe/install operations.
+
 **Tech Stack:** Python, nmcli, cryptsetup, keyctl, zipfile, subprocess
 
 **Spec:** `docs/specs/2026-03-21-osk-design.md` — "Coordinator Startup", "Operation Lifecycle", "Offline Map Tiles" sections

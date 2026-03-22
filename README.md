@@ -80,8 +80,10 @@ project:
 - [Provenance record](docs/PROVENANCE.md): how spin-off and future code reuse
   are tracked
 
-If you are looking for the full intelligence platform described in the plans,
-it has not landed yet.
+If you are looking for the full intended platform described in the plans, it
+has not landed yet. The repo now contains real foundation slices across Phases
+1 through 5, but not the full breadth, hardening, or field validation implied
+by the end-state design.
 
 ## Current Foundation
 
@@ -241,10 +243,10 @@ The initial implementation is split into six phases:
 |---|---|---|
 | [1. Core Hub + Connection](docs/plans/2026-03-21-plan-1-core-hub-connection.md) | Scaffolding, models, DB, auth, server, CLI | Foundational runtime in repo |
 | [2. Intelligence Pipeline](docs/plans/2026-03-21-plan-2-intelligence-pipeline.md) | Whisper, vision, ingest queues, location engine | Live ingest + persistence bridge in repo |
-| [3. Synthesis Layer](docs/plans/2026-03-21-plan-3-synthesis-layer.md) | Events, alerts, SitReps | Planned |
+| [3. Synthesis Layer](docs/plans/2026-03-21-plan-3-synthesis-layer.md) | Events, alerts, SitReps | Heuristic synthesis + review surfaces in repo |
 | [4. Coordinator Dashboard](docs/plans/2026-03-21-plan-4-coordinator-dashboard.md) | Map, timeline, sensor management | Live review shell in repo |
 | [5. Mobile PWA](docs/plans/2026-03-21-plan-5-mobile-pwa.md) | Join flow, alert feed, edge sampling | Join/runtime shell with alerts, GPS, queued manual reports/media, early sensor capture, and first installable/offline behavior in repo |
-| [6. Operations Tooling](docs/plans/2026-03-21-plan-6-operations-tooling.md) | Hotspot, evidence, tile caching | Planned |
+| [6. Operations Tooling](docs/plans/2026-03-21-plan-6-operations-tooling.md) | Hotspot, evidence, tile caching | Tile-consumption path in repo; CLI tooling still planned |
 
 See the [design specification](docs/specs/2026-03-21-osk-design.md) for the
 full architecture, API contract, and threat-model assumptions.
