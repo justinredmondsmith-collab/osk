@@ -8,6 +8,37 @@
     <link rel="stylesheet" href="/static/dashboard.css" />
   </head>
   <body>
+    <div class="auth-gate" id="auth-gate">
+      <div class="auth-gate__panel">
+        <p class="eyebrow">Local Dashboard Login</p>
+        <h2>Unlock Coordinator Review</h2>
+        <p class="subtle">
+          Run <code>osk dashboard</code> in the terminal to generate a one-time
+          local dashboard code, then enter it here to create a short-lived
+          browser session.
+        </p>
+        <form class="auth-gate__form" id="auth-form">
+          <label class="filter-field" for="auth-code-input">
+            <span>One-time dashboard code</span>
+            <input
+              id="auth-code-input"
+              name="dashboard_code"
+              type="password"
+              autocomplete="one-time-code"
+              spellcheck="false"
+              required
+            />
+          </label>
+          <div class="auth-gate__actions">
+            <span class="subtle" id="auth-status">
+              Checking for an existing local dashboard session.
+            </span>
+            <button class="ghost-button" id="auth-submit" type="submit">Unlock</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
     <div class="shell">
       <header class="topbar">
         <div class="topbar__identity boot-sequence">

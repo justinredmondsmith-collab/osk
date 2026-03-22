@@ -6,7 +6,7 @@
 
 **Architecture:** Single-page Jinja2 template with vanilla JS. WebSocket connection for real-time updates. Leaflet.js for the map with offline tile support. No framework build step — follows bodycam-summarizer's pattern of a monolithic dashboard.html with inline JS.
 
-**Current state:** A thinner review-focused coordinator shell now exists at `/coordinator`, backed by the local review/feed APIs and served with static HTML/CSS/JS. That shell is local-only and uses a fragment-to-`sessionStorage` operator bootstrap rather than embedding auth in the server-rendered HTML or request URL. The tasks below describe the fuller dashboard target beyond that shell.
+**Current state:** A thinner review-focused coordinator shell now exists at `/coordinator`, backed by the local review/feed APIs and served with static HTML/CSS/JS. That shell is local-only and uses a one-time dashboard code exchange into a short-lived `HttpOnly` cookie rather than embedding auth in the server-rendered HTML, request URL, or browser-managed JS storage. The tasks below describe the fuller dashboard target beyond that shell.
 
 **Tech Stack:** HTML, vanilla JS, Leaflet.js, Jinja2, WebSocket API
 

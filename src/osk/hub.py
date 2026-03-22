@@ -14,7 +14,7 @@ import subprocess
 import time
 import uuid
 from pathlib import Path
-from urllib.parse import quote, urlparse
+from urllib.parse import urlparse
 
 import asyncpg
 import uvicorn
@@ -26,12 +26,19 @@ from osk.intelligence_service import IntelligenceService
 from osk.local_operator import (
     bootstrap_session_path,
     clear_bootstrap_session,
+    clear_dashboard_bootstrap,
+    clear_dashboard_session,
     clear_operator_session,
     consume_bootstrap_session,
     create_bootstrap_session,
+    create_dashboard_bootstrap,
     create_operator_session,
+    dashboard_bootstrap_path,
+    dashboard_session_path,
     operator_session_path,
     read_bootstrap_session,
+    read_dashboard_bootstrap,
+    read_dashboard_session,
     read_operator_session,
 )
 from osk.models import (
@@ -259,6 +266,8 @@ def ensure_hub_not_running() -> None:
     logger.warning("Removing stale hub state at %s", _hub_state_path())
     _clear_hub_state()
     _clear_stop_request()
+    clear_dashboard_bootstrap()
+    clear_dashboard_session()
     clear_bootstrap_session()
     clear_operator_session()
 
@@ -566,6 +575,26 @@ def _resolve_bootstrap_state(operation_id: str | None) -> tuple[str, dict[str, o
     return "active", payload
 
 
+def _resolve_dashboard_bootstrap_state(
+    operation_id: str | None,
+) -> tuple[str, dict[str, object] | None]:
+    existed = dashboard_bootstrap_path().exists()
+    payload = read_dashboard_bootstrap()
+    if payload is None:
+        if existed:
+            _try_record_local_audit_event(
+                operation_id,
+                "dashboard_bootstrap_expired",
+                details={"path": str(dashboard_bootstrap_path())},
+            )
+            return "expired_or_invalid", None
+        return "missing", None
+
+    if operation_id and payload.get("operation_id") != operation_id:
+        return "wrong_operation", payload
+    return "active", payload
+
+
 def install() -> None:
     """One-time install for local development."""
     config = load_config()
@@ -664,6 +693,8 @@ async def run_hub(name: str) -> None:
         join_url = build_join_url(config.join_host, config.hub_port, operation.token)
         qr_path = _config_root() / "join-qr.png"
         generate_qr_png(join_url, qr_path)
+        clear_dashboard_bootstrap()
+        clear_dashboard_session()
         clear_operator_session()
         bootstrap = create_bootstrap_session(
             str(operation.id),
@@ -728,6 +759,8 @@ async def run_hub(name: str) -> None:
         print("\nShutting down...")
         _clear_hub_state()
         _clear_stop_request()
+        clear_dashboard_bootstrap()
+        clear_dashboard_session()
         clear_bootstrap_session()
         clear_operator_session()
         await conn_manager.broadcast({"type": "op_ended"})
@@ -780,6 +813,8 @@ def stop_hub(wait_seconds: float = 10.0, *, stop_services: bool = False) -> int:
     if pid <= 0 or not _pid_is_running(pid):
         print("Found stale Osk hub state; cleaning it up.")
         _clear_hub_state()
+        clear_dashboard_bootstrap()
+        clear_dashboard_session()
         clear_bootstrap_session()
         clear_operator_session()
         if stop_services:
@@ -810,6 +845,8 @@ def stop_hub(wait_seconds: float = 10.0, *, stop_services: bool = False) -> int:
 
     _clear_hub_state()
     _clear_stop_request()
+    clear_dashboard_bootstrap()
+    clear_dashboard_session()
     clear_bootstrap_session()
     clear_operator_session()
     if stop_services:
@@ -868,6 +905,8 @@ def hub_status_snapshot(now: float | None = None) -> tuple[int, dict[str, object
         uptime_human = _format_uptime(uptime_seconds)
 
     snapshot: dict[str, object] = {
+        "dashboard_bootstrap_path": str(dashboard_bootstrap_path()),
+        "dashboard_session_path": str(dashboard_session_path()),
         "operator_bootstrap_path": str(bootstrap_session_path()),
         "operation_id": operation_id,
         "operation_name": operation_name,
@@ -891,12 +930,28 @@ def hub_status_snapshot(now: float | None = None) -> tuple[int, dict[str, object
         snapshot["operator_bootstrap_active"] = False
         snapshot["operator_bootstrap_expires_at"] = None
     snapshot["operator_bootstrap_status"] = bootstrap_status
+    dashboard_bootstrap_status, dashboard_bootstrap = _resolve_dashboard_bootstrap_state(
+        str(operation_id) if operation_id else None
+    )
+    if dashboard_bootstrap is not None:
+        snapshot["dashboard_bootstrap_active"] = True
+        snapshot["dashboard_bootstrap_expires_at"] = dashboard_bootstrap.get("expires_at")
+    else:
+        snapshot["dashboard_bootstrap_active"] = False
+        snapshot["dashboard_bootstrap_expires_at"] = None
+    snapshot["dashboard_bootstrap_status"] = dashboard_bootstrap_status
     if session := read_operator_session():
         snapshot["operator_session_active"] = True
         snapshot["operator_session_expires_at"] = session.get("expires_at")
     else:
         snapshot["operator_session_active"] = False
         snapshot["operator_session_expires_at"] = None
+    if dashboard_session := read_dashboard_session():
+        snapshot["dashboard_session_active"] = True
+        snapshot["dashboard_session_expires_at"] = dashboard_session.get("expires_at")
+    else:
+        snapshot["dashboard_session_active"] = False
+        snapshot["dashboard_session_expires_at"] = None
 
     if pid > 0 and _pid_is_running(pid):
         snapshot["status"] = "running"
@@ -948,6 +1003,16 @@ def status_hub(*, json_output: bool = False) -> int:
         print(f"operator_bootstrap_status = {bootstrap_status}")
     if bootstrap_expires_at := snapshot.get("operator_bootstrap_expires_at"):
         print(f"operator_bootstrap_expires_at = {bootstrap_expires_at}")
+    if dashboard_session_path_value := snapshot.get("dashboard_session_path"):
+        print(f"dashboard_session_file = {dashboard_session_path_value}")
+    if dashboard_session_expires_at := snapshot.get("dashboard_session_expires_at"):
+        print(f"dashboard_session_expires_at = {dashboard_session_expires_at}")
+    if dashboard_bootstrap_path_value := snapshot.get("dashboard_bootstrap_path"):
+        print(f"dashboard_bootstrap_file = {dashboard_bootstrap_path_value}")
+    if dashboard_bootstrap_status := snapshot.get("dashboard_bootstrap_status"):
+        print(f"dashboard_bootstrap_status = {dashboard_bootstrap_status}")
+    if dashboard_bootstrap_expires_at := snapshot.get("dashboard_bootstrap_expires_at"):
+        print(f"dashboard_bootstrap_expires_at = {dashboard_bootstrap_expires_at}")
     if runtime_log_path := snapshot.get("runtime_log_path"):
         print(f"runtime_log_file = {runtime_log_path}")
 
@@ -998,6 +1063,8 @@ def login_operator_session(*, ttl_minutes: int | None = None, json_output: bool 
         issued_from = "bootstrap"
         bootstrap_consumed = True
 
+    clear_dashboard_bootstrap()
+    clear_dashboard_session()
     session = create_operator_session(
         operation_id,
         ttl_minutes if ttl_minutes is not None else config.operator_session_ttl_minutes,
@@ -1084,6 +1151,8 @@ def logout_operator_session() -> int:
             "operator_session_logged_out",
             details={"expires_at": session.get("expires_at")},
         )
+    clear_dashboard_bootstrap()
+    clear_dashboard_session()
     clear_operator_session()
     print("Local operator session removed.")
     return 0
@@ -1209,6 +1278,7 @@ def show_members(*, json_output: bool = False) -> int:
 
 
 def show_dashboard_url(*, json_output: bool = False) -> int:
+    config = load_config()
     state = read_hub_state()
     if state is None:
         print("No running Osk hub state found.")
@@ -1225,13 +1295,27 @@ def show_dashboard_url(*, json_output: bool = False) -> int:
         print("No active local operator session. Run `osk operator login` first.")
         return 1
 
-    session_token = session.get("token")
-    if not isinstance(session_token, str) or not session_token.strip():
-        print("Operator session file is invalid.")
+    clear_dashboard_bootstrap()
+    clear_dashboard_session()
+    bootstrap = create_dashboard_bootstrap(
+        operation_id,
+        config.dashboard_bootstrap_ttl_minutes,
+    )
+    dashboard_code = bootstrap.get("dashboard_code")
+    if not isinstance(dashboard_code, str) or not dashboard_code.strip():
+        clear_dashboard_bootstrap()
+        print("Dashboard bootstrap file is invalid.")
         return 1
+    _try_record_local_audit_event(
+        operation_id,
+        "dashboard_bootstrap_created",
+        details={"expires_at": bootstrap.get("expires_at")},
+    )
 
-    url = f"https://127.0.0.1:{port}/coordinator#token={quote(session_token, safe='')}"
+    url = f"https://127.0.0.1:{port}/coordinator"
     payload = {
+        "dashboard_bootstrap_expires_at": bootstrap.get("expires_at"),
+        "dashboard_code": dashboard_code,
         "operation_id": operation_id,
         "operation_name": state.get("operation_name"),
         "url": url,
@@ -1243,6 +1327,9 @@ def show_dashboard_url(*, json_output: bool = False) -> int:
         return 0
 
     print(url)
+    print(f"dashboard_code = {dashboard_code}")
+    if bootstrap_expires_at := bootstrap.get("expires_at"):
+        print(f"dashboard_code_expires_at = {bootstrap_expires_at}")
     return 0
 
 

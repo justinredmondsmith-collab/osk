@@ -1,13 +1,12 @@
 (function () {
-  const DASHBOARD_TOKEN_STORAGE_KEY = "osk_operator_token";
   const bootstrapNode = document.getElementById("osk-dashboard-bootstrap");
   if (!bootstrapNode) {
     return;
   }
 
   const bootstrap = JSON.parse(bootstrapNode.textContent || "{}");
-  let apiToken = "";
   const state = {
+    authenticated: false,
     filters: {
       include: ["finding", "event", "sitrep"],
       status: "",
@@ -28,6 +27,11 @@
   };
 
   const elements = {
+    authCodeInput: document.getElementById("auth-code-input"),
+    authForm: document.getElementById("auth-form"),
+    authGate: document.getElementById("auth-gate"),
+    authStatus: document.getElementById("auth-status"),
+    authSubmit: document.getElementById("auth-submit"),
     operationName: document.getElementById("operation-name"),
     operationSubtitle: document.getElementById("operation-subtitle"),
     startedAt: document.getElementById("started-at"),
@@ -126,17 +130,14 @@
   }
 
   async function fetchJson(path, options) {
-    if (!apiToken) {
-      throw new Error("Local dashboard token is missing. Run `osk dashboard` again.");
-    }
     const response = await fetch(path, {
       ...options,
       headers: {
-        Authorization: `Bearer ${apiToken}`,
         "Content-Type": "application/json",
         ...(options && options.headers ? options.headers : {}),
       },
       cache: "no-store",
+      credentials: "same-origin",
     });
     if (!response.ok) {
       let message = `${response.status} ${response.statusText}`;
@@ -148,7 +149,9 @@
       } catch (error) {
         // Ignore JSON parse failures and keep the HTTP status text.
       }
-      throw new Error(message);
+      const failure = new Error(message);
+      failure.status = response.status;
+      throw failure;
     }
     return response.json();
   }
@@ -191,6 +194,93 @@
       elements.connectionIndicator.classList.add("is-error");
     }
     elements.connectionLabel.textContent = label;
+  }
+
+  function stopPolling() {
+    if (state.pollHandle) {
+      window.clearInterval(state.pollHandle);
+      state.pollHandle = null;
+    }
+  }
+
+  function setAuthGateVisible(visible, message) {
+    elements.authGate.hidden = !visible;
+    document.body.classList.toggle("dashboard-auth-required", visible);
+    if (message) {
+      elements.authStatus.textContent = message;
+    }
+    if (visible) {
+      stopPolling();
+    }
+  }
+
+  function lockDashboard(message) {
+    state.authenticated = false;
+    setAuthGateVisible(
+      true,
+      message || "Run `osk dashboard` for a fresh one-time dashboard code.",
+    );
+    updateConnectionState("error", "Locked");
+    elements.refreshLabel.textContent = "Awaiting code";
+  }
+
+  async function syncDashboardSession() {
+    const response = await fetch(bootstrap.paths.dashboard_session, {
+      method: "GET",
+      cache: "no-store",
+      credentials: "same-origin",
+    });
+    let payload = {};
+    try {
+      payload = await response.json();
+    } catch (error) {
+      payload = {};
+    }
+
+    if (response.ok) {
+      state.authenticated = true;
+      setAuthGateVisible(false);
+      return payload;
+    }
+
+    if (response.status === 401) {
+      lockDashboard(
+        payload.error || "Run `osk dashboard` for a fresh one-time dashboard code.",
+      );
+      return null;
+    }
+
+    const failure = new Error(payload.error || `${response.status} ${response.statusText}`);
+    failure.status = response.status;
+    throw failure;
+  }
+
+  async function submitDashboardCode(event) {
+    event.preventDefault();
+    const dashboardCode = elements.authCodeInput.value.trim();
+    if (!dashboardCode) {
+      elements.authStatus.textContent = "Enter the one-time dashboard code from `osk dashboard`.";
+      return;
+    }
+
+    elements.authStatus.textContent = "Unlocking local dashboard session...";
+    elements.authSubmit.disabled = true;
+    try {
+      await fetchJson(bootstrap.paths.dashboard_session, {
+        method: "POST",
+        body: JSON.stringify({ dashboard_code: dashboardCode }),
+      });
+      state.authenticated = true;
+      elements.authCodeInput.value = "";
+      setAuthGateVisible(false);
+      startPolling();
+      await refreshDashboard();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Dashboard login failed";
+      lockDashboard(message);
+    } finally {
+      elements.authSubmit.disabled = false;
+    }
   }
 
   function renderFeed() {
@@ -275,12 +365,9 @@
   }
 
   async function refreshDashboard() {
-    if (!apiToken) {
-      setBanner(
-        "No local dashboard token is available. Run `osk operator login`, then `osk dashboard` again.",
-        "error",
-      );
-      updateConnectionState("error", "Auth required");
+    if (!state.authenticated) {
+      setBanner("Dashboard login required before review data can load.", "error");
+      updateConnectionState("error", "Locked");
       return;
     }
     if (state.refreshInFlight) {
@@ -349,6 +436,9 @@
       }, 1800);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Dashboard refresh failed";
+      if (error && (error.status === 401 || error.status === 403)) {
+        lockDashboard("Dashboard session expired. Run `osk dashboard` for a fresh one-time code.");
+      }
       setBanner(message, "error");
       updateConnectionState("error", "Refresh failed");
       elements.refreshLabel.textContent = "Retry needed";
@@ -632,32 +722,17 @@
     void refreshDashboard();
   }
 
-  function initializeToken() {
-    const url = new URL(window.location.href);
-    const hash = url.hash.startsWith("#") ? url.hash.slice(1) : "";
-    const hashParams = new URLSearchParams(hash);
-    const fragmentToken = (hashParams.get("token") || "").trim();
-    if (fragmentToken) {
-      apiToken = fragmentToken;
-      window.sessionStorage.setItem(DASHBOARD_TOKEN_STORAGE_KEY, fragmentToken);
-      url.hash = "";
-      window.history.replaceState({}, document.title, url.toString());
-      return;
-    }
-
-    apiToken = window.sessionStorage.getItem(DASHBOARD_TOKEN_STORAGE_KEY) || "";
-  }
-
   function startPolling() {
-    if (state.pollHandle) {
-      window.clearInterval(state.pollHandle);
-    }
+    stopPolling();
     state.pollHandle = window.setInterval(() => {
       void refreshDashboard();
     }, bootstrap.poll_interval_ms || 10000);
   }
 
   function bindEvents() {
+    elements.authForm.addEventListener("submit", (event) => {
+      void submitDashboardCode(event);
+    });
     elements.refreshButton.addEventListener("click", () => {
       void refreshDashboard();
     });
@@ -671,14 +746,27 @@
     }
   }
 
+  async function initializeShell() {
+    try {
+      const payload = await syncDashboardSession();
+      if (payload) {
+        startPolling();
+        await refreshDashboard();
+      }
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Could not initialize dashboard session";
+      setBanner(message, "error");
+      updateConnectionState("error", "Session check failed");
+    }
+  }
+
   function init() {
     document.title = "Osk | Coordinator Review";
-    initializeToken();
     bindEvents();
     renderContext();
     renderFeed();
-    startPolling();
-    void refreshDashboard();
+    void initializeShell();
     window.setInterval(() => {
       if (state.operationStatus && state.operationStatus.started_at) {
         elements.uptime.textContent = formatUptime(state.operationStatus.started_at);

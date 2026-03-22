@@ -48,6 +48,10 @@ body::before {
   mask-image: linear-gradient(180deg, rgba(0, 0, 0, 0.8), transparent);
 }
 
+body.dashboard-auth-required {
+  overflow: hidden;
+}
+
 button,
 input,
 select,
@@ -59,6 +63,49 @@ textarea {
   position: relative;
   min-height: 100vh;
   padding: 1.6rem;
+}
+
+.auth-gate {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: grid;
+  place-items: center;
+  padding: 1.5rem;
+  background: rgba(4, 10, 18, 0.72);
+  backdrop-filter: blur(16px);
+}
+
+.auth-gate[hidden] {
+  display: none;
+}
+
+.auth-gate__panel {
+  width: min(32rem, 100%);
+  padding: 1.4rem;
+  border: 1px solid var(--color-line-strong);
+  border-radius: 1.35rem;
+  background: linear-gradient(180deg, rgba(17, 34, 58, 0.95), rgba(9, 20, 34, 0.96));
+  box-shadow: 0 24px 60px var(--color-shadow);
+}
+
+.auth-gate__panel h2 {
+  margin: 0;
+  font-size: 1.8rem;
+  letter-spacing: -0.04em;
+}
+
+.auth-gate__form {
+  display: grid;
+  gap: 1rem;
+  margin-top: 1.1rem;
+}
+
+.auth-gate__actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.8rem;
 }
 
 .topbar {
@@ -241,6 +288,7 @@ textarea {
 }
 
 .type-toggle label,
+.auth-gate__form input,
 .filter-field select,
 .note-form textarea,
 .ghost-button,
@@ -285,6 +333,7 @@ textarea {
   font-size: 0.82rem;
 }
 
+.auth-gate__form input,
 .filter-field select,
 .note-form textarea {
   width: 100%;
@@ -294,6 +343,12 @@ textarea {
   color: var(--color-ink);
 }
 
+.auth-gate__form input::placeholder,
+.note-form textarea::placeholder {
+  color: var(--color-muted);
+}
+
+.auth-gate__form input:focus,
 .filter-field select:focus,
 .note-form textarea:focus,
 .ghost-button:focus,

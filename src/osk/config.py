@@ -64,6 +64,8 @@ class OskConfig(BaseModel):
     auto_manage_local_services: bool = True
     operator_bootstrap_ttl_minutes: int = 15
     operator_session_ttl_minutes: int = 240
+    dashboard_bootstrap_ttl_minutes: int = 5
+    dashboard_session_ttl_minutes: int = 120
     storage_backend: Literal["luks", "directory"] = "luks"
 
 

@@ -15,6 +15,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+from osk.config import load_config
 from osk.connection_manager import ConnectionManager
 from osk.intelligence_contracts import (
     AudioChunk,
@@ -24,7 +25,14 @@ from osk.intelligence_contracts import (
     LocationSample,
 )
 from osk.intelligence_service import IngestSubmissionResult
-from osk.local_operator import validate_operator_session
+from osk.local_operator import (
+    clear_dashboard_session,
+    consume_dashboard_bootstrap_code,
+    create_dashboard_session,
+    read_dashboard_session,
+    validate_dashboard_session,
+    validate_operator_session,
+)
 from osk.models import (
     Event,
     EventCategory,
@@ -39,6 +47,7 @@ from osk.operation import OperationManager
 logger = logging.getLogger(__name__)
 ADMIN_TOKEN_HEADER = "X-Osk-Coordinator-Token"
 OPERATOR_SESSION_HEADER = "X-Osk-Operator-Session"
+DASHBOARD_SESSION_COOKIE = "osk_dashboard_session"
 LOCAL_ADMIN_TEST_HOSTS = {"testclient", "localhost"}
 MAX_AUDIT_LIMIT = 200
 MAX_OBSERVATION_LIMIT = 200
@@ -65,6 +74,10 @@ class FindingNoteRequest(BaseModel):
     text: str
 
 
+class DashboardSessionRequest(BaseModel):
+    dashboard_code: str
+
+
 def _utcnow() -> dt.datetime:
     return dt.datetime.now(dt.timezone.utc)
 
@@ -79,6 +92,8 @@ def _extract_admin_token(request: Request) -> str | None:
     authorization = request.headers.get("Authorization", "")
     scheme, _, token = authorization.partition(" ")
     if scheme.lower() == "bearer" and token.strip():
+        return token.strip()
+    if token := request.cookies.get(DASHBOARD_SESSION_COOKIE):
         return token.strip()
     return None
 
@@ -98,9 +113,57 @@ def _validate_local_admin_token(token: str, op_manager: OperationManager) -> boo
     operation = op_manager.operation
     if operation is None:
         return False
+    if validate_dashboard_session(token, str(operation.id)):
+        return True
     if validate_operator_session(token, str(operation.id)):
         return True
     return op_manager.validate_coordinator_token(token)
+
+
+def _dashboard_session_cookie_payload(
+    request: Request, session: dict[str, object]
+) -> dict[str, object]:
+    expires_at_raw = session.get("expires_at")
+    max_age: int | None = None
+    if isinstance(expires_at_raw, str):
+        try:
+            expires_at = dt.datetime.fromisoformat(expires_at_raw)
+        except ValueError:
+            expires_at = None
+        if expires_at is not None:
+            max_age = max(int((expires_at - _utcnow()).total_seconds()), 1)
+
+    return {
+        "httponly": True,
+        "max_age": max_age,
+        "path": "/",
+        "samesite": "strict",
+        "secure": request.url.scheme == "https",
+    }
+
+
+def _set_dashboard_session_cookie(
+    response: JSONResponse,
+    request: Request,
+    session: dict[str, object],
+) -> None:
+    token = session.get("token")
+    if not isinstance(token, str) or not token.strip():
+        return
+    response.set_cookie(
+        DASHBOARD_SESSION_COOKIE,
+        token,
+        **_dashboard_session_cookie_payload(request, session),
+    )
+
+
+def _clear_dashboard_session_cookie(response: JSONResponse, request: Request) -> None:
+    response.delete_cookie(
+        DASHBOARD_SESSION_COOKIE,
+        path="/",
+        samesite="strict",
+        secure=request.url.scheme == "https",
+    )
 
 
 def _require_local_admin(request: Request, op_manager: OperationManager) -> JSONResponse | None:
@@ -334,6 +397,7 @@ def create_app(
 
         bootstrap = {
             "paths": {
+                "dashboard_session": "/api/operator/dashboard-session",
                 "operation_status": "/api/operation/status",
                 "intelligence_status": "/api/intelligence/status",
                 "review_feed": "/api/intelligence/review-feed",
@@ -355,6 +419,105 @@ def create_app(
                 "X-Content-Type-Options": "nosniff",
             },
         )
+
+    @app.get("/api/operator/dashboard-session")
+    async def get_dashboard_session(request: Request):
+        client_host = request.client.host if request.client else None
+        if not _is_loopback_host(client_host):
+            return JSONResponse({"error": "Local coordinator access only"}, status_code=403)
+
+        operation = op_manager.operation
+        if operation is None:
+            return JSONResponse({"error": "No active operation"}, status_code=503)
+
+        token = str(request.cookies.get(DASHBOARD_SESSION_COOKIE) or "").strip()
+        if token and validate_dashboard_session(token, str(operation.id)):
+            session = read_dashboard_session()
+            if session is None:
+                response = JSONResponse(
+                    {"authenticated": False, "error": "Dashboard login expired."},
+                    status_code=401,
+                )
+                _clear_dashboard_session_cookie(response, request)
+                return response
+            response = JSONResponse(
+                {
+                    "authenticated": True,
+                    "expires_at": session.get("expires_at"),
+                    "operation_id": str(operation.id),
+                }
+            )
+            _set_dashboard_session_cookie(response, request, session)
+            return response
+
+        response = JSONResponse(
+            {
+                "authenticated": False,
+                "error": "Dashboard login required. Run `osk dashboard` for a one-time code.",
+            },
+            status_code=401,
+        )
+        _clear_dashboard_session_cookie(response, request)
+        return response
+
+    @app.post("/api/operator/dashboard-session")
+    async def create_dashboard_browser_session(
+        request: Request,
+        payload: DashboardSessionRequest,
+    ):
+        client_host = request.client.host if request.client else None
+        if not _is_loopback_host(client_host):
+            return JSONResponse({"error": "Local coordinator access only"}, status_code=403)
+
+        operation = op_manager.operation
+        if operation is None:
+            return JSONResponse({"error": "No active operation"}, status_code=503)
+
+        token = str(request.cookies.get(DASHBOARD_SESSION_COOKIE) or "").strip()
+        if token and validate_dashboard_session(token, str(operation.id)):
+            session = read_dashboard_session()
+            if session is None:
+                clear_dashboard_session()
+            else:
+                response = JSONResponse(
+                    {
+                        "authenticated": True,
+                        "expires_at": session.get("expires_at"),
+                        "operation_id": str(operation.id),
+                    }
+                )
+                _set_dashboard_session_cookie(response, request, session)
+                return response
+
+        dashboard_code = payload.dashboard_code.strip()
+        if not dashboard_code:
+            return JSONResponse({"error": "Dashboard code is required."}, status_code=400)
+        if not consume_dashboard_bootstrap_code(str(operation.id), dashboard_code):
+            return JSONResponse(
+                {"error": "Invalid or expired dashboard code. Run `osk dashboard` again."},
+                status_code=401,
+            )
+
+        config = load_config()
+        session = create_dashboard_session(
+            str(operation.id),
+            config.dashboard_session_ttl_minutes,
+        )
+        await db.insert_audit_event(
+            operation.id,
+            "coordinator",
+            "dashboard_session_created",
+            details={"expires_at": session.get("expires_at")},
+        )
+        response = JSONResponse(
+            {
+                "authenticated": True,
+                "expires_at": session.get("expires_at"),
+                "operation_id": str(operation.id),
+            }
+        )
+        _set_dashboard_session_cookie(response, request, session)
+        return response
 
     @app.get("/api/operation/status")
     async def operation_status(request: Request):

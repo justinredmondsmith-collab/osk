@@ -16,7 +16,8 @@ situations where shared awareness matters.
 > hooks, persisted ingest receipts for restart-safe duplicate detection, and a
 > heuristic synthesis layer with reviewable findings, corroboration, sitrep
 > output, coordinator triage actions, and a thin local-only coordinator review
-> shell served by FastAPI with fragment-based operator bootstrap. The fuller
+> shell served by FastAPI with one-time dashboard code exchange into a
+> short-lived local cookie session. The fuller
 > map/live dashboard and mobile product work are
 > still planned.
 
@@ -109,7 +110,7 @@ What exists today:
   correlations, and findings
 - Local coordinator review shell at `/coordinator`, backed by the existing
   admin APIs, served with static CSS/JS from the hub, and bootstrapped from a
-  fragment-carried operator token instead of a request query parameter
+  one-time dashboard code into a short-lived `HttpOnly` local cookie session
 - `ffmpeg`-backed decode path for compressed audio uploads such as WebM/Ogg
   when using the real Whisper backend
 
@@ -218,11 +219,11 @@ full architecture, API contract, and threat-model assumptions.
 - Use `osk finding show|acknowledge|resolve|reopen|escalate|correlations|note`
   to triage one reviewable finding locally before the fuller dashboard lands
 - Run `osk operator login`, then `osk dashboard`, to print a local dashboard
-  URL; paste that URL into a browser to load the review shell
-- The printed dashboard URL now carries the operator token in the URL fragment
-  (`#token=...`) rather than the HTTP request URL; the shell strips that
-  fragment, caches the token in `sessionStorage`, and keeps it out of normal
-  request logs; still treat that URL as sensitive local access material
+  URL plus a one-time dashboard code; open the URL in a browser and enter the
+  code to unlock the review shell
+- The browser exchange turns that one-time code into a short-lived local
+  `HttpOnly` cookie instead of keeping a steady-state auth token in the URL or
+  in browser-managed JavaScript storage
 - Use `/api/intelligence/status`, `/api/intelligence/observations`,
   `/api/intelligence/findings`, `/api/intelligence/review-feed`, `/api/events`,
   and `/api/sitreps` from the local coordinator surface to inspect live

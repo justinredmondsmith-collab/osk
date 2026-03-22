@@ -173,6 +173,70 @@ def test_coordinator_dashboard_rejects_remote_client(
     assert resp.json()["error"] == "Local coordinator access only"
 
 
+def test_dashboard_session_status_requires_code(
+    unauthenticated_client: TestClient,
+) -> None:
+    resp = unauthenticated_client.get("/api/operator/dashboard-session")
+
+    assert resp.status_code == 401
+    assert "Run `osk dashboard`" in resp.json()["error"]
+
+
+@patch("osk.server.read_dashboard_session")
+@patch("osk.server.validate_dashboard_session", return_value=True)
+def test_dashboard_session_status_accepts_cookie(
+    mock_validate_dashboard_session: MagicMock,
+    mock_read_dashboard_session: MagicMock,
+    unauthenticated_client: TestClient,
+    operation: Operation,
+) -> None:
+    mock_read_dashboard_session.return_value = {
+        "operation_id": str(operation.id),
+        "token": "dashboard-cookie-token",
+        "expires_at": "2026-03-21T19:30:00+00:00",
+    }
+    unauthenticated_client.cookies.set("osk_dashboard_session", "dashboard-cookie-token")
+
+    resp = unauthenticated_client.get("/api/operator/dashboard-session")
+
+    assert resp.status_code == 200
+    assert resp.json()["authenticated"] is True
+    mock_validate_dashboard_session.assert_called_once_with(
+        "dashboard-cookie-token",
+        str(operation.id),
+    )
+
+
+@patch("osk.server.create_dashboard_session")
+@patch("osk.server.consume_dashboard_bootstrap_code", return_value=True)
+def test_dashboard_session_exchange_sets_cookie(
+    mock_consume_dashboard_bootstrap_code: MagicMock,
+    mock_create_dashboard_session: MagicMock,
+    unauthenticated_client: TestClient,
+    mock_db: MagicMock,
+    operation: Operation,
+) -> None:
+    mock_create_dashboard_session.return_value = {
+        "operation_id": str(operation.id),
+        "token": "dashboard-cookie-token",
+        "expires_at": "2026-03-21T19:30:00+00:00",
+    }
+
+    resp = unauthenticated_client.post(
+        "/api/operator/dashboard-session",
+        json={"dashboard_code": "one-time-code"},
+    )
+
+    assert resp.status_code == 200
+    assert resp.json()["authenticated"] is True
+    assert "osk_dashboard_session=dashboard-cookie-token" in resp.headers["set-cookie"]
+    mock_consume_dashboard_bootstrap_code.assert_called_once_with(
+        str(operation.id),
+        "one-time-code",
+    )
+    mock_db.insert_audit_event.assert_awaited_once()
+
+
 def test_dashboard_static_asset_serves(client: TestClient) -> None:
     resp = client.get("/static/dashboard.css")
 
@@ -212,6 +276,23 @@ def test_operation_status_accepts_operator_session(
     assert resp.status_code == 200
     mock_validate_operator_session.assert_called_once_with(
         "operator-session-token",
+        str(operation.id),
+    )
+
+
+@patch("osk.server.validate_dashboard_session", return_value=True)
+def test_operation_status_accepts_dashboard_cookie(
+    mock_validate_dashboard_session: MagicMock,
+    unauthenticated_client: TestClient,
+    operation: Operation,
+) -> None:
+    unauthenticated_client.cookies.set("osk_dashboard_session", "dashboard-cookie-token")
+
+    resp = unauthenticated_client.get("/api/operation/status")
+
+    assert resp.status_code == 200
+    mock_validate_dashboard_session.assert_called_once_with(
+        "dashboard-cookie-token",
         str(operation.id),
     )
 

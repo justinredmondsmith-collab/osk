@@ -96,5 +96,6 @@ changes manually while the project is in its early public setup phase.
   support the next dashboard phase
 - Docs now distinguish the review-focused coordinator shell from the still
   planned fuller dashboard experience
-- The dashboard shell now uses a URL fragment/sessionStorage token flow rather
-  than embedding the operator session token in the HTTP request URL
+- The dashboard shell now uses a clean local URL plus one-time dashboard code
+  exchange into a short-lived `HttpOnly` cookie instead of URL or JS-stored
+  steady-state auth tokens

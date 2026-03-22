@@ -29,8 +29,8 @@ The repository now includes:
   coordinator review actions
 - A thin local coordinator review shell served from FastAPI with static
   HTML/CSS/JS under `src/osk/templates/` and `src/osk/static/`; the shell uses
-  a local operator token passed via URL fragment and cached in
-  `sessionStorage`, rather than embedding that token in the HTTP request URL
+  a one-time dashboard code to mint a short-lived local `HttpOnly` cookie
+  instead of keeping a steady-state token in the request URL or JS storage
 
 The repository does **not** yet contain the full intelligence pipeline,
 synthesis layer, full coordinator dashboard, or mobile client described in the
@@ -136,8 +136,8 @@ Code contributions should:
   retrieval or review semantics, update both the local CLI flow and the admin
   API/query surfaces used by future dashboard work
 - Keep browser auth bootstrap non-secret on the server side: do not put
-  operator/coordinator tokens in request query strings or rendered HTML when
-  extending the dashboard flow
+  operator/coordinator tokens in request query strings, rendered HTML, or
+  long-lived browser-managed JS storage when extending the dashboard flow
 
 ## How to Contribute
 

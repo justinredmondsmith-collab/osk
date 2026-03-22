@@ -5,12 +5,19 @@ from pathlib import Path
 from unittest.mock import patch
 
 from osk.local_operator import (
+    clear_dashboard_session,
     clear_operator_session,
     consume_bootstrap_session,
+    consume_dashboard_bootstrap_code,
     create_bootstrap_session,
+    create_dashboard_bootstrap,
+    create_dashboard_session,
     create_operator_session,
     read_bootstrap_session,
+    read_dashboard_bootstrap,
+    read_dashboard_session,
     read_operator_session,
+    validate_dashboard_session,
     validate_operator_session,
 )
 
@@ -47,6 +54,34 @@ def test_operator_session_round_trip(tmp_path: Path) -> None:
 
         clear_operator_session()
         assert read_operator_session() is None
+
+
+def test_dashboard_bootstrap_round_trip(tmp_path: Path) -> None:
+    with patch("osk.local_operator._state_root", return_value=tmp_path):
+        payload = create_dashboard_bootstrap("operation-1", 5)
+        bootstrap = read_dashboard_bootstrap()
+
+        assert bootstrap is not None
+        assert bootstrap["operation_id"] == "operation-1"
+        assert (
+            consume_dashboard_bootstrap_code("operation-1", str(payload["dashboard_code"])) is True
+        )
+        assert read_dashboard_bootstrap() is None
+
+
+def test_dashboard_session_round_trip(tmp_path: Path) -> None:
+    with patch("osk.local_operator._state_root", return_value=tmp_path):
+        payload = create_dashboard_session("operation-1", 30)
+        session = read_dashboard_session()
+
+        assert session is not None
+        assert session["operation_id"] == "operation-1"
+        assert validate_dashboard_session(str(payload["token"]), "operation-1") is True
+        assert validate_dashboard_session("wrong-token", "operation-1") is False
+        assert validate_dashboard_session(str(payload["token"]), "operation-2") is False
+
+        clear_dashboard_session()
+        assert read_dashboard_session() is None
 
 
 def test_expired_operator_session_is_cleared(tmp_path: Path) -> None:

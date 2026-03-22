@@ -666,14 +666,22 @@ def test_show_findings_formats_rows(mock_asyncio_run: MagicMock, tmp_path: Path,
     assert "severity=warning" in out
 
 
+@patch("osk.hub.create_dashboard_bootstrap")
 @patch("osk.hub.read_operator_session")
 def test_show_dashboard_url_formats_link(
-    mock_read_operator_session: MagicMock, tmp_path: Path, capsys
+    mock_read_operator_session: MagicMock,
+    mock_create_dashboard_bootstrap: MagicMock,
+    tmp_path: Path,
+    capsys,
 ) -> None:
     mock_read_operator_session.return_value = {
         "operation_id": "11111111-1111-1111-1111-111111111111",
         "token": "session-token",
         "expires_at": "2026-03-21T19:30:00Z",
+    }
+    mock_create_dashboard_bootstrap.return_value = {
+        "dashboard_code": "one-time-code",
+        "expires_at": "2026-03-21T18:05:00Z",
     }
 
     with patch("osk.hub._config_root", return_value=tmp_path):
@@ -693,7 +701,8 @@ def test_show_dashboard_url_formats_link(
 
     out = capsys.readouterr().out
     assert code == 0
-    assert "https://127.0.0.1:18443/coordinator#token=session-token" in out
+    assert "https://127.0.0.1:18443/coordinator" in out
+    assert "dashboard_code = one-time-code" in out
 
 
 @patch("osk.hub.asyncio.run")
