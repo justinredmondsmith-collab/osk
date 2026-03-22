@@ -80,18 +80,18 @@ def test_prepare_dry_run_includes_explicit_identity_file() -> None:
     result = _run_script(
         "prepare",
         "--ssh-target",
-        "jrsmith@localhost",
+        "chromebook-user@localhost",
         "--ssh-port",
         "22022",
         "--ssh-identity",
-        "/var/home/bazzite/.ssh/osk_chromebook_lab",
+        "/home/host-user/.ssh/osk_chromebook_lab",
         "--dry-run",
         "--json",
     )
 
     assert result.returncode == 0
     payload = json.loads(result.stdout)
-    assert payload["ssh_identity"] == "/var/home/bazzite/.ssh/osk_chromebook_lab"
+    assert payload["ssh_identity"] == "/home/host-user/.ssh/osk_chromebook_lab"
     assert payload["ssh_prefix"] == [
         "ssh",
         "-F",
@@ -99,7 +99,7 @@ def test_prepare_dry_run_includes_explicit_identity_file() -> None:
         "-p",
         "22022",
         "-i",
-        "/var/home/bazzite/.ssh/osk_chromebook_lab",
+        "/home/host-user/.ssh/osk_chromebook_lab",
     ]
 
 

@@ -63,7 +63,7 @@ def test_make_artifact_dir_uses_timestamped_run_directory(tmp_path: Path) -> Non
 def test_build_ssh_tunnel_command_forwards_local_debug_port() -> None:
     smoke = _load_module()
 
-    command = smoke.build_ssh_tunnel_command("jrsmith@100.115.92.200", 9333, 9222)
+    command = smoke.build_ssh_tunnel_command("chromebook-user@192.0.2.25", 9333, 9222)
 
     assert command == [
         "ssh",
@@ -74,7 +74,7 @@ def test_build_ssh_tunnel_command_forwards_local_debug_port() -> None:
         "-N",
         "-L",
         "9333:127.0.0.1:9222",
-        "jrsmith@100.115.92.200",
+        "chromebook-user@192.0.2.25",
     ]
 
 
@@ -102,11 +102,11 @@ def test_build_ssh_tunnel_command_supports_explicit_identity_file() -> None:
     smoke = _load_module()
 
     command = smoke.build_ssh_tunnel_command(
-        "jrsmith@localhost",
+        "chromebook-user@localhost",
         9333,
         9222,
         22022,
-        "/var/home/bazzite/.ssh/osk_chromebook_lab",
+        "/home/host-user/.ssh/osk_chromebook_lab",
     )
 
     assert command == [
@@ -121,8 +121,8 @@ def test_build_ssh_tunnel_command_supports_explicit_identity_file() -> None:
         "-p",
         "22022",
         "-i",
-        "/var/home/bazzite/.ssh/osk_chromebook_lab",
-        "jrsmith@localhost",
+        "/home/host-user/.ssh/osk_chromebook_lab",
+        "chromebook-user@localhost",
     ]
 
 
@@ -229,7 +229,7 @@ def test_non_dry_run_writes_failure_result_contract(
             "--chromebook-host",
             "lab-book",
             "--ssh-target",
-            "jrsmith@100.115.92.200",
+            "chromebook-user@192.0.2.25",
             "--smoke-metadata",
             str(metadata_path),
             "--artifact-root",

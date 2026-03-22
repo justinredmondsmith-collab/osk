@@ -38,15 +38,15 @@ Keep the claim scoped to that path. It does **not** validate:
 
 ## Current Components
 
-- [chromebook_member_shell_smoke.sh](/var/home/bazzite/osk/scripts/chromebook_member_shell_smoke.sh)
+- [chromebook_member_shell_smoke.sh](../../scripts/chromebook_member_shell_smoke.sh)
   Host-side entrypoint that starts the mocked smoke helper, prepares the
   Chromebook browser, and runs the real smoke flow.
-- [chromebook_lab_control.sh](/var/home/bazzite/osk/scripts/chromebook_lab_control.sh)
+- [chromebook_lab_control.sh](../../scripts/chromebook_lab_control.sh)
   SSH-based Chromebook helper for `prepare`, `launch`, and `cleanup`.
-- [chromebook_member_shell_smoke.py](/var/home/bazzite/osk/scripts/chromebook_member_shell_smoke.py)
+- [chromebook_member_shell_smoke.py](../../scripts/chromebook_member_shell_smoke.py)
   Host-side CDP runner that performs the actual browser assertions and writes
   artifacts.
-- [member_shell_smoke.py](/var/home/bazzite/osk/scripts/member_shell_smoke.py)
+- [member_shell_smoke.py](../../scripts/member_shell_smoke.py)
   Mocked Osk member-shell helper used as the smoke target.
 
 ## One-Time Chromebook Setup
@@ -93,7 +93,7 @@ hostname -I
 The host-side automation expects an SSH target like:
 
 ```bash
-ssh jrsmith@<reachable-chromebook-ip>
+ssh <chromebook-user>@<reachable-chromebook-ip>
 ```
 
 If the Crostini container IP is not directly reachable from the host, do not
@@ -122,7 +122,7 @@ Add the printed public key to the host account that will own the reverse
 tunnel, typically:
 
 ```bash
-/var/home/bazzite/.ssh/authorized_keys
+~/.ssh/authorized_keys
 ```
 
 Recommended restriction for a lab-only key:
@@ -272,7 +272,7 @@ That exposes the Chromebook container's SSH server on the host as
 Verify from the host:
 
 ```bash
-ssh -F /dev/null -p 22022 localhost true
+ssh -F /dev/null -p 22022 <chromebook-user>@localhost true
 ```
 
 Then run the repo smoke using that reachable control endpoint:
@@ -280,9 +280,9 @@ Then run the repo smoke using that reachable control endpoint:
 ```bash
 ./scripts/chromebook_member_shell_smoke.sh \
   --chromebook-host chromebook-lab \
-  --ssh-target jrsmith@localhost \
+  --ssh-target <chromebook-user>@localhost \
   --ssh-port 22022 \
-  --ssh-identity /var/home/bazzite/.ssh/osk_chromebook_lab \
+  --ssh-identity ~/.ssh/osk_chromebook_lab \
   --advertise-host <host-ip-visible-from-chromebook>
 ```
 
@@ -292,17 +292,17 @@ sidestepping Crostini's non-routable container address.
 ## Host-To-Chromebook Auth For The Reverse Tunnel
 
 The reverse tunnel only solves reachability. The host still needs a private key
-that the Chromebook container accepts for `jrsmith@localhost:22022`.
+that the Chromebook container accepts for `<chromebook-user>@localhost:22022`.
 
 Generate a dedicated host-side key:
 
 ```bash
-ssh-keygen -t ed25519 -f /var/home/bazzite/.ssh/osk_chromebook_lab -N ""
-cat /var/home/bazzite/.ssh/osk_chromebook_lab.pub
+ssh-keygen -t ed25519 -f ~/.ssh/osk_chromebook_lab -N ""
+cat ~/.ssh/osk_chromebook_lab.pub
 ```
 
 Add that host public key to the Chromebook container's
-`/home/jrsmith/.ssh/authorized_keys`. A lab-safe entry is:
+`~/.ssh/authorized_keys`. A lab-safe entry is:
 
 ```text
 restrict,port-forwarding ssh-ed25519 AAAA...
@@ -313,9 +313,9 @@ Then run the host-side smoke with the explicit identity:
 ```bash
 ./scripts/chromebook_member_shell_smoke.sh \
   --chromebook-host chromebook-lab \
-  --ssh-target jrsmith@localhost \
+  --ssh-target <chromebook-user>@localhost \
   --ssh-port 22022 \
-  --ssh-identity /var/home/bazzite/.ssh/osk_chromebook_lab \
+  --ssh-identity ~/.ssh/osk_chromebook_lab \
   --advertise-host <host-ip-visible-from-chromebook>
 ```
 
@@ -326,15 +326,15 @@ Chromebook-side `systemd --user` service.
 
 Repo helper:
 
-- [chromebook_reverse_tunnel.sh](/var/home/bazzite/osk/scripts/chromebook_reverse_tunnel.sh)
+- [chromebook_reverse_tunnel.sh](../../scripts/chromebook_reverse_tunnel.sh)
 
 Run a quick preflight before installing or restarting the service:
 
 ```bash
 cd /path/to/osk
 ./scripts/chromebook_reverse_tunnel.sh preflight \
-  --host-target bazzite@10.0.0.60 \
-  --identity /home/jrsmith/.ssh/id_ed25519 \
+  --host-target <host-user>@<host-ip-visible-from-chromebook> \
+  --identity ~/.ssh/id_ed25519 \
   --remote-port 22022
 ```
 
@@ -348,8 +348,8 @@ Install it on the Chromebook container from the repo checkout there:
 ```bash
 cd /path/to/osk
 ./scripts/chromebook_reverse_tunnel.sh install-user-service \
-  --host-target bazzite@10.0.0.60 \
-  --identity /home/jrsmith/.ssh/id_ed25519 \
+  --host-target <host-user>@<host-ip-visible-from-chromebook> \
+  --identity ~/.ssh/id_ed25519 \
   --remote-port 22022
 ```
 
@@ -370,13 +370,13 @@ cd /path/to/osk
 Once that service is healthy, the host-side smoke command stays:
 
 ```bash
-cd /var/home/bazzite/osk
+cd /path/to/osk
 ./scripts/chromebook_member_shell_smoke.sh \
   --chromebook-host chromebook-lab \
-  --ssh-target jrsmith@localhost \
+  --ssh-target <chromebook-user>@localhost \
   --ssh-port 22022 \
-  --ssh-identity /var/home/bazzite/.ssh/osk_chromebook_lab \
-  --advertise-host 10.0.0.60
+  --ssh-identity ~/.ssh/osk_chromebook_lab \
+  --advertise-host <host-ip-visible-from-chromebook>
 ```
 
 ## Choosing `--advertise-host`
@@ -399,7 +399,7 @@ smoke helper.
 From the host:
 
 ```bash
-cd /var/home/bazzite/osk
+cd /path/to/osk
 ./scripts/chromebook_member_shell_smoke.sh \
   --chromebook-host <chromebook-host-or-ip> \
   --ssh-target <user@chromebook-ip> \
@@ -411,9 +411,9 @@ Example shape:
 
 ```bash
 ./scripts/chromebook_member_shell_smoke.sh \
-  --chromebook-host 100.115.92.200 \
-  --ssh-target jrsmith@100.115.92.200 \
-  --advertise-host 10.0.0.60
+  --chromebook-host <reachable-chromebook-ip> \
+  --ssh-target <chromebook-user>@<reachable-chromebook-ip> \
+  --advertise-host <host-ip-visible-from-chromebook>
 ```
 
 Artifacts are written under:
@@ -487,8 +487,8 @@ Run the Chromebook-side preflight:
 ```bash
 cd /path/to/osk
 ./scripts/chromebook_reverse_tunnel.sh preflight \
-  --host-target bazzite@10.0.0.60 \
-  --identity /home/jrsmith/.ssh/id_ed25519 \
+  --host-target <host-user>@<host-ip-visible-from-chromebook> \
+  --identity ~/.ssh/id_ed25519 \
   --remote-port 22022
 ```
 

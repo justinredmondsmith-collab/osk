@@ -21,9 +21,9 @@ def test_run_dry_run_emits_reverse_tunnel_command() -> None:
     result = _run_script(
         "run",
         "--host-target",
-        "bazzite@10.0.0.60",
+        "host-user@198.51.100.42",
         "--identity",
-        "/home/jrsmith/.ssh/id_ed25519",
+        "/home/chromebook-user/.ssh/id_ed25519",
         "--dry-run",
         "--json",
     )
@@ -31,8 +31,8 @@ def test_run_dry_run_emits_reverse_tunnel_command() -> None:
     assert result.returncode == 0
     payload = json.loads(result.stdout)
     assert payload["action"] == "run"
-    assert payload["host_target"] == "bazzite@10.0.0.60"
-    assert payload["identity_path"] == "/home/jrsmith/.ssh/id_ed25519"
+    assert payload["host_target"] == "host-user@198.51.100.42"
+    assert payload["identity_path"] == "/home/chromebook-user/.ssh/id_ed25519"
     assert payload["remote_port"] == 22022
     assert payload["local_host"] == "localhost"
     assert payload["local_port"] == 22
@@ -46,7 +46,7 @@ def test_install_dry_run_emits_service_path() -> None:
     result = _run_script(
         "install-user-service",
         "--host-target",
-        "bazzite@10.0.0.60",
+        "host-user@198.51.100.42",
         "--service-dir",
         "/tmp/osk-systemd-user",
         "--service-name",
@@ -68,7 +68,7 @@ def test_preflight_dry_run_emits_probe_commands() -> None:
     result = _run_script(
         "preflight",
         "--host-target",
-        "bazzite@10.0.0.60",
+        "host-user@198.51.100.42",
         "--remote-port",
         "22023",
         "--dry-run",
@@ -79,7 +79,7 @@ def test_preflight_dry_run_emits_probe_commands() -> None:
     payload = json.loads(result.stdout)
     assert payload["action"] == "preflight"
     assert payload["allow_existing_port"] is False
-    assert payload["host_target"] == "bazzite@10.0.0.60"
+    assert payload["host_target"] == "host-user@198.51.100.42"
     assert payload["host_access_command"].endswith(" true")
     assert "/dev/tcp/127.0.0.1/22023" in payload["port_probe_command"]
 
@@ -88,7 +88,7 @@ def test_install_dry_run_expands_default_service_dir_to_home() -> None:
     result = _run_script(
         "install-user-service",
         "--host-target",
-        "bazzite@10.0.0.60",
+        "host-user@198.51.100.42",
         "--dry-run",
         "--json",
     )
