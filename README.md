@@ -98,7 +98,8 @@ What exists today:
 - Cookie-backed member join bootstrap: `/join?token=...` now exchanges the
   shared operation token into a clean `/join` browser session, and the thin
   `/member` shell authenticates WebSocket startup from that cookie instead of
-  from JS-stored operation token state
+  from JS-stored operation token state; the shell can also reconnect from the
+  member-scoped resume state if the shared join token has been rotated
 - Hub-owned Phase 2 intelligence service: shared ingest/result models,
   config-selectable fake or real transcript/vision adapters, bounded
   audio/frame ingest queues, location processing, background audio/vision

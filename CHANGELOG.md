@@ -115,3 +115,6 @@ changes manually while the project is in its early public setup phase.
   cached local geography when tiles exist, relative fallback when they do not
 - Member join docs now reflect the current clean-URL cookie bootstrap instead
   of the old `sessionStorage` operation-token flow
+- The thin `/member` shell now survives join-token rotation better by remaining
+  loadable without the join cookie and reconnecting from member-scoped resume
+  state instead of forcing an immediate redirect

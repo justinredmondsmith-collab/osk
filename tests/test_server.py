@@ -137,6 +137,7 @@ def test_join_page_valid_token(client: TestClient, mock_op_manager: MagicMock) -
     assert resp.status_code == 200
     assert "Continue to member shell" in resp.text
     assert "sessionStorage.setItem('osk_token'" not in resp.text
+    assert "content-security-policy" in resp.headers
 
 
 def test_join_page_sets_member_cookie_and_redirects_clean_url(
@@ -167,13 +168,16 @@ def test_join_page_without_cookie_renders_rescan_message(
     assert "Scan the coordinator QR code" in resp.text
 
 
-def test_member_page_requires_cookie_redirect(
+def test_member_page_without_cookie_renders_runtime_shell(
     unauthenticated_client: TestClient,
 ) -> None:
-    resp = unauthenticated_client.get("/member", follow_redirects=False)
+    resp = unauthenticated_client.get("/member")
 
-    assert resp.status_code == 303
-    assert resp.headers["location"] == "/join"
+    assert resp.status_code == 200
+    assert "Osk Member" in resp.text
+    assert "/static/member.js" in resp.text
+    assert "osk_member_join" not in resp.text
+    assert "content-security-policy" in resp.headers
 
 
 def test_member_page_renders_runtime_shell(
@@ -187,6 +191,7 @@ def test_member_page_renders_runtime_shell(
     assert "Osk Member" in resp.text
     assert "/static/member.js" in resp.text
     assert "osk_member_join" not in resp.text
+    assert "content-security-policy" in resp.headers
 
 
 def test_member_session_status_requires_cookie(
@@ -235,6 +240,7 @@ def test_coordinator_dashboard_renders_local_shell(client: TestClient) -> None:
     assert resp.headers["referrer-policy"] == "no-referrer"
     assert resp.headers["x-frame-options"] == "DENY"
     assert resp.headers["x-content-type-options"] == "nosniff"
+    assert "content-security-policy" in resp.headers
     assert client.headers["X-Osk-Coordinator-Token"] not in resp.text
 
 

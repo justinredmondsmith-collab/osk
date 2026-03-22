@@ -72,6 +72,13 @@
     return String(sessionStorage.getItem(storageKeys.memberName) || "").trim();
   }
 
+  function hasResumeState() {
+    return Boolean(
+      sessionStorage.getItem(storageKeys.memberId) &&
+        sessionStorage.getItem(storageKeys.resumeToken),
+    );
+  }
+
   function clearLocalMemberState() {
     sessionStorage.removeItem(storageKeys.memberId);
     sessionStorage.removeItem(storageKeys.memberName);
@@ -291,7 +298,8 @@
 
   async function initializeMemberPage() {
     const session = await fetchMemberSession();
-    if (!session) {
+    const resumeReady = hasResumeState();
+    if (!session && !resumeReady) {
       clearLocalMemberState();
       window.location.href = bootstrap.paths.join_page;
       return;
@@ -299,15 +307,21 @@
     state.session = session;
     const memberName = readStoredName() || "Observer";
     if (elements.runtimeOperationName) {
-      elements.runtimeOperationName.textContent = session.operation_name || "Osk";
+      elements.runtimeOperationName.textContent = session?.operation_name || "Osk";
     }
     if (elements.runtimeDisplayName) {
       elements.runtimeDisplayName.textContent = memberName;
     }
     if (elements.runtimeSessionState) {
-      elements.runtimeSessionState.textContent = "Connecting";
+      elements.runtimeSessionState.textContent = session ? "Connecting" : "Resuming";
     }
     renderFeed();
+    if (!session && resumeReady) {
+      pushFeed(
+        "Join session is no longer present. Attempting reconnect from local member resume state.",
+        "warning",
+      );
+    }
     connectMemberSocket();
   }
 

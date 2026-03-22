@@ -267,6 +267,29 @@ def _render_member_shell(template_path: Path, bootstrap: dict[str, object]) -> s
     return template.replace("__OSK_MEMBER_BOOTSTRAP__", bootstrap_json)
 
 
+def _shell_headers() -> dict[str, str]:
+    return {
+        "Cache-Control": "no-store",
+        "Pragma": "no-cache",
+        "Referrer-Policy": "no-referrer",
+        "X-Frame-Options": "DENY",
+        "X-Content-Type-Options": "nosniff",
+        "Content-Security-Policy": (
+            "default-src 'self'; "
+            "script-src 'self'; "
+            "style-src 'self'; "
+            "img-src 'self' data: blob:; "
+            "connect-src 'self' ws: wss:; "
+            "media-src 'self' blob:; "
+            "worker-src 'self' blob:; "
+            "base-uri 'none'; "
+            "form-action 'self'; "
+            "frame-ancestors 'none'; "
+            "object-src 'none'"
+        ),
+    }
+
+
 def _member_priority(role: MemberRole) -> IngestPriority:
     return {
         MemberRole.COORDINATOR: IngestPriority.URGENT,
@@ -647,13 +670,7 @@ def create_app(
         }
         response = HTMLResponse(
             _render_member_shell(JOIN_TEMPLATE_PATH, bootstrap),
-            headers={
-                "Cache-Control": "no-store",
-                "Pragma": "no-cache",
-                "Referrer-Policy": "no-referrer",
-                "X-Frame-Options": "DENY",
-                "X-Content-Type-Options": "nosniff",
-            },
+            headers=_shell_headers(),
         )
         if not authenticated and join_token is not None:
             _clear_member_session_cookie(response, request)
@@ -664,27 +681,21 @@ def create_app(
         operation = op_manager.operation
         if operation is None:
             return JSONResponse({"error": "No active operation"}, status_code=503)
-
-        join_token = _member_session_token_from_request(request)
-        if join_token is None or not op_manager.validate_token(join_token):
-            response = RedirectResponse(url="/join", status_code=303)
-            _clear_member_session_cookie(response, request)
-            return response
-
         bootstrap = {
             **_member_session_bootstrap(),
             "page": "member",
+            "session_authenticated": bool(
+                (join_token := _member_session_token_from_request(request))
+                and op_manager.validate_token(join_token)
+            ),
         }
-        return HTMLResponse(
+        response = HTMLResponse(
             _render_member_shell(MEMBER_TEMPLATE_PATH, bootstrap),
-            headers={
-                "Cache-Control": "no-store",
-                "Pragma": "no-cache",
-                "Referrer-Policy": "no-referrer",
-                "X-Frame-Options": "DENY",
-                "X-Content-Type-Options": "nosniff",
-            },
+            headers=_shell_headers(),
         )
+        if join_token is not None and not op_manager.validate_token(join_token):
+            _clear_member_session_cookie(response, request)
+        return response
 
     @app.get("/api/member/session")
     async def get_member_session(request: Request):
@@ -750,13 +761,7 @@ def create_app(
         }
         return HTMLResponse(
             _render_coordinator_dashboard(bootstrap),
-            headers={
-                "Cache-Control": "no-store",
-                "Pragma": "no-cache",
-                "Referrer-Policy": "no-referrer",
-                "X-Frame-Options": "DENY",
-                "X-Content-Type-Options": "nosniff",
-            },
+            headers=_shell_headers(),
         )
 
     @app.get("/tiles/{z}/{x}/{y}.png")

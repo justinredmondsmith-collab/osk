@@ -199,7 +199,7 @@ Users may face real consequences if their data is accessed by adversaries (law e
 - On `osk start`, the hub generates a cryptographically random 32-byte **operation token** (base64url-encoded).
 - The QR code encodes a URL: `http://<hub-ip>:<port>/join?token=<operation-token>`
 - When a member opens this URL, the hub now exchanges the token into a clean browser session by setting an `HttpOnly` cookie and redirecting back to `/join` without the token in the visible URL.
-- The current thin member shell can bootstrap WebSocket auth from that cookie. It may still keep member-scoped reconnect state in browser session state, but the shared operation token is no longer kept in browser JavaScript storage.
+- The current thin member shell can bootstrap WebSocket auth from that cookie. It may still keep member-scoped reconnect state in browser session state, but the shared operation token is no longer kept in browser JavaScript storage, and the shell can reconnect from that member-scoped resume state after join-token rotation.
 - On WebSocket upgrade, the first JSON message is still `{"type": "auth", "name": "<display-name>"}` or `{"type": "auth", "token": "<token>", "name": "<display-name>"}` when a non-browser client is used. The hub validates the shared operation token and assigns a member ID. Invalid tokens get an immediate close frame.
 - Tokens are planned to be per-operation shared secrets, with all members in an
   operation using the same token.
