@@ -4,6 +4,8 @@
 from __future__ import annotations
 
 import argparse
+import json
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
@@ -47,8 +49,11 @@ def build_app(*, operation_name: str):
     op_manager.mark_disconnected = AsyncMock()
     op_manager.touch_member_heartbeat = AsyncMock()
     op_manager.update_member_gps = AsyncMock()
+    op_manager.update_member_buffer_status = AsyncMock()
     op_manager.rotate_token = AsyncMock(return_value="new-token")
-    op_manager.get_member_list = MagicMock(return_value=[])
+    op_manager.get_member_list = MagicMock(
+        side_effect=lambda: [member.model_dump(mode="json") for member in members.values()]
+    )
     op_manager.get_sensor_count = MagicMock(return_value=0)
 
     conn_manager = MagicMock()
@@ -108,6 +113,11 @@ def build_parser() -> argparse.ArgumentParser:
         default="Osk Member Shell Smoke",
         help="Operation name shown in the join/member shell.",
     )
+    parser.add_argument(
+        "--metadata-path",
+        default="",
+        help="Optional JSON file path for writing join URL and operation metadata.",
+    )
     return parser
 
 
@@ -115,6 +125,24 @@ def main() -> int:
     args = build_parser().parse_args()
     app, operation = build_app(operation_name=args.operation_name)
     join_url = f"http://{args.advertise_host}:{args.port}/join?token={operation.token}"
+    metadata_path = Path(args.metadata_path).expanduser() if args.metadata_path else None
+
+    if metadata_path is not None:
+        metadata_path.parent.mkdir(parents=True, exist_ok=True)
+        metadata_path.write_text(
+            json.dumps(
+                {
+                    "operation_name": operation.name,
+                    "join_url": join_url,
+                    "host": args.host,
+                    "advertise_host": args.advertise_host,
+                    "port": args.port,
+                },
+                indent=2,
+                sort_keys=True,
+            )
+            + "\n"
+        )
 
     print()
     print("Osk member-shell smoke server")

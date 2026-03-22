@@ -46,6 +46,7 @@ def mock_op_manager(operation: Operation) -> MagicMock:
     mgr.mark_disconnected = AsyncMock()
     mgr.touch_member_heartbeat = AsyncMock()
     mgr.update_member_gps = AsyncMock()
+    mgr.update_member_buffer_status = AsyncMock()
     mgr.rotate_token = AsyncMock(return_value="new-token")
     mgr.get_member_list = MagicMock(return_value=[])
     mgr.get_sensor_count = MagicMock(return_value=0)
@@ -449,6 +450,7 @@ def test_coordinator_dashboard_state_returns_snapshot(
     mock_load_config: MagicMock,
     client: TestClient,
     mock_db: MagicMock,
+    mock_op_manager: MagicMock,
     tmp_path,
 ) -> None:
     tile_root = tmp_path / "tiles"
@@ -457,21 +459,31 @@ def test_coordinator_dashboard_state_returns_snapshot(
     cached_tile.write_bytes(b"png")
     mock_load_config.return_value = OskConfig(map_tile_cache_path=str(tile_root))
     member_id = uuid.uuid4()
-    operation_id = client.app.state.mock_operation.id
     timestamp = dt.datetime.now(dt.timezone.utc)
-    mock_db.get_members.return_value = [
+    mock_op_manager.get_member_list.return_value = [
         {
-            "id": member_id,
-            "operation_id": operation_id,
+            "id": str(member_id),
             "name": "Field Sensor",
             "role": "sensor",
-            "reconnect_token": "resume-secret",
             "connected_at": timestamp,
             "last_seen_at": timestamp,
             "status": "connected",
             "last_gps_at": timestamp,
             "latitude": 39.7392,
             "longitude": -104.9903,
+            "buffer_status": {
+                "pending_count": 3,
+                "manual_pending_count": 1,
+                "sensor_pending_count": 2,
+                "report_pending_count": 1,
+                "audio_pending_count": 1,
+                "frame_pending_count": 1,
+                "in_flight": False,
+                "network": "offline",
+                "last_error": "Retry pending.",
+                "oldest_pending_at": timestamp.isoformat(),
+                "updated_at": timestamp.isoformat(),
+            },
         }
     ]
     mock_db.get_latest_sitrep.return_value = {"text": "Situation steady.", "trend": "stable"}
@@ -492,7 +504,12 @@ def test_coordinator_dashboard_state_returns_snapshot(
     payload = resp.json()
     assert payload["operation_status"]["name"] == "Test Op"
     assert payload["member_summary"]["fresh"] == 1
+    assert payload["member_summary"]["buffered_members"] == 1
+    assert payload["member_summary"]["buffered_items"] == 3
     assert payload["members"][0]["name"] == "Field Sensor"
+    assert payload["members"][0]["buffer_status"]["pending_count"] == 3
+    assert payload["members"][0]["buffer_status"]["network"] == "offline"
+    assert payload["members"][0]["buffer_pressure"] == "buffered"
     assert payload["latest_sitrep"]["text"] == "Situation steady."
     assert payload["map"]["available"] is True
     assert payload["map"]["available_zooms"] == [14]
@@ -1166,6 +1183,33 @@ def test_websocket_manual_report_ack(
     assert ack["text"] == "Need medics at the west gate"
     mock_db.insert_event.assert_awaited_once()
     mock_db.insert_audit_event.assert_awaited()
+
+
+def test_websocket_updates_member_buffer_status(
+    client: TestClient,
+    mock_op_manager: MagicMock,
+) -> None:
+    with client.websocket_connect("/ws") as websocket:
+        websocket.send_json({"type": "auth", "token": "valid-token", "name": "Jay"})
+        websocket.receive_json()
+        websocket.send_json(
+            {
+                "type": "buffer_status",
+                "pending_count": 4,
+                "manual_pending_count": 1,
+                "sensor_pending_count": 3,
+                "report_pending_count": 1,
+                "audio_pending_count": 2,
+                "frame_pending_count": 1,
+                "in_flight": True,
+                "network": "offline",
+                "last_error": "Retry pending.",
+            }
+        )
+
+    args = mock_op_manager.update_member_buffer_status.await_args.args
+    assert str(args[1]["pending_count"]) == "4"
+    assert args[1]["network"] == "offline"
 
 
 def test_websocket_manual_report_requires_text(

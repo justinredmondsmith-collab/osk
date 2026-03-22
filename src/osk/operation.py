@@ -7,7 +7,7 @@ import secrets
 import uuid
 from datetime import datetime, timezone
 
-from osk.models import Member, MemberRole, MemberStatus, Operation
+from osk.models import Member, MemberBufferStatus, MemberRole, MemberStatus, Operation
 
 logger = logging.getLogger(__name__)
 
@@ -220,6 +220,26 @@ class OperationManager:
         member = self._require_member(member_id)
         member.last_seen_at = datetime.now(timezone.utc)
         await self.db.update_member_heartbeat(member_id, member.last_seen_at)
+
+    async def update_member_buffer_status(self, member_id: uuid.UUID, payload: dict) -> None:
+        member = self._require_member(member_id)
+        member.buffer_status = MemberBufferStatus(
+            pending_count=max(0, int(payload.get("pending_count") or 0)),
+            manual_pending_count=max(0, int(payload.get("manual_pending_count") or 0)),
+            sensor_pending_count=max(0, int(payload.get("sensor_pending_count") or 0)),
+            report_pending_count=max(0, int(payload.get("report_pending_count") or 0)),
+            audio_pending_count=max(0, int(payload.get("audio_pending_count") or 0)),
+            frame_pending_count=max(0, int(payload.get("frame_pending_count") or 0)),
+            in_flight=bool(payload.get("in_flight")),
+            network=(
+                "offline"
+                if str(payload.get("network") or "").strip().lower() == "offline"
+                else "online"
+            ),
+            last_error=(str(payload.get("last_error") or "").strip() or None),
+            oldest_pending_at=payload.get("oldest_pending_at"),
+            updated_at=payload.get("updated_at") or datetime.now(timezone.utc),
+        )
 
     def get_sensor_count(self) -> int:
         return sum(

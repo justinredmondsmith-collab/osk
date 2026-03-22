@@ -794,6 +794,7 @@
     const memberSummary = state.memberSummary || {};
     elements.memberSummary.innerHTML = [
       ["Fresh", memberSummary.fresh ?? "--"],
+      ["Buffered", memberSummary.buffered_members ?? "--"],
       ["Stale", memberSummary.stale ?? "--"],
       ["Disconnected", memberSummary.disconnected ?? "--"],
     ]
@@ -811,12 +812,24 @@
           })
           .slice(0, 6)
           .map((member) => {
+            const bufferStatus = member.buffer_status || {};
+            const pendingCount = Number(bufferStatus.pending_count || 0);
+            const bufferDetail = pendingCount
+              ? ` • ${pendingCount} buffered (${Number(bufferStatus.sensor_pending_count || 0)} sensor / ${Number(bufferStatus.manual_pending_count || 0)} manual)`
+              : "";
+            const networkDetail =
+              pendingCount && bufferStatus.network ? ` • browser ${bufferStatus.network}` : "";
+            const errorDetail =
+              pendingCount && bufferStatus.last_error
+                ? `<br /><small>${escapeHtml(bufferStatus.last_error)}</small>`
+                : "";
             return `
               <div class="detail-item">
                 <p>${escapeHtml(member.name)} <span class="pill">${escapeHtml(member.role)}</span></p>
                 <small>
-                  ${escapeHtml(member.heartbeat_state)} • last seen ${escapeHtml(member.last_seen_at)}
+                  ${escapeHtml(member.heartbeat_state)} • last seen ${escapeHtml(member.last_seen_at)}${escapeHtml(bufferDetail)}${escapeHtml(networkDetail)}
                 </small>
+                ${errorDetail}
               </div>
             `;
           })
@@ -841,6 +854,8 @@
       const audio = state.intelligenceStatus.audio_ingest || {};
       const frame = state.intelligenceStatus.frame_ingest || {};
       const recentFindings = (state.intelligenceStatus.recent_findings || []).length;
+      const bufferedMembers = state.memberSummary?.buffered_members ?? "--";
+      const bufferedItems = state.memberSummary?.buffered_items ?? "--";
       elements.ingestPressure.innerHTML = [
         [
           "Audio queue",
@@ -849,6 +864,10 @@
         [
           "Frame queue",
           `${escapeHtml(frame.queue_size ?? "--")} queued / ${escapeHtml(frame.accepted_frames ?? "--")} accepted`,
+        ],
+        [
+          "Member buffers",
+          `${escapeHtml(bufferedMembers)} members / ${escapeHtml(bufferedItems)} items`,
         ],
         ["Recent findings", escapeHtml(recentFindings)],
       ]

@@ -34,6 +34,7 @@ Thumbs.db
 
 # Docker
 *.log
+output/
 
 # Osk runtime
 .superpowers/

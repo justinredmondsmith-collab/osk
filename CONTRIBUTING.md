@@ -49,6 +49,9 @@ The repository now includes:
 - A manual browser/device smoke helper at `scripts/member_shell_smoke.py` for
   testing the member shell against a disposable mocked hub outside CI/sandboxed
   environments
+- A Playwright-driven browser smoke helper at
+  `scripts/member_shell_playwright_smoke.sh` for environments where localhost
+  is reachable from the browser runtime
 
 The repository does **not** yet contain the full intelligence pipeline,
 synthesis layer, full coordinator dashboard, or mobile client described in the
@@ -113,6 +116,13 @@ an actual browser or phone:
 
 ```bash
 PYTHONPATH=src python scripts/member_shell_smoke.py --host 0.0.0.0 --advertise-host <lan-ip>
+```
+
+Run the browser-driven smoke path if you have a local Playwright-capable
+environment and want an automated `/join` -> `/member` pass:
+
+```bash
+scripts/member_shell_playwright_smoke.sh --headed
 ```
 
 ## Contribution Rules

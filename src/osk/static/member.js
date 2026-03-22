@@ -110,6 +110,7 @@
     outbox: {
       client: null,
       snapshot: null,
+      lastPublishedSignature: "",
     },
     pwa: {
       installState: null,
@@ -292,6 +293,7 @@
     sessionStorage.removeItem(storageKeys.gpsEnabled);
     sessionStorage.removeItem(storageKeys.sensorEnabled);
     sessionStorage.removeItem(storageKeys.audioMuted);
+    state.outbox.lastPublishedSignature = "";
   }
 
   function formatTime(timestamp) {
@@ -590,10 +592,50 @@
     );
   }
 
+  function buildBufferStatusPayload() {
+    const snapshot = state.outbox.snapshot || {};
+    const pendingKinds = snapshot.pendingKinds || {};
+    const pendingSources = snapshot.pendingSources || {};
+    return {
+      type: "buffer_status",
+      pending_count: Number(snapshot.pendingCount || 0),
+      manual_pending_count: Number(pendingSources.manual || 0),
+      sensor_pending_count: Number(pendingSources.sensor || 0),
+      report_pending_count: Number(pendingKinds.report || 0),
+      audio_pending_count: Number(pendingKinds.audio || 0),
+      frame_pending_count: Number(pendingKinds.frame || 0),
+      in_flight: Boolean(snapshot.inFlight),
+      network: navigator.onLine === false ? "offline" : "online",
+      oldest_pending_at: snapshot.oldestPendingAt || null,
+      last_error: snapshot.lastError || null,
+      updated_at: new Date().toISOString(),
+    };
+  }
+
+  function publishBufferStatus({ force = false } = {}) {
+    if (!state.authenticated || !isSocketOpen()) {
+      return false;
+    }
+    const payload = buildBufferStatusPayload();
+    const signature = JSON.stringify({
+      ...payload,
+      updated_at: "",
+    });
+    if (!force && signature === state.outbox.lastPublishedSignature) {
+      return true;
+    }
+    if (!sendSocketJson(payload)) {
+      return false;
+    }
+    state.outbox.lastPublishedSignature = signature;
+    return true;
+  }
+
   function updateOutboxSnapshot(snapshot) {
     state.outbox.snapshot = snapshot || null;
     refreshOutboxUi();
     updateActionAvailability();
+    publishBufferStatus();
   }
 
   function refreshOutboxUi() {
@@ -1919,6 +1961,7 @@
       if (payload.member_session_code) {
         void exchangeMemberRuntimeSession(payload.member_session_code);
       }
+      publishBufferStatus({ force: true });
       void flushOutbox({ quiet: true });
       updateActionAvailability();
       return;
@@ -2300,6 +2343,7 @@
 
     window.addEventListener("osk:pwa-network", () => {
       refreshOutboxUi();
+      publishBufferStatus({ force: true });
       if (isSocketOpen() && state.authenticated) {
         void flushOutbox({ quiet: true });
       }

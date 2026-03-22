@@ -107,6 +107,9 @@ changes manually while the project is in its early public setup phase.
 - Bounded sensor reconnect buffering in the member browser shell, reusing the
   local outbox for recent audio chunks and key frames instead of dropping all
   live capture during reconnects
+- Coordinator visibility into member-side browser buffer pressure, plus a
+  Playwright-driven member-shell smoke script for localhost-capable
+  environments
 
 ### Changed
 
@@ -150,6 +153,8 @@ changes manually while the project is in its early public setup phase.
 - Member-shell docs now distinguish bounded sensor buffering from the larger
   manual-item outbox and no longer describe sensor capture as live-only during
   reconnects
+- Dashboard/member docs now describe the new browser buffer-pressure surface
+  and the automated Playwright smoke path alongside the existing manual helper
 - Member docs now reflect that the current sensor runtime includes early audio
   and key-frame capture, while fuller media and offline PWA work remain planned
 - Member/browser docs now reflect that browser reload/reconnect auth is

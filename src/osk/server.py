@@ -479,6 +479,7 @@ def _member_dashboard_snapshot(
     heartbeat_timeout_seconds: int,
 ) -> dict[str, object]:
     member = Member.model_validate(row)
+    buffer_status = member.buffer_status
     now = _utcnow()
     last_seen_at = member.last_seen_at.astimezone(dt.timezone.utc)
     seconds_since_last_seen = max(int((now - last_seen_at).total_seconds()), 0)
@@ -507,6 +508,28 @@ def _member_dashboard_snapshot(
         ),
         "latitude": member.latitude,
         "longitude": member.longitude,
+        "buffer_status": {
+            "pending_count": buffer_status.pending_count,
+            "manual_pending_count": buffer_status.manual_pending_count,
+            "sensor_pending_count": buffer_status.sensor_pending_count,
+            "report_pending_count": buffer_status.report_pending_count,
+            "audio_pending_count": buffer_status.audio_pending_count,
+            "frame_pending_count": buffer_status.frame_pending_count,
+            "in_flight": buffer_status.in_flight,
+            "network": buffer_status.network,
+            "last_error": buffer_status.last_error,
+            "oldest_pending_at": (
+                buffer_status.oldest_pending_at.astimezone(dt.timezone.utc)
+                .isoformat()
+                .replace("+00:00", "Z")
+                if buffer_status.oldest_pending_at
+                else None
+            ),
+            "updated_at": buffer_status.updated_at.astimezone(dt.timezone.utc)
+            .isoformat()
+            .replace("+00:00", "Z"),
+        },
+        "buffer_pressure": "buffered" if buffer_status.pending_count > 0 else "clear",
     }
 
 
@@ -514,10 +537,21 @@ def _member_summary(members: list[dict[str, object]]) -> dict[str, int]:
     role_counter: Counter[str] = Counter()
     heartbeat_counter: Counter[str] = Counter()
     status_counter: Counter[str] = Counter()
+    buffered_members = 0
+    buffered_items = 0
+    sensor_buffered_items = 0
+    manual_buffered_items = 0
     for member in members:
         role_counter[str(member.get("role") or "unknown")] += 1
         heartbeat_counter[str(member.get("heartbeat_state") or "unknown")] += 1
         status_counter[str(member.get("status") or "unknown")] += 1
+        buffer_status = member.get("buffer_status") or {}
+        pending_count = max(0, int(buffer_status.get("pending_count") or 0))
+        if pending_count > 0:
+            buffered_members += 1
+        buffered_items += pending_count
+        sensor_buffered_items += max(0, int(buffer_status.get("sensor_pending_count") or 0))
+        manual_buffered_items += max(0, int(buffer_status.get("manual_pending_count") or 0))
     return {
         "total": len(members),
         "sensors": role_counter.get("sensor", 0),
@@ -527,6 +561,10 @@ def _member_summary(members: list[dict[str, object]]) -> dict[str, int]:
         "stale": heartbeat_counter.get("stale", 0),
         "connected": status_counter.get("connected", 0),
         "disconnected": status_counter.get("disconnected", 0),
+        "buffered_members": buffered_members,
+        "buffered_items": buffered_items,
+        "sensor_buffered_items": sensor_buffered_items,
+        "manual_buffered_items": manual_buffered_items,
     }
 
 
@@ -775,7 +813,9 @@ async def _build_dashboard_state(
     if operation is None:
         raise RuntimeError("No active operation")
     config = load_config()
-    member_rows = await db.get_members(operation.id)
+    member_rows = op_manager.get_member_list()
+    if not member_rows:
+        member_rows = await db.get_members(operation.id)
     members = [
         _member_dashboard_snapshot(
             row,
@@ -1882,6 +1922,8 @@ def create_app(
                             await intelligence_service.submit_location(
                                 _build_location_sample(member, data)
                             )
+                    elif msg_type == "buffer_status":
+                        await op_manager.update_member_buffer_status(member_id, data)
                     elif msg_type == "report":
                         report_text = _normalize_manual_report_text(data.get("text"))
                         report_id = str(data.get("report_id") or "").strip() or None

@@ -268,6 +268,9 @@ full architecture, API contract, and threat-model assumptions.
   health, ingest pressure, and a tile-backed local field map based on the
   latest member GPS fixes; when the local tile cache is empty, it degrades to a
   relative-position fallback instead of a blank panel
+- The coordinator surface now also shows member-side browser buffer pressure,
+  so buffered notes/media and bounded sensor reconnect backlog are visible in
+  the same dashboard pulse instead of being hidden only on the phone
 - Seed `map_tile_cache_path` with local PNG tiles if you want the dashboard map
   to render real cached geography instead of the relative fallback view
 - Scan the QR join link into `/join?token=...`; the hub now exchanges that
@@ -291,6 +294,9 @@ full architecture, API contract, and threat-model assumptions.
 - Run `PYTHONPATH=src python scripts/member_shell_smoke.py --host 0.0.0.0 --advertise-host <lan-ip>`
   on a real machine if you want a disposable mocked `/join` -> `/member` smoke
   target for phone/browser testing outside the main hub runtime
+- Run `scripts/member_shell_playwright_smoke.sh` in an environment where
+  localhost is reachable from Playwright if you want a browser-driven smoke of
+  join, member-shell load, offline queueing, and reconnect replay
 - Use `/api/intelligence/status`, `/api/intelligence/observations`,
   `/api/intelligence/findings`, `/api/intelligence/review-feed`, `/api/events`,
   `/api/sitreps`, `/api/coordinator/dashboard-state`, and

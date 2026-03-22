@@ -79,6 +79,20 @@ class FindingStatus(str, Enum):
     RESOLVED = "resolved"
 
 
+class MemberBufferStatus(BaseModel):
+    pending_count: int = 0
+    manual_pending_count: int = 0
+    sensor_pending_count: int = 0
+    report_pending_count: int = 0
+    audio_pending_count: int = 0
+    frame_pending_count: int = 0
+    in_flight: bool = False
+    network: str = "online"
+    last_error: str | None = None
+    oldest_pending_at: datetime | None = None
+    updated_at: datetime = Field(default_factory=_utcnow)
+
+
 class Operation(BaseModel):
     id: uuid.UUID = Field(default_factory=_new_id)
     name: str
@@ -99,6 +113,7 @@ class Member(BaseModel):
     last_gps_at: datetime | None = None
     connected_at: datetime = Field(default_factory=_utcnow)
     last_seen_at: datetime = Field(default_factory=_utcnow)
+    buffer_status: MemberBufferStatus = Field(default_factory=MemberBufferStatus)
 
 
 class Stream(BaseModel):
