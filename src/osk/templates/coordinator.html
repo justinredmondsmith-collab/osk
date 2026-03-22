@@ -207,8 +207,13 @@
           <section class="context-block">
             <h3>Field Map</h3>
             <div class="map-panel" id="member-map">
-              <div class="empty-state empty-state--compact">
-                <p>No live member positions yet.</p>
+              <div class="map-panel__status" id="member-map-status">
+                Waiting for live GPS fixes.
+              </div>
+              <div class="map-panel__viewport" id="member-map-viewport">
+                <div class="empty-state empty-state--compact">
+                  <p>No live member positions yet.</p>
+                </div>
               </div>
             </div>
           </section>

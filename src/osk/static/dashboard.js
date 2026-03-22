@@ -20,6 +20,7 @@
     latestSitrep: null,
     members: [],
     memberSummary: null,
+    mapStatus: null,
     operationStatus: null,
     intelligenceStatus: null,
     lastSyncAt: null,
@@ -60,6 +61,8 @@
     metricConnected: document.getElementById("metric-connected"),
     memberHealth: document.getElementById("member-health"),
     memberMap: document.getElementById("member-map"),
+    memberMapStatus: document.getElementById("member-map-status"),
+    memberMapViewport: document.getElementById("member-map-viewport"),
     memberSummary: document.getElementById("member-summary"),
     ingestPressure: document.getElementById("ingest-pressure"),
     latestSitrep: document.getElementById("latest-sitrep"),
@@ -126,6 +129,81 @@
     }
     parts.push(`${seconds}s`);
     return parts.join(" ");
+  }
+
+  function clamp(value, minimum, maximum) {
+    return Math.min(Math.max(value, minimum), maximum);
+  }
+
+  function wrapTileX(x, zoom) {
+    const total = 2 ** zoom;
+    return ((x % total) + total) % total;
+  }
+
+  function mercatorPoint(latitude, longitude, zoom, tileSize) {
+    const scale = tileSize * 2 ** zoom;
+    const clampedLatitude = clamp(Number(latitude), -85.0511, 85.0511);
+    const sinLat = Math.sin((clampedLatitude * Math.PI) / 180);
+    const x = ((Number(longitude) + 180) / 360) * scale;
+    const y =
+      (0.5 - Math.log((1 + sinLat) / (1 - sinLat)) / (4 * Math.PI)) * scale;
+    return { x, y };
+  }
+
+  function chooseMapCenter(positionedMembers) {
+    const preferredMembers = positionedMembers.filter((member) => member.role === "sensor");
+    const source = preferredMembers.length ? preferredMembers : positionedMembers;
+    const totals = source.reduce(
+      (accumulator, member) => {
+        accumulator.latitude += Number(member.latitude);
+        accumulator.longitude += Number(member.longitude);
+        return accumulator;
+      },
+      { latitude: 0, longitude: 0 },
+    );
+    return {
+      latitude: totals.latitude / source.length,
+      longitude: totals.longitude / source.length,
+    };
+  }
+
+  function chooseMapZoom(positionedMembers, mapStatus, viewportWidth, viewportHeight) {
+    const tileSize = Number(mapStatus?.tile_size || 256);
+    const availableZooms = Array.isArray(mapStatus?.available_zooms)
+      ? mapStatus.available_zooms
+          .map((value) => Number(value))
+          .filter((value) => Number.isInteger(value) && value >= 0)
+          .sort((left, right) => right - left)
+      : [];
+    if (!availableZooms.length) {
+      return 15;
+    }
+
+    const center = chooseMapCenter(positionedMembers);
+    const usableWidth = Math.max(viewportWidth - 88, tileSize);
+    const usableHeight = Math.max(viewportHeight - 88, tileSize);
+    let fallbackZoom = availableZooms[availableZooms.length - 1];
+    for (const zoom of availableZooms) {
+      fallbackZoom = zoom;
+      const points = positionedMembers.map((member) =>
+        mercatorPoint(member.latitude, member.longitude, zoom, tileSize),
+      );
+      const xs = points.map((point) => point.x);
+      const ys = points.map((point) => point.y);
+      const spanWidth = Math.max(...xs) - Math.min(...xs);
+      const spanHeight = Math.max(...ys) - Math.min(...ys);
+      if (spanWidth <= usableWidth && spanHeight <= usableHeight) {
+        return zoom;
+      }
+    }
+    return fallbackZoom;
+  }
+
+  function buildTileUrl(template, zoom, x, y) {
+    return template
+      .replace("{z}", String(zoom))
+      .replace("{x}", String(x))
+      .replace("{y}", String(y));
   }
 
   function selectedItem() {
@@ -269,6 +347,7 @@
     state.intelligenceStatus = snapshot.intelligence_status || null;
     state.members = snapshot.members || [];
     state.memberSummary = snapshot.member_summary || null;
+    state.mapStatus = snapshot.map || null;
     state.lastSyncAt = snapshot.generated_at || new Date().toISOString();
     state.freshKeys = new Set(
       state.feedItems
@@ -786,11 +865,26 @@
       (member) => member.latitude !== null && member.longitude !== null,
     );
     if (!positionedMembers.length) {
-      elements.memberMap.innerHTML =
+      elements.memberMapStatus.textContent = "Waiting for live GPS fixes.";
+      elements.memberMapViewport.innerHTML =
         '<div class="empty-state empty-state--compact"><p>No live member positions yet.</p></div>';
       return;
     }
 
+    const mapStatus = state.mapStatus || {};
+    if (!mapStatus.available || !mapStatus.tile_template) {
+      elements.memberMapStatus.textContent =
+        "No cached local tiles available yet. Showing relative positions only.";
+      renderRelativeFieldMap(positionedMembers);
+      return;
+    }
+
+    elements.memberMapStatus.textContent =
+      "Offline tile cache active. The map uses locally cached tiles and falls back to marker geometry when coverage is incomplete.";
+    renderTileFieldMap(positionedMembers, mapStatus);
+  }
+
+  function renderRelativeFieldMap(positionedMembers) {
     const width = 320;
     const height = 180;
     const padding = 22;
@@ -808,8 +902,8 @@
         const x = padding + (width - padding * 2) * ratio;
         const y = padding + (height - padding * 2) * ratio;
         return `
-          <line class="map-grid-line" x1="${x}" y1="${padding}" x2="${x}" y2="${height - padding}"></line>
-          <line class="map-grid-line" x1="${padding}" y1="${y}" x2="${width - padding}" y2="${y}"></line>
+          <line class="tile-map__grid-line" x1="${x}" y1="${padding}" x2="${x}" y2="${height - padding}"></line>
+          <line class="tile-map__grid-line" x1="${padding}" y1="${y}" x2="${width - padding}" y2="${y}"></line>
         `;
       })
       .join("");
@@ -824,16 +918,16 @@
           padding -
           ((Number(member.latitude) - minLat) / latSpan) * (height - padding * 2);
         const heartbeatClass =
-          member.heartbeat_state === "fresh" ? "" : ` map-member--${member.heartbeat_state}`;
+          member.heartbeat_state === "fresh" ? "" : ` tile-map__relative-dot--${member.heartbeat_state}`;
         return `
           <g>
             <circle
-              class="map-member map-member--${escapeHtml(member.role)}${heartbeatClass}"
+              class="tile-map__relative-dot tile-map__relative-dot--${escapeHtml(member.role)}${heartbeatClass}"
               cx="${x.toFixed(1)}"
               cy="${y.toFixed(1)}"
               r="7"
             ></circle>
-            <text class="map-member-label" x="${(x + 10).toFixed(1)}" y="${(y - 10).toFixed(1)}">
+            <text class="tile-map__relative-label" x="${(x + 10).toFixed(1)}" y="${(y - 10).toFixed(1)}">
               ${escapeHtml(member.name)}
             </text>
           </g>
@@ -841,13 +935,148 @@
       })
       .join("");
 
-    elements.memberMap.innerHTML = `
-      <svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Relative member positions">
-        <rect x="${padding}" y="${padding}" width="${width - padding * 2}" height="${height - padding * 2}" fill="transparent" stroke="rgba(159, 184, 214, 0.22)" />
-        ${gridLines}
-        ${members}
-      </svg>
+    elements.memberMapViewport.innerHTML = `
+      <div class="tile-map">
+        <div class="tile-map__meta">
+          <span class="map-chip">Relative fallback</span>
+          <span class="map-chip">${escapeHtml(positionedMembers.length)} positioned</span>
+        </div>
+        <div class="tile-map__viewport tile-map__viewport--fallback">
+          <svg class="tile-map__relative-svg" viewBox="0 0 ${width} ${height}" role="img" aria-label="Relative member positions">
+            <rect x="${padding}" y="${padding}" width="${width - padding * 2}" height="${height - padding * 2}" fill="transparent" stroke="rgba(159, 184, 214, 0.22)" />
+            ${gridLines}
+            ${members}
+          </svg>
+          <div class="tile-map__badge is-fallback">Fallback</div>
+        </div>
+      </div>
     `;
+  }
+
+  function renderTileFieldMap(positionedMembers, mapStatus) {
+    const tileSize = Number(mapStatus.tile_size || 256);
+    const viewportWidth = Math.max(elements.memberMapViewport.clientWidth - 2, 320);
+    const viewportHeight = Math.max(Math.round(viewportWidth * 0.66), 220);
+    const center = chooseMapCenter(positionedMembers);
+    const zoom = chooseMapZoom(positionedMembers, mapStatus, viewportWidth, viewportHeight);
+    const centerPoint = mercatorPoint(center.latitude, center.longitude, zoom, tileSize);
+    const originX = centerPoint.x - viewportWidth / 2;
+    const originY = centerPoint.y - viewportHeight / 2;
+    const startTileX = Math.floor(originX / tileSize);
+    const endTileX = Math.floor((originX + viewportWidth) / tileSize);
+    const startTileY = Math.floor(originY / tileSize);
+    const endTileY = Math.floor((originY + viewportHeight) / tileSize);
+    const totalTiles = 2 ** zoom;
+
+    const tiles = [];
+    for (let tileY = startTileY; tileY <= endTileY; tileY += 1) {
+      if (tileY < 0 || tileY >= totalTiles) {
+        continue;
+      }
+      for (let tileX = startTileX; tileX <= endTileX; tileX += 1) {
+        const wrappedX = wrapTileX(tileX, zoom);
+        const left = tileX * tileSize - originX;
+        const top = tileY * tileSize - originY;
+        tiles.push(`
+          <img
+            class="tile-map__tile"
+            data-role="map-tile"
+            alt=""
+            loading="lazy"
+            src="${escapeHtml(buildTileUrl(mapStatus.tile_template, zoom, wrappedX, tileY))}"
+            style="left:${left.toFixed(1)}px; top:${top.toFixed(1)}px;"
+          />
+        `);
+      }
+    }
+
+    const markers = positionedMembers
+      .map((member) => {
+        const point = mercatorPoint(member.latitude, member.longitude, zoom, tileSize);
+        const left = point.x - originX;
+        const top = point.y - originY;
+        const heartbeatClass =
+          member.heartbeat_state === "fresh" ? "" : ` tile-map__marker--${member.heartbeat_state}`;
+        return `
+          <div
+            class="tile-map__marker tile-map__marker--${escapeHtml(member.role)}${heartbeatClass}"
+            style="left:${left.toFixed(1)}px; top:${top.toFixed(1)}px;"
+            title="${escapeHtml(member.name)}"
+          ></div>
+          <div class="tile-map__label" style="left:${left.toFixed(1)}px; top:${top.toFixed(1)}px;">
+            ${escapeHtml(member.name)}
+          </div>
+        `;
+      })
+      .join("");
+
+    elements.memberMapViewport.innerHTML = `
+      <div class="tile-map">
+        <div class="tile-map__meta">
+          <span class="map-chip">Offline tiles</span>
+          <span class="map-chip">z${escapeHtml(zoom)}</span>
+          <span class="map-chip">${escapeHtml(positionedMembers.length)} positioned</span>
+        </div>
+        <div class="tile-map__viewport">
+          <div class="tile-map__surface" style="--map-height:${viewportHeight}px;">
+            <div class="tile-map__tile-layer">
+              ${tiles.join("")}
+            </div>
+            <div class="tile-map__marker-layer">
+              ${markers}
+            </div>
+            <div class="tile-map__badge">Local cache</div>
+            <div class="tile-map__status" data-role="tile-status" hidden></div>
+          </div>
+        </div>
+      </div>
+    `;
+
+    const tileImages = Array.from(
+      elements.memberMapViewport.querySelectorAll("img[data-role='map-tile']"),
+    );
+    const statusNode = elements.memberMapViewport.querySelector("[data-role='tile-status']");
+    let tileHits = 0;
+    let tileMisses = 0;
+
+    function updateTileStatus() {
+      if (!statusNode) {
+        return;
+      }
+      if (!tileImages.length) {
+        statusNode.hidden = false;
+        statusNode.textContent =
+          "No tile coverage intersects the current viewport. Showing member markers only.";
+        return;
+      }
+      if (tileHits === 0 && tileMisses === tileImages.length) {
+        statusNode.hidden = false;
+        statusNode.textContent =
+          "Cached tiles were not found for the current area. Marker positions are still live.";
+        return;
+      }
+      if (tileMisses > 0) {
+        statusNode.hidden = false;
+        statusNode.textContent =
+          "Partial local tile coverage. Missing tiles are omitted while markers stay live.";
+        return;
+      }
+      statusNode.hidden = true;
+    }
+
+    for (const tile of tileImages) {
+      tile.addEventListener("load", () => {
+        tile.classList.add("is-loaded");
+        tileHits += 1;
+        updateTileStatus();
+      });
+      tile.addEventListener("error", () => {
+        tile.classList.add("is-missing");
+        tileMisses += 1;
+        updateTileStatus();
+      });
+    }
+    updateTileStatus();
   }
 
   function handleFilterChange() {

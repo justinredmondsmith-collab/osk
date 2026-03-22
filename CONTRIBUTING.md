@@ -32,7 +32,8 @@ The repository now includes:
   a one-time dashboard code to mint a short-lived local `HttpOnly` cookie
   instead of keeping a steady-state token in the request URL or JS storage, and
   it now consumes a same-origin live dashboard stream plus current member
-  health/ingest context
+  health/ingest context and a local tile-backed map surface with an explicit
+  relative fallback when the tile cache is empty
 
 The repository does **not** yet contain the full intelligence pipeline,
 synthesis layer, full coordinator dashboard, or mobile client described in the
@@ -141,8 +142,9 @@ Code contributions should:
   operator/coordinator tokens in request query strings, rendered HTML, or
   long-lived browser-managed JS storage when extending the dashboard flow
 - Keep dashboard map/status surfaces truthful: the current field map is a
-  relative-position panel driven by member GPS, not yet a full offline-tile map
-  stack, so docs and UI copy should not imply more than that
+  local cached-tile surface driven by member GPS, with an explicit
+  relative-position fallback when no cached tiles cover the current area; docs
+  and UI copy should not imply broader map capabilities than that
 
 ## How to Contribute
 

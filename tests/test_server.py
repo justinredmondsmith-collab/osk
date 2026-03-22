@@ -10,6 +10,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from fastapi.testclient import TestClient
 
+from osk.config import OskConfig
 from osk.intelligence_service import IngestSubmissionResult
 from osk.models import MemberRole, Operation
 from osk.server import create_app
@@ -240,10 +241,18 @@ def test_dashboard_session_exchange_sets_cookie(
     mock_db.insert_audit_event.assert_awaited_once()
 
 
+@patch("osk.server.load_config")
 def test_coordinator_dashboard_state_returns_snapshot(
+    mock_load_config: MagicMock,
     client: TestClient,
     mock_db: MagicMock,
+    tmp_path,
 ) -> None:
+    tile_root = tmp_path / "tiles"
+    cached_tile = tile_root / "14" / "3271" / "6234.png"
+    cached_tile.parent.mkdir(parents=True, exist_ok=True)
+    cached_tile.write_bytes(b"png")
+    mock_load_config.return_value = OskConfig(map_tile_cache_path=str(tile_root))
     member_id = uuid.uuid4()
     operation_id = client.app.state.mock_operation.id
     timestamp = dt.datetime.now(dt.timezone.utc)
@@ -282,6 +291,9 @@ def test_coordinator_dashboard_state_returns_snapshot(
     assert payload["member_summary"]["fresh"] == 1
     assert payload["members"][0]["name"] == "Field Sensor"
     assert payload["latest_sitrep"]["text"] == "Situation steady."
+    assert payload["map"]["available"] is True
+    assert payload["map"]["available_zooms"] == [14]
+    assert payload["map"]["tile_template"] == "/tiles/{z}/{x}/{y}.png"
     _, kwargs = mock_db.get_review_feed.await_args
     assert kwargs["include_types"] == {"finding"}
     assert kwargs["limit"] == 10
@@ -301,6 +313,43 @@ def test_dashboard_static_asset_serves(client: TestClient) -> None:
 
     assert resp.status_code == 200
     assert "--color-bg" in resp.text
+
+
+@patch("osk.server.load_config")
+def test_cached_map_tile_serves_png(
+    mock_load_config: MagicMock,
+    client: TestClient,
+    tmp_path,
+) -> None:
+    tile_root = tmp_path / "tiles"
+    cached_tile = tile_root / "14" / "3271" / "6234.png"
+    cached_tile.parent.mkdir(parents=True, exist_ok=True)
+    cached_tile.write_bytes(b"tile-bytes")
+    mock_load_config.return_value = OskConfig(map_tile_cache_path=str(tile_root))
+
+    resp = client.get("/tiles/14/3271/6234.png")
+
+    assert resp.status_code == 200
+    assert resp.content == b"tile-bytes"
+    assert resp.headers["content-type"] == "image/png"
+    assert resp.headers["x-osk-tile-status"] == "hit"
+
+
+@patch("osk.server.load_config")
+def test_cached_map_tile_returns_404_for_miss(
+    mock_load_config: MagicMock,
+    client: TestClient,
+    tmp_path,
+) -> None:
+    tile_root = tmp_path / "tiles"
+    tile_root.mkdir()
+    mock_load_config.return_value = OskConfig(map_tile_cache_path=str(tile_root))
+
+    resp = client.get("/tiles/14/3271/6234.png")
+
+    assert resp.status_code == 404
+    assert resp.headers["content-type"] == "image/png"
+    assert resp.headers["x-osk-tile-status"] == "miss"
 
 
 def test_operation_status(client: TestClient) -> None:

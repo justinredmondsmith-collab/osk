@@ -77,6 +77,9 @@ changes manually while the project is in its early public setup phase.
 - Live coordinator review stream: same-origin dashboard-state/SSE endpoints,
   member health and ingest-pressure context, and an early relative-position
   field map in the local review shell
+- Local cached-tile map path for the coordinator shell, including a protected
+  `/tiles/{z}/{x}/{y}.png` endpoint, dashboard tile-cache status in the live
+  snapshot, and relative-position fallback when cached map coverage is absent
 
 ### Changed
 
@@ -105,3 +108,5 @@ changes manually while the project is in its early public setup phase.
 - Dashboard review docs now distinguish the current live shell and
   relative-position field map from the still-planned fuller tiled/offline map
   experience
+- Dashboard docs now reflect the tile-backed map surface more precisely:
+  cached local geography when tiles exist, relative fallback when they do not

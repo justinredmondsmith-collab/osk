@@ -13,7 +13,7 @@ from collections import Counter
 from pathlib import Path
 
 from fastapi import FastAPI, Query, Request, WebSocket, WebSocketDisconnect
-from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -65,6 +65,9 @@ TEMPLATE_ROOT = PACKAGE_ROOT / "templates"
 COORDINATOR_TEMPLATE_PATH = TEMPLATE_ROOT / "coordinator.html"
 DASHBOARD_STREAM_INTERVAL_SECONDS = 2.0
 DASHBOARD_STREAM_KEEPALIVE_SECONDS = 15.0
+TRANSPARENT_TILE_PNG = base64.b64decode(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9WnRnk4AAAAASUVORK5CYII="
+)
 
 
 class ReportRequest(BaseModel):
@@ -387,6 +390,36 @@ def _parse_review_feed_types(include: list[str] | None) -> tuple[set[str] | None
     return include_types, invalid_types
 
 
+def _map_tile_cache_status(config) -> dict[str, object]:
+    tile_root = Path(config.map_tile_cache_path).expanduser()
+    available_zooms: list[int] = []
+    if tile_root.exists():
+        for child in tile_root.iterdir():
+            if child.is_dir() and child.name.isdigit():
+                available_zooms.append(int(child.name))
+    available_zooms.sort()
+    return {
+        "available": bool(available_zooms),
+        "available_zooms": available_zooms,
+        "tile_size": 256,
+        "tile_template": "/tiles/{z}/{x}/{y}.png",
+        "mode": "tiles" if available_zooms else "relative-fallback",
+    }
+
+
+def _resolve_map_tile_path(config, z: int, x: int, y: int) -> Path | None:
+    if min(z, x, y) < 0:
+        return None
+    tile_root = Path(config.map_tile_cache_path).expanduser()
+    root_resolved = tile_root.resolve(strict=False)
+    tile_path = (tile_root / str(z) / str(x) / f"{y}.png").resolve(strict=False)
+    try:
+        tile_path.relative_to(root_resolved)
+    except ValueError:
+        return None
+    return tile_path
+
+
 async def _build_dashboard_state(
     *,
     op_manager: OperationManager,
@@ -440,6 +473,7 @@ async def _build_dashboard_state(
         "review_feed": review_feed,
         "members": members,
         "member_summary": _member_summary(members),
+        "map": _map_tile_cache_status(config),
     }
 
 
@@ -555,6 +589,35 @@ def create_app(
                 "Referrer-Policy": "no-referrer",
                 "X-Frame-Options": "DENY",
                 "X-Content-Type-Options": "nosniff",
+            },
+        )
+
+    @app.get("/tiles/{z}/{x}/{y}.png")
+    async def get_cached_map_tile(
+        z: int,
+        x: int,
+        y: int,
+        request: Request,
+    ):
+        if response := _require_local_admin(request, op_manager):
+            return response
+        tile_path = _resolve_map_tile_path(load_config(), z, x, y)
+        if tile_path is None or not tile_path.exists() or not tile_path.is_file():
+            return Response(
+                content=TRANSPARENT_TILE_PNG,
+                media_type="image/png",
+                status_code=404,
+                headers={
+                    "Cache-Control": "no-store",
+                    "X-Osk-Tile-Status": "miss",
+                },
+            )
+        return FileResponse(
+            tile_path,
+            media_type="image/png",
+            headers={
+                "Cache-Control": "private, max-age=300",
+                "X-Osk-Tile-Status": "hit",
             },
         )
 

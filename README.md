@@ -18,9 +18,9 @@ situations where shared awareness matters.
 > output, coordinator triage actions, and a thin local-only coordinator review
 > shell served by FastAPI with one-time dashboard code exchange into a
 > short-lived local cookie session, a live dashboard stream, right-rail member
-> health and ingest context, and an early relative-position field map. The
-> fuller tiled/offline map, broader dashboard surface, and mobile product work
-> are still planned.
+> health and ingest context, and a local tile-backed map that falls back to a
+> relative-position view when cached tiles are unavailable. The fuller
+> dashboard surface and mobile product work are still planned.
 
 ## At a Glance
 
@@ -113,8 +113,9 @@ What exists today:
   admin APIs, served with static CSS/JS from the hub, and bootstrapped from a
   one-time dashboard code into a short-lived `HttpOnly` local cookie session
 - Live coordinator dashboard state and SSE stream endpoints for the local shell
-  plus operator context panels for member health, ingest pressure, and an
-  early relative-position field map
+  plus operator context panels for member health, ingest pressure, and a
+  local tile-backed field map with a relative-position fallback when the tile
+  cache is empty
 - `ffmpeg`-backed decode path for compressed audio uploads such as WebM/Ogg
   when using the real Whisper backend
 
@@ -123,9 +124,9 @@ What is still missing:
 - Higher-quality synthesis beyond the current heuristic correlation model
 - Production-grade media ingest, including broader client compatibility and
   stronger end-to-end resend/session semantics across restarts
-- Full coordinator dashboard experience, including live map, richer transport,
-  offline tile support, and broader review workflows beyond the current live
-  review shell
+- Full coordinator dashboard experience beyond the current live shell,
+  including richer map controls, broader review workflows, and more complete
+  operator surfaces
 - Mobile PWA user experience
 - Validated wipe timing and production-grade evidence/export tooling
 
@@ -230,8 +231,11 @@ full architecture, API contract, and threat-model assumptions.
   `HttpOnly` cookie instead of keeping a steady-state auth token in the URL or
   in browser-managed JavaScript storage
 - The current shell stays live with a same-origin SSE stream and shows member
-  health, ingest pressure, and a relative field map based on the latest member
-  GPS fixes
+  health, ingest pressure, and a tile-backed local field map based on the
+  latest member GPS fixes; when the local tile cache is empty, it degrades to a
+  relative-position fallback instead of a blank panel
+- Seed `map_tile_cache_path` with local PNG tiles if you want the dashboard map
+  to render real cached geography instead of the relative fallback view
 - Use `/api/intelligence/status`, `/api/intelligence/observations`,
   `/api/intelligence/findings`, `/api/intelligence/review-feed`, `/api/events`,
   `/api/sitreps`, `/api/coordinator/dashboard-state`, and
