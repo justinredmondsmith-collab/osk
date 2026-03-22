@@ -32,7 +32,19 @@ jobs:
         run: ruff format --check .
 
       - name: Run scaffold doctor
-        run: python -m osk doctor
+        run: |
+          python -m osk doctor --json > doctor.json || true
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          payload = json.loads(Path("doctor.json").read_text())
+          if not payload["scaffold"]["ready"]:
+              raise SystemExit("Scaffold doctor reported missing required repo paths.")
+          print("Scaffold doctor passed.")
+          if not payload["install"]["ready"]:
+              print("Install assets are missing on the CI runner; continuing.")
+          PY
 
       - name: Run tests
         run: pytest

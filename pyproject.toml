@@ -29,6 +29,8 @@ intelligence = [
   "numpy>=1.26,<3",
 ]
 dev = [
+  "numpy>=1.26,<3",
+  "playwright>=1,<2",
   "pytest>=8,<9",
   "pytest-asyncio>=0.23,<1",
   "ruff>=0.12,<1",
