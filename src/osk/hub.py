@@ -498,7 +498,12 @@ async def run_hub(name: str) -> None:
 
         op_manager = OperationManager(db=db)
         operation, resumed = await op_manager.create_or_resume(name)
-        intelligence_service = IntelligenceService(config=config)
+        intelligence_service = IntelligenceService(
+            config=config,
+            db=db,
+            operation_manager=op_manager,
+            conn_manager=conn_manager,
+        )
         await intelligence_service.start()
 
         join_url = build_join_url(config.join_host, config.hub_port, operation.token)

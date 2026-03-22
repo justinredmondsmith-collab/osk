@@ -2,13 +2,20 @@ from __future__ import annotations
 
 import asyncio
 from datetime import datetime, timezone
-from unittest.mock import MagicMock, patch
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
 
 from osk.config import OskConfig
-from osk.intelligence_contracts import AudioChunk, FrameSample, IngestPriority, IngestSource
+from osk.intelligence_contracts import (
+    AudioChunk,
+    FrameSample,
+    IngestPriority,
+    IngestSource,
+    LocationSample,
+)
 from osk.intelligence_service import IntelligenceService, build_transcriber, build_vision_analyzer
-from osk.models import MemberRole
+from osk.models import EventCategory, EventSeverity, Member, MemberRole, Operation
 
 
 def _source(
@@ -66,6 +73,9 @@ async def test_intelligence_service_processes_audio_and_frames() -> None:
     assert snapshot["transcriber"]["adapter"] == "fake-transcriber"
     assert snapshot["vision"]["backend"] == "fake"
     assert snapshot["vision"]["adapter"] == "fake-vision"
+    assert snapshot["location"]["backend"] == "fake"
+    assert snapshot["location"]["adapter"] == "fake-location"
+    assert snapshot["synthesizer"]["backend"] == "heuristic"
     assert snapshot["audio_ingest"]["accepted_chunks"] == 1
     assert snapshot["frame_ingest"]["accepted_frames"] == 1
     assert snapshot["observation_counts"] == {"transcript": 1, "vision": 1}
@@ -120,3 +130,102 @@ async def test_intelligence_service_stop_closes_owned_vision_adapter() -> None:
     await service.stop()
 
     vision_analyzer.close.assert_called_once_with()
+
+
+async def test_intelligence_service_persists_and_synthesizes_audio_observations() -> None:
+    config = OskConfig(
+        transcriber_backend="fake",
+        vision_backend="fake",
+        location_cluster_min_size=2,
+        synthesis_cooldown_seconds=60,
+    )
+    db = MagicMock()
+    db.insert_intelligence_observation = AsyncMock()
+    db.insert_event = AsyncMock()
+    db.insert_alert = AsyncMock()
+    conn_manager = MagicMock()
+    conn_manager.broadcast_alert = AsyncMock()
+    source_member = Member(name="Sensor", role=MemberRole.SENSOR)
+    source_member.latitude = 39.75
+    source_member.longitude = -104.99
+    operation_manager = SimpleNamespace(
+        operation=Operation(name="Test Op"),
+        members={source_member.id: source_member},
+    )
+    service = IntelligenceService(
+        config=config,
+        db=db,
+        operation_manager=operation_manager,
+        conn_manager=conn_manager,
+        transcriber=MagicMock(),
+    )
+    chunk = AudioChunk(
+        source=IngestSource(
+            member_id=source_member.id,
+            member_role=source_member.role,
+            priority=IngestPriority.SENSOR,
+            received_at=datetime.now(timezone.utc),
+        ),
+        duration_ms=500,
+    )
+    service.transcriber.transcribe = AsyncMock(
+        return_value=SimpleNamespace(
+            adapter="fake-transcriber",
+            chunk_id=chunk.chunk_id,
+            source_member_id=source_member.id,
+            text="Police officers advancing north.",
+            confidence=0.92,
+            started_at=chunk.source.received_at,
+            ended_at=chunk.source.received_at,
+            model_dump=lambda mode="json": {
+                "adapter": "fake-transcriber",
+                "chunk_id": str(chunk.chunk_id),
+                "source_member_id": str(source_member.id),
+                "text": "Police officers advancing north.",
+                "confidence": 0.92,
+            },
+        )
+    )
+
+    await service.start()
+    await service.submit_audio(chunk)
+    await _wait_for(lambda: service.transcription_worker.metrics.emitted_observations == 1)
+    await service.stop()
+
+    db.insert_intelligence_observation.assert_awaited_once()
+    db.insert_event.assert_awaited_once()
+    db.insert_alert.assert_awaited_once()
+    conn_manager.broadcast_alert.assert_awaited_once()
+    insert_event_call = db.insert_event.await_args.args
+    assert insert_event_call[2] == EventSeverity.WARNING
+    assert insert_event_call[3] == EventCategory.POLICE_ACTION
+
+
+async def test_intelligence_service_processes_location_clusters() -> None:
+    config = OskConfig(location_cluster_min_size=2)
+    service = IntelligenceService(config=config)
+    source = _source(member_role=MemberRole.OBSERVER)
+    nearby_source = _source(member_role=MemberRole.SENSOR)
+    observed = []
+    service.observation_sink = observed.append
+    nearby_sample = LocationSample(
+        source=nearby_source,
+        latitude=39.7393,
+        longitude=-104.9902,
+    )
+    sample = LocationSample(
+        source=source,
+        latitude=39.7392,
+        longitude=-104.9903,
+    )
+
+    await service.start()
+    accepted_first = await service.submit_location(nearby_sample)
+    accepted_second = await service.submit_location(sample)
+    await service.stop()
+
+    assert accepted_first is False
+    assert accepted_second is True
+    assert service.location_metrics.emitted_observations == 1
+    assert observed[0].kind.value == "location"
+    assert observed[0].details["cluster_size"] == 2

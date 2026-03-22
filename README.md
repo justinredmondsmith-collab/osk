@@ -10,9 +10,10 @@ situations where shared awareness matters.
 > contains specs, plans, governance documents, and a working Phase 1 host/runtime
 > baseline for local install, start/stop, operator sessions, audit, logs, and
 > member visibility. Phase 2 now also includes a hub-owned intelligence service
-> with config-selectable fake or real transcript/vision adapters, but live
-> member ingest, synthesis, the dashboard, and the mobile client are still
-> planned.
+> with config-selectable fake or real transcript/vision adapters, live
+> member audio/frame/GPS ingest wiring, persisted observations, and an early
+> heuristic event bridge. Full synthesis, the dashboard, and the mobile client
+> are still planned.
 
 ## At a Glance
 
@@ -81,14 +82,19 @@ What exists today:
   flow
 - Hub-owned Phase 2 intelligence service: shared ingest/result models,
   config-selectable fake or real transcript/vision adapters, bounded
-  audio/frame ingest queues, background audio/vision worker loops, and an
-  admin-visible runtime status surface
+  audio/frame ingest queues, location processing, background audio/vision
+  worker loops, persisted intelligence observations, and an admin-visible
+  runtime status surface
+- Live member WebSocket ingest for GPS, audio, and frame samples using the
+  same owned service boundary
+- Early heuristic observation-to-event bridge with alert fan-out and recent
+  intelligence observation retrieval for local admins
 
 What is still missing:
 
-- Live member audio/frame ingestion into the running hub
-- Observation persistence and synthesis-driven event generation
-- Event synthesis and sitrep generation
+- Richer synthesis, dedupe, and sitrep generation beyond the current heuristic
+  event bridge
+- Mobile-friendly compressed media decoding and production-grade ingest flows
 - Coordinator dashboard and mobile PWA user experience
 - Validated wipe timing and production-grade evidence/export tooling
 
@@ -166,7 +172,7 @@ The initial implementation is split into six phases:
 | Phase | Scope | Status |
 |---|---|---|
 | [1. Core Hub + Connection](docs/plans/2026-03-21-plan-1-core-hub-connection.md) | Scaffolding, models, DB, auth, server, CLI | Foundational runtime in repo |
-| [2. Intelligence Pipeline](docs/plans/2026-03-21-plan-2-intelligence-pipeline.md) | Whisper, vision, ingest queues, location engine | Contracts + workers + runtime adapters in repo |
+| [2. Intelligence Pipeline](docs/plans/2026-03-21-plan-2-intelligence-pipeline.md) | Whisper, vision, ingest queues, location engine | Live ingest + persistence bridge in repo |
 | [3. Synthesis Layer](docs/plans/2026-03-21-plan-3-synthesis-layer.md) | Events, alerts, SitReps | Planned |
 | [4. Coordinator Dashboard](docs/plans/2026-03-21-plan-4-coordinator-dashboard.md) | Map, timeline, sensor management | Planned |
 | [5. Mobile PWA](docs/plans/2026-03-21-plan-5-mobile-pwa.md) | Join flow, alert feed, edge sampling | Planned |
@@ -183,6 +189,8 @@ full architecture, API contract, and threat-model assumptions.
   after installing the package
 - Use `osk status`, `osk operator status`, `osk audit`, `osk members`, and
   `osk logs` to inspect the local foundation runtime
+- Use `/api/intelligence/status` and `/api/intelligence/observations` from the
+  local coordinator surface to inspect live Phase 2 runtime state
 - Configure `transcriber_backend` / `vision_backend` in `~/.config/osk/config.toml`
   if you want the hub-owned intelligence service to use real Whisper or Ollama
   adapters instead of the default fake backends

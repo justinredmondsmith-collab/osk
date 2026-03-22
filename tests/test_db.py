@@ -10,6 +10,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from osk.db import Database
+from osk.intelligence_contracts import IntelligenceObservation, ObservationKind
 from osk.models import EventCategory, EventSeverity, MemberRole
 
 
@@ -41,11 +42,12 @@ def mock_pool() -> MagicMock:
 
 async def test_migration_files_exist(db: Database) -> None:
     migrations = db._get_migration_files()
-    assert len(migrations) >= 4
+    assert len(migrations) >= 5
     assert migrations[0].name == "001_initial.sql"
     assert migrations[1].name == "002_operation_coordinator_token.sql"
     assert migrations[2].name == "003_members_reconnect_and_audit.sql"
     assert migrations[3].name == "004_member_heartbeat.sql"
+    assert migrations[4].name == "005_intelligence_observations.sql"
 
 
 async def test_insert_operation(db: Database, mock_pool: MagicMock) -> None:
@@ -141,6 +143,31 @@ async def test_insert_event(db: Database, mock_pool: MagicMock) -> None:
         -104.99,
     )
     mock_pool.execute.assert_called_once()
+
+
+async def test_insert_intelligence_observation(db: Database, mock_pool: MagicMock) -> None:
+    db._pool = mock_pool
+    observation = IntelligenceObservation(
+        kind=ObservationKind.TRANSCRIPT,
+        source_member_id=uuid.uuid4(),
+        summary="Police moving east.",
+        confidence=0.92,
+        details={"adapter": "fake-transcriber"},
+    )
+
+    await db.insert_intelligence_observation(uuid.uuid4(), observation)
+
+    mock_pool.execute.assert_called_once()
+    assert "INSERT INTO intelligence_observations" in mock_pool.execute.call_args.args[0]
+
+
+async def test_get_recent_intelligence_observations(db: Database, mock_pool: MagicMock) -> None:
+    db._pool = mock_pool
+    mock_pool.fetch = AsyncMock(return_value=[{"summary": "Police moving east."}])
+
+    result = await db.get_recent_intelligence_observations(uuid.uuid4(), 10)
+
+    assert result == [{"summary": "Police moving east."}]
 
 
 async def test_get_events_since(db: Database, mock_pool: MagicMock) -> None:

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import base64
+import datetime as dt
 import ipaddress
 import json
 import logging
@@ -12,6 +14,13 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel
 
 from osk.connection_manager import ConnectionManager
+from osk.intelligence_contracts import (
+    AudioChunk,
+    FrameSample,
+    IngestPriority,
+    IngestSource,
+    LocationSample,
+)
 from osk.local_operator import validate_operator_session
 from osk.models import Event, EventCategory, EventSeverity, MemberRole, Pin
 from osk.operation import OperationManager
@@ -21,6 +30,7 @@ ADMIN_TOKEN_HEADER = "X-Osk-Coordinator-Token"
 OPERATOR_SESSION_HEADER = "X-Osk-Operator-Session"
 LOCAL_ADMIN_TEST_HOSTS = {"testclient", "localhost"}
 MAX_AUDIT_LIMIT = 200
+MAX_OBSERVATION_LIMIT = 200
 
 
 class ReportRequest(BaseModel):
@@ -30,6 +40,10 @@ class ReportRequest(BaseModel):
 
 class PinRequest(BaseModel):
     member_id: str
+
+
+def _utcnow() -> dt.datetime:
+    return dt.datetime.now(dt.timezone.utc)
 
 
 def _extract_admin_token(request: Request) -> str | None:
@@ -83,6 +97,90 @@ def _require_local_admin(request: Request, op_manager: OperationManager) -> JSON
     return JSONResponse({"error": "Local coordinator access only"}, status_code=403)
 
 
+def _member_priority(role: MemberRole) -> IngestPriority:
+    return {
+        MemberRole.COORDINATOR: IngestPriority.URGENT,
+        MemberRole.SENSOR: IngestPriority.SENSOR,
+        MemberRole.OBSERVER: IngestPriority.OBSERVER,
+    }[role]
+
+
+def _coerce_timestamp(value) -> dt.datetime:
+    if isinstance(value, str) and value.strip():
+        raw = value.strip().replace("Z", "+00:00")
+        try:
+            parsed = dt.datetime.fromisoformat(raw)
+            if parsed.tzinfo is None:
+                return parsed.replace(tzinfo=dt.timezone.utc)
+            return parsed.astimezone(dt.timezone.utc)
+        except ValueError:
+            pass
+    return _utcnow()
+
+
+def _decode_inline_payload(data: dict) -> bytes:
+    payload_b64 = str(data.get("payload_b64") or "").strip()
+    if not payload_b64:
+        return b""
+    return base64.b64decode(payload_b64, validate=True)
+
+
+def _build_audio_chunk(member, data: dict, payload: bytes) -> AudioChunk:
+    received_at = _coerce_timestamp(data.get("captured_at") or data.get("received_at"))
+    return AudioChunk(
+        source=IngestSource(
+            member_id=member.id,
+            member_role=member.role,
+            priority=_member_priority(member.role),
+            received_at=received_at,
+        ),
+        codec=str(data.get("codec") or "audio/webm"),
+        sample_rate_hz=int(data.get("sample_rate_hz") or 16000),
+        duration_ms=int(data.get("duration_ms") or 0),
+        sequence_no=int(data.get("sequence_no") or 0),
+        payload=payload,
+    )
+
+
+def _build_frame_sample(member, data: dict, payload: bytes) -> FrameSample:
+    captured_at = _coerce_timestamp(data.get("captured_at"))
+    return FrameSample(
+        source=IngestSource(
+            member_id=member.id,
+            member_role=member.role,
+            priority=_member_priority(member.role),
+            received_at=captured_at,
+        ),
+        content_type=str(data.get("content_type") or "image/jpeg"),
+        width=int(data.get("width") or 0),
+        height=int(data.get("height") or 0),
+        change_score=float(data.get("change_score") or 0.0),
+        sequence_no=int(data.get("sequence_no") or 0),
+        captured_at=captured_at,
+        payload=payload,
+    )
+
+
+def _build_location_sample(member, data: dict) -> LocationSample:
+    captured_at = _coerce_timestamp(data.get("captured_at"))
+    return LocationSample(
+        source=IngestSource(
+            member_id=member.id,
+            member_role=member.role,
+            priority=_member_priority(member.role),
+            received_at=captured_at,
+        ),
+        latitude=float(data["lat"]),
+        longitude=float(data["lon"]),
+        accuracy_m=float(data.get("accuracy_m") or 0.0),
+        heading_degrees=(
+            float(data["heading_degrees"]) if data.get("heading_degrees") is not None else None
+        ),
+        speed_mps=float(data["speed_mps"]) if data.get("speed_mps") is not None else None,
+        captured_at=captured_at,
+    )
+
+
 def create_app(
     op_manager: OperationManager,
     conn_manager: ConnectionManager,
@@ -132,6 +230,16 @@ def create_app(
                 {"error": "Intelligence service is not configured"}, status_code=503
             )
         return intelligence_service.snapshot()
+
+    @app.get("/api/intelligence/observations")
+    async def intelligence_observations(request: Request, limit: int = 25):
+        if response := _require_local_admin(request, op_manager):
+            return response
+        operation = op_manager.operation
+        if operation is None:
+            return JSONResponse({"error": "No active operation"}, status_code=503)
+        clamped_limit = max(1, min(limit, MAX_OBSERVATION_LIMIT))
+        return await db.get_recent_intelligence_observations(operation.id, clamped_limit)
 
     @app.get("/api/members")
     async def list_members(request: Request):
@@ -316,6 +424,8 @@ def create_app(
     async def websocket_handler(ws: WebSocket):
         await ws.accept()
         member_id: uuid.UUID | None = None
+        pending_audio_meta: dict | None = None
+        pending_frame_meta: dict | None = None
         try:
             auth_message = await ws.receive_json()
             if auth_message.get("type") != "auth":
@@ -376,6 +486,10 @@ def create_app(
                     msg_type = data.get("type")
                     if msg_type == "gps":
                         await op_manager.update_member_gps(member_id, data["lat"], data["lon"])
+                        if intelligence_service is not None:
+                            await intelligence_service.submit_location(
+                                _build_location_sample(member, data)
+                            )
                     elif msg_type == "report":
                         event = Event(
                             severity=EventSeverity.INFO,
@@ -400,10 +514,81 @@ def create_app(
                             actor_member_id=member_id,
                             details={"event_id": str(event.id)},
                         )
-                    elif msg_type in {"pong", "audio_meta", "frame_meta", "clip_meta"}:
+                    elif msg_type == "audio_meta":
+                        pending_audio_meta = data
+                        pending_frame_meta = None
+                    elif msg_type == "frame_meta":
+                        pending_frame_meta = data
+                        pending_audio_meta = None
+                    elif msg_type == "audio_chunk":
+                        payload = _decode_inline_payload(data)
+                        chunk = _build_audio_chunk(member, data, payload)
+                        accepted = (
+                            await intelligence_service.submit_audio(chunk)
+                            if intelligence_service is not None
+                            else False
+                        )
+                        await ws.send_json(
+                            {
+                                "type": "audio_ack",
+                                "accepted": accepted,
+                                "chunk_id": str(chunk.chunk_id),
+                            }
+                        )
+                    elif msg_type == "frame_sample":
+                        payload = _decode_inline_payload(data)
+                        frame = _build_frame_sample(member, data, payload)
+                        accepted = (
+                            await intelligence_service.submit_frame(frame)
+                            if intelligence_service is not None
+                            else False
+                        )
+                        await ws.send_json(
+                            {
+                                "type": "frame_ack",
+                                "accepted": accepted,
+                                "frame_id": str(frame.frame_id),
+                            }
+                        )
+                    elif msg_type in {"pong", "clip_meta"}:
                         continue
                 elif "bytes" in message:
-                    continue
+                    payload = message["bytes"]
+                    if pending_audio_meta is not None:
+                        chunk = _build_audio_chunk(member, pending_audio_meta, payload)
+                        accepted = (
+                            await intelligence_service.submit_audio(chunk)
+                            if intelligence_service is not None
+                            else False
+                        )
+                        pending_audio_meta = None
+                        await ws.send_json(
+                            {
+                                "type": "audio_ack",
+                                "accepted": accepted,
+                                "chunk_id": str(chunk.chunk_id),
+                            }
+                        )
+                        continue
+                    if pending_frame_meta is not None:
+                        frame = _build_frame_sample(member, pending_frame_meta, payload)
+                        accepted = (
+                            await intelligence_service.submit_frame(frame)
+                            if intelligence_service is not None
+                            else False
+                        )
+                        pending_frame_meta = None
+                        await ws.send_json(
+                            {
+                                "type": "frame_ack",
+                                "accepted": accepted,
+                                "frame_id": str(frame.frame_id),
+                            }
+                        )
+                        continue
+                    await ws.send_json(
+                        {"type": "ingest_error", "reason": "binary payload without metadata"}
+                    )
         except WebSocketDisconnect:
             pass
         except Exception as exc:

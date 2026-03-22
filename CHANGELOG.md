@@ -56,6 +56,9 @@ changes manually while the project is in its early public setup phase.
 - Phase 2 hub-owned intelligence service: config-selectable fake or real
   transcript/vision adapters, worker lifecycle ownership in the hub, and an
   admin-visible runtime status endpoint
+- Phase 2 live ingest and synthesis bridge: member GPS/audio/frame submission
+  into the owned intelligence service, persisted intelligence observations,
+  heuristic event synthesis, alert fan-out, and a local admin observations API
 
 ### Changed
 
@@ -66,3 +69,5 @@ changes manually while the project is in its early public setup phase.
   and the repo's current AI-agent workflow
 - Phase 2 guidance now treats fake and real runtime adapters as interchangeable
   service-owned implementations instead of standalone experiments
+- README and contributor docs now reflect live Phase 2 ingest wiring and the
+  current heuristic synthesis bridge

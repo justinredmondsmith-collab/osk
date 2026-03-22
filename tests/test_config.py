@@ -11,12 +11,18 @@ def test_default_config() -> None:
     assert cfg.transcriber_backend == "fake"
     assert cfg.whisper_model == "small"
     assert cfg.vision_backend == "fake"
+    assert cfg.location_backend == "fake"
+    assert cfg.synthesis_backend == "heuristic"
     assert cfg.sitrep_interval_minutes == 10
     assert cfg.alert_cooldown_seconds == 60
     assert cfg.audio_queue_size == 128
     assert cfg.frame_queue_size == 64
     assert cfg.frame_queue_depth_per_member == 4
     assert cfg.intelligence_recent_observation_limit == 25
+    assert cfg.location_sample_ttl_seconds == 120
+    assert cfg.location_cluster_radius_m == 150.0
+    assert cfg.location_cluster_min_size == 2
+    assert cfg.synthesis_cooldown_seconds == 60
     assert cfg.frame_change_threshold == 0.15
     assert cfg.observer_clip_rate_limit == 3
     assert cfg.luks_volume_size_gb == 1

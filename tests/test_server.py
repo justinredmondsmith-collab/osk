@@ -39,6 +39,8 @@ def mock_op_manager(operation: Operation) -> MagicMock:
     mgr.demote_member = AsyncMock()
     mgr.kick_member = AsyncMock()
     mgr.mark_disconnected = AsyncMock()
+    mgr.touch_member_heartbeat = AsyncMock()
+    mgr.update_member_gps = AsyncMock()
     mgr.rotate_token = AsyncMock(return_value="new-token")
     mgr.get_member_list = MagicMock(return_value=[])
     mgr.get_sensor_count = MagicMock(return_value=0)
@@ -68,6 +70,9 @@ def mock_intelligence_service() -> MagicMock:
         "transcriber": {"backend": "fake"},
         "vision": {"backend": "fake"},
     }
+    service.submit_audio = AsyncMock(return_value=True)
+    service.submit_frame = AsyncMock(return_value=True)
+    service.submit_location = AsyncMock(return_value=True)
     return service
 
 
@@ -184,6 +189,16 @@ def test_intelligence_status_rejects_remote_client(remote_client: TestClient) ->
     assert resp.status_code == 403
 
 
+def test_intelligence_observations(client: TestClient, mock_db: MagicMock) -> None:
+    mock_db.get_recent_intelligence_observations.return_value = [{"summary": "Police moving east."}]
+
+    resp = client.get("/api/intelligence/observations?limit=10")
+
+    assert resp.status_code == 200
+    assert resp.json() == [{"summary": "Police moving east."}]
+    mock_db.get_recent_intelligence_observations.assert_called_once()
+
+
 def test_intelligence_status_reports_missing_service(
     mock_op_manager: MagicMock,
     mock_conn_mgr: MagicMock,
@@ -263,6 +278,67 @@ def test_report(client: TestClient, mock_db: MagicMock) -> None:
     )
     assert resp.status_code == 200
     mock_db.insert_event.assert_called_once()
+
+
+def test_websocket_submits_audio_frame_and_location_to_intelligence_service(
+    client: TestClient,
+    mock_intelligence_service: MagicMock,
+) -> None:
+    with client.websocket_connect("/ws") as websocket:
+        websocket.send_json({"type": "auth", "token": "valid-token", "name": "Jay"})
+        auth_ok = websocket.receive_json()
+
+        websocket.send_json(
+            {
+                "type": "audio_meta",
+                "codec": "audio/raw",
+                "sample_rate_hz": 16000,
+                "duration_ms": 250,
+                "sequence_no": 7,
+            }
+        )
+        websocket.send_bytes(b"\x00\x01\x02\x03")
+        audio_ack = websocket.receive_json()
+
+        websocket.send_json(
+            {
+                "type": "frame_meta",
+                "content_type": "image/jpeg",
+                "width": 640,
+                "height": 360,
+                "change_score": 0.8,
+                "sequence_no": 9,
+            }
+        )
+        websocket.send_bytes(b"jpeg-payload")
+        frame_ack = websocket.receive_json()
+
+        websocket.send_json(
+            {
+                "type": "gps",
+                "lat": 39.75,
+                "lon": -104.99,
+                "accuracy_m": 6.0,
+            }
+        )
+
+    assert auth_ok["type"] == "auth_ok"
+    assert audio_ack["type"] == "audio_ack"
+    assert audio_ack["accepted"] is True
+    assert frame_ack["type"] == "frame_ack"
+    assert frame_ack["accepted"] is True
+    mock_intelligence_service.submit_audio.assert_awaited_once()
+    mock_intelligence_service.submit_frame.assert_awaited_once()
+    mock_intelligence_service.submit_location.assert_awaited_once()
+    submitted_chunk = mock_intelligence_service.submit_audio.await_args.args[0]
+    submitted_frame = mock_intelligence_service.submit_frame.await_args.args[0]
+    submitted_location = mock_intelligence_service.submit_location.await_args.args[0]
+    assert submitted_chunk.codec == "audio/raw"
+    assert submitted_chunk.payload == b"\x00\x01\x02\x03"
+    assert submitted_frame.width == 640
+    assert submitted_frame.payload == b"jpeg-payload"
+    assert submitted_location.latitude == 39.75
+    assert submitted_location.longitude == -104.99
 
 
 def test_wipe_rejects_remote_client(remote_client: TestClient) -> None:

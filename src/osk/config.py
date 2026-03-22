@@ -22,6 +22,8 @@ class OskConfig(BaseModel):
     whisper_model: str = "small"
     vision_backend: Literal["fake", "ollama"] = "fake"
     vision_model: str = "llama3.2-vision:11b-instruct-q4_K_M"
+    location_backend: Literal["fake"] = "fake"
+    synthesis_backend: Literal["heuristic"] = "heuristic"
     summarizer_model: str = "mistral"
     sitrep_interval_minutes: int = 10
     alert_cooldown_seconds: int = 60
@@ -33,6 +35,10 @@ class OskConfig(BaseModel):
     frame_queue_size: int = 64
     frame_queue_depth_per_member: int = 4
     intelligence_recent_observation_limit: int = 25
+    location_sample_ttl_seconds: int = 120
+    location_cluster_radius_m: float = 150.0
+    location_cluster_min_size: int = 2
+    synthesis_cooldown_seconds: int = 60
     frame_change_threshold: float = 0.15
     frame_baseline_interval_seconds: int = 30
     frame_sampling_fps: float = 2.0

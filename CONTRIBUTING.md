@@ -18,7 +18,8 @@ The repository now includes:
 - Local operator and observability commands (`operator`, `audit`, `logs`,
   `members`)
 - A hub-owned Phase 2 intelligence service with config-selectable fake or real
-  transcript/vision adapters
+  transcript/vision adapters, live GPS/audio/frame ingest wiring, persisted
+  intelligence observations, and an early heuristic event bridge
 
 The repository does **not** yet contain the full intelligence pipeline,
 synthesis layer, coordinator dashboard, or mobile client described in the
@@ -108,6 +109,8 @@ Code contributions should:
 - For Phase 2 work, keep fake and real adapters behind the same
   service-owned interfaces, and do not wire model-specific behavior directly
   into routes or WebSocket handlers
+- Extend the owned service boundary rather than making the server responsible
+  for persistence, synthesis, or alert heuristics
 
 ## How to Contribute
 

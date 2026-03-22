@@ -10,6 +10,7 @@ from pathlib import Path
 
 import asyncpg
 
+from osk.intelligence_contracts import IntelligenceObservation
 from osk.models import EventCategory, EventSeverity, MemberRole
 
 logger = logging.getLogger(__name__)
@@ -370,6 +371,42 @@ class Database:
             json.dumps(entities),
             threat_score,
         )
+
+    async def insert_intelligence_observation(
+        self,
+        operation_id: uuid.UUID,
+        observation: IntelligenceObservation,
+    ) -> None:
+        pool = self._require_pool()
+        await pool.execute(
+            """INSERT INTO intelligence_observations
+               (id, operation_id, source_member_id, kind, summary, confidence, details, created_at)
+               VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8)""",
+            observation.id,
+            operation_id,
+            observation.source_member_id,
+            observation.kind.value,
+            observation.summary,
+            observation.confidence,
+            json.dumps(observation.details),
+            observation.created_at,
+        )
+
+    async def get_recent_intelligence_observations(
+        self,
+        operation_id: uuid.UUID,
+        limit: int = 25,
+    ) -> list[dict]:
+        pool = self._require_pool()
+        rows = await pool.fetch(
+            """SELECT * FROM intelligence_observations
+               WHERE operation_id = $1
+               ORDER BY created_at DESC
+               LIMIT $2""",
+            operation_id,
+            limit,
+        )
+        return [dict(row) for row in rows]
 
     async def insert_stream(
         self, stream_id: uuid.UUID, member_id: uuid.UUID, stream_type: str

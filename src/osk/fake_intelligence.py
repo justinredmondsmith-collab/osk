@@ -152,6 +152,13 @@ class FakeLocationAnalyzer:
         self.cluster_radius_m = cluster_radius_m
         self.min_cluster_size = max(min_cluster_size, 2)
 
+    def status(self) -> dict[str, object]:
+        return {
+            "adapter": "fake-location",
+            "cluster_radius_m": self.cluster_radius_m,
+            "min_cluster_size": self.min_cluster_size,
+        }
+
     async def analyze(
         self,
         sample: LocationSample,
@@ -171,10 +178,10 @@ class FakeLocationAnalyzer:
                 nearby_member_ids.append(nearby.source.member_id)
 
         cluster_size = 1 + len(nearby_member_ids)
-        if cluster_size >= self.min_cluster_size:
-            summary = f"Simulated cluster of {cluster_size} nearby members detected."
-        else:
-            summary = "Simulated location update received."
+        if cluster_size < self.min_cluster_size:
+            return None
+
+        summary = f"Simulated cluster of {cluster_size} nearby members detected."
 
         risk_score = min(
             1.0,

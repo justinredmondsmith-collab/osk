@@ -60,13 +60,12 @@ stage should still stay disciplined:
 
 For the next implementation stage, follow this order:
 
-1. Queue and service boundaries
-2. Live member ingest wiring
-3. Location engine
-4. Observation persistence and synthesis layer
-5. Coordinator dashboard
-6. Mobile client
-7. Operations tooling
+1. Real mobile media decoding and transport hardening
+2. Richer synthesis and cross-observation dedupe
+3. Sitrep generation and coordinator-facing summaries
+4. Coordinator dashboard
+5. Mobile client
+6. Operations tooling
 
 ## When To Require Extra Human Attention
 
