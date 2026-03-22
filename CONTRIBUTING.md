@@ -39,6 +39,8 @@ The repository now includes:
   cache is empty
 - A first operations-tooling slice for the dashboard map path:
   `osk tiles status` and `osk tiles cache --bbox ... --zoom ...`
+- A standalone hotspot-management slice for NetworkManager environments:
+  `osk hotspot status|up|down|instructions`
 - A thin member join/runtime shell under `src/osk/templates/join.html`,
   `src/osk/templates/member.html`, and `src/osk/static/member.*`; it now uses
   a clean cookie-backed join flow so the shared operation token is not kept in
@@ -143,6 +145,12 @@ Populate the cache for a local area:
 
 ```bash
 osk tiles cache --bbox "39.7,-104.9,39.8,-104.8" --zoom 13-15
+```
+
+Inspect hotspot availability and the current hotspot IP:
+
+```bash
+osk hotspot status
 ```
 
 ## Contribution Rules

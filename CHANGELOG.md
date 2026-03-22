@@ -120,6 +120,8 @@ changes manually while the project is in its early public setup phase.
 - First operations-tooling tile cache slice: `osk tiles status`,
   `osk tiles cache --bbox ... --zoom ...`, and a real local tile download/cache
   module for the dashboard map path
+- Standalone hotspot-management slice: `osk hotspot status|up|down|instructions`
+  and an `nmcli`-backed host-side hotspot manager with manual fallback copy
 
 ### Changed
 

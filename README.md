@@ -102,6 +102,9 @@ What exists today:
   `osk finding resolve`, `osk finding escalate`, and `osk finding note`
 - First operations-tooling commands for local map cache inspection and
   acquisition: `osk tiles status` and `osk tiles cache`
+- Standalone hotspot-management commands for NetworkManager-based field setup:
+  `osk hotspot status`, `osk hotspot up`, `osk hotspot down`, and
+  `osk hotspot instructions`
 - Database migrations, coordinator auth boundary, member reconnect handling,
   and heartbeat-based stale-session cleanup
 - Early REST/WebSocket hub surface for the coordinator and member join/runtime
@@ -248,7 +251,7 @@ The initial implementation is split into six phases:
 | [3. Synthesis Layer](docs/plans/2026-03-21-plan-3-synthesis-layer.md) | Events, alerts, SitReps | Heuristic synthesis + review surfaces in repo |
 | [4. Coordinator Dashboard](docs/plans/2026-03-21-plan-4-coordinator-dashboard.md) | Map, timeline, sensor management | Live review shell in repo |
 | [5. Mobile PWA](docs/plans/2026-03-21-plan-5-mobile-pwa.md) | Join flow, alert feed, edge sampling | Join/runtime shell with alerts, GPS, queued manual reports/media, early sensor capture, and first installable/offline behavior in repo |
-| [6. Operations Tooling](docs/plans/2026-03-21-plan-6-operations-tooling.md) | Hotspot, evidence, tile caching | Tile cache CLI + dashboard consumption path in repo |
+| [6. Operations Tooling](docs/plans/2026-03-21-plan-6-operations-tooling.md) | Hotspot, evidence, tile caching | Tile cache CLI + standalone hotspot tools in repo |
 
 See the [design specification](docs/specs/2026-03-21-osk-design.md) for the
 full architecture, API contract, and threat-model assumptions.
@@ -285,6 +288,13 @@ full architecture, API contract, and threat-model assumptions.
 - Use `osk tiles cache --bbox "39.7,-104.9,39.8,-104.8" --zoom 13-15` if you
   want the dashboard map to render cached local geography instead of only the
   relative fallback view
+- Use `osk hotspot status` to see whether NetworkManager / `nmcli` is
+  available locally and whether the configured hotspot connection currently has
+  an IP address
+- Use `osk hotspot up --password <passphrase>` and `osk hotspot down` for a
+  standalone local hotspot workflow before this is wired into `osk start`
+- Use `osk hotspot instructions` if you need the manual fallback flow instead
+  of `nmcli`-driven setup
 - Scan the QR join link into `/join?token=...`; the hub now exchanges that
   token into a clean `HttpOnly` browser cookie and redirects back to `/join`
   without leaving the shared operation token in the visible URL

@@ -341,6 +341,68 @@ def _cmd_tiles_cache(args: argparse.Namespace) -> int:
     return 0
 
 
+def _hotspot_manager_from_args(args: argparse.Namespace):
+    from .hotspot import HotspotManager
+
+    cfg = load_config()
+    ssid = getattr(args, "ssid", None) or cfg.hotspot_ssid or "osk-local"
+    band = getattr(args, "band", None) or cfg.hotspot_band
+    password = getattr(args, "password", None)
+    return HotspotManager(ssid=ssid, band=band, password=password)
+
+
+def _cmd_hotspot_status(args: argparse.Namespace) -> int:
+    manager = _hotspot_manager_from_args(args)
+    payload = manager.status()
+    if args.json_output:
+        print(json.dumps(payload, indent=2, sort_keys=True))
+        return 0
+
+    print(f"available = {payload['available']}")
+    print(f"ssid = {payload['ssid']}")
+    print(f"band = {payload['band']}")
+    print(f"connection_name = {payload['connection_name']}")
+    print(f"ip_address = {payload['ip_address'] or 'unknown'}")
+    if payload["manual_instructions"]:
+        print(payload["manual_instructions"])
+    return 0
+
+
+def _cmd_hotspot_up(args: argparse.Namespace) -> int:
+    manager = _hotspot_manager_from_args(args)
+    if not manager.is_available():
+        print(manager.get_manual_instructions())
+        return 1
+    if not args.password:
+        print("Hotspot password is required for `osk hotspot up`.")
+        return 1
+    if not manager.start():
+        print("Failed to start hotspot.")
+        return 1
+    print(f"Hotspot started for SSID {manager.ssid}.")
+    if ip_address := manager.get_ip():
+        print(f"ip_address = {ip_address}")
+    return 0
+
+
+def _cmd_hotspot_down(args: argparse.Namespace) -> int:
+    manager = _hotspot_manager_from_args(args)
+    if not manager.is_available():
+        print("NetworkManager (nmcli) is not available.")
+        return 1
+    if not manager.stop():
+        print("Failed to stop hotspot.")
+        return 1
+    print(f"Hotspot stopped for SSID {manager.ssid}.")
+    return 0
+
+
+def _cmd_hotspot_instructions(args: argparse.Namespace) -> int:
+    manager = _hotspot_manager_from_args(args)
+    print(manager.get_manual_instructions())
+    return 0
+
+
 def _cmd_evidence(args: argparse.Namespace) -> int:
     messages = {
         "unlock": "Evidence unlock is not implemented yet.",
@@ -643,6 +705,50 @@ def build_parser() -> argparse.ArgumentParser:
         help="Emit machine-readable JSON output.",
     )
     tiles_cache.set_defaults(func=_cmd_tiles_cache)
+
+    hotspot_parser = subparsers.add_parser(
+        "hotspot",
+        help="Inspect or control a local NetworkManager hotspot.",
+    )
+    hotspot_sub = hotspot_parser.add_subparsers(dest="hotspot_command")
+
+    hotspot_status = hotspot_sub.add_parser("status", help="Show hotspot availability and IP.")
+    hotspot_status.add_argument("--ssid", help="Override the configured hotspot SSID.")
+    hotspot_status.add_argument("--band", help="Override the configured hotspot band.")
+    hotspot_status.add_argument(
+        "--json",
+        dest="json_output",
+        action="store_true",
+        help="Emit machine-readable JSON output.",
+    )
+    hotspot_status.set_defaults(func=_cmd_hotspot_status)
+
+    hotspot_up = hotspot_sub.add_parser("up", help="Start a local hotspot via nmcli.")
+    hotspot_up.add_argument("--ssid", help="Override the configured hotspot SSID.")
+    hotspot_up.add_argument("--band", help="Override the configured hotspot band.")
+    hotspot_up.add_argument(
+        "--password",
+        required=True,
+        help="Passphrase to use when creating the hotspot.",
+    )
+    hotspot_up.set_defaults(func=_cmd_hotspot_up)
+
+    hotspot_down = hotspot_sub.add_parser("down", help="Stop the local hotspot via nmcli.")
+    hotspot_down.add_argument("--ssid", help="Override the configured hotspot SSID.")
+    hotspot_down.add_argument("--band", help="Override the configured hotspot band.")
+    hotspot_down.set_defaults(func=_cmd_hotspot_down)
+
+    hotspot_instructions = hotspot_sub.add_parser(
+        "instructions",
+        help="Print manual hotspot setup instructions.",
+    )
+    hotspot_instructions.add_argument("--ssid", help="Override the configured hotspot SSID.")
+    hotspot_instructions.add_argument("--band", help="Override the configured hotspot band.")
+    hotspot_instructions.add_argument(
+        "--password",
+        help="Optional passphrase hint to include in the instructions.",
+    )
+    hotspot_instructions.set_defaults(func=_cmd_hotspot_instructions)
 
     evidence_parser = subparsers.add_parser("evidence", help="Manage pinned evidence.")
     evidence_sub = evidence_parser.add_subparsers(dest="evidence_command")

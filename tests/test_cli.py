@@ -162,6 +162,33 @@ def test_parse_tiles_cache() -> None:
     assert args.json_output is True
 
 
+def test_parse_hotspot_status() -> None:
+    args = parse_args(["hotspot", "status", "--json"])
+    assert args.command == "hotspot"
+    assert args.hotspot_command == "status"
+    assert args.json_output is True
+
+
+def test_parse_hotspot_up() -> None:
+    args = parse_args(["hotspot", "up", "--password", "osk-secure"])
+    assert args.command == "hotspot"
+    assert args.hotspot_command == "up"
+    assert args.password == "osk-secure"
+
+
+def test_parse_hotspot_down() -> None:
+    args = parse_args(["hotspot", "down"])
+    assert args.command == "hotspot"
+    assert args.hotspot_command == "down"
+
+
+def test_parse_hotspot_instructions() -> None:
+    args = parse_args(["hotspot", "instructions", "--ssid", "osk-local"])
+    assert args.command == "hotspot"
+    assert args.hotspot_command == "instructions"
+    assert args.ssid == "osk-local"
+
+
 def test_parse_rotate_token() -> None:
     args = parse_args(["rotate-token"])
     assert args.command == "rotate-token"
@@ -216,6 +243,29 @@ def test_tiles_status_prints_summary(
     assert "cache_root = /tmp/osk-tiles" in out
     assert "tile_count = 3" in out
     assert "zoom_levels = 13, 14" in out
+
+
+@patch("osk.cli.load_config")
+@patch("osk.hotspot.HotspotManager.status")
+def test_hotspot_status_prints_summary(
+    mock_status: MagicMock, mock_load_config: MagicMock, capsys
+) -> None:
+    mock_load_config.return_value = MagicMock(hotspot_ssid="osk-local", hotspot_band="5GHz")
+    mock_status.return_value = {
+        "available": True,
+        "ssid": "osk-local",
+        "band": "5GHz",
+        "connection_name": "osk-local",
+        "ip_address": "10.42.0.1",
+        "manual_instructions": None,
+    }
+
+    code = main(["hotspot", "status"])
+    out = capsys.readouterr().out
+
+    assert code == 0
+    assert "available = True" in out
+    assert "ip_address = 10.42.0.1" in out
 
 
 @patch("osk.cli._repo_root")
