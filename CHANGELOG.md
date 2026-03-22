@@ -145,6 +145,9 @@ changes manually while the project is in its early public setup phase.
 - Wipe audit coverage history: real wipe actions now record broadcast target
   count plus the trigger-time stale/disconnected member browsers in the audit
   trail
+- Durable manual-report replay dedupe: queued field notes resent with the same
+  `report_id` now acknowledge as duplicates instead of creating second manual
+  report events after reconnect or ack loss
 
 ### Changed
 

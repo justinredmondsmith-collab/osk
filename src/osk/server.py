@@ -2297,32 +2297,54 @@ def create_app(
                             text=report_text,
                             source_member_id=member_id,
                         )
-                        await db.insert_event(
-                            event.id,
-                            operation.id,
-                            event.severity,
-                            event.category,
-                            event.text,
-                            event.source_member_id,
-                            None,
-                            None,
-                        )
+                        duplicate = False
+                        ack_timestamp = event.timestamp
+                        if report_id is not None:
+                            stored_report = await db.insert_manual_report_once(
+                                operation_id=operation.id,
+                                member_id=member_id,
+                                report_id=report_id,
+                                event_id=event.id,
+                                text=report_text,
+                                timestamp=event.timestamp,
+                            )
+                            duplicate = bool(stored_report.get("duplicate"))
+                            event.id = stored_report["event_id"]
+                            event.text = str(stored_report.get("text") or report_text)
+                            timestamp_value = stored_report.get("timestamp")
+                            if isinstance(timestamp_value, dt.datetime):
+                                ack_timestamp = timestamp_value
+                            else:
+                                ack_timestamp = event.timestamp
+                        else:
+                            await db.insert_event(
+                                event.id,
+                                operation.id,
+                                event.severity,
+                                event.category,
+                                event.text,
+                                event.source_member_id,
+                                None,
+                                None,
+                            )
                         await db.insert_audit_event(
                             operation.id,
                             "member",
-                            "report_submitted",
+                            "report_replayed_duplicate" if duplicate else "report_submitted",
                             actor_member_id=member_id,
-                            details={"event_id": str(event.id)},
+                            details={"event_id": str(event.id), "report_id": report_id},
                         )
                         payload = {
                             "type": "report_ack",
                             "accepted": True,
                             "event_id": str(event.id),
-                            "text": report_text,
-                            "timestamp": event.timestamp.astimezone(dt.timezone.utc)
+                            "text": event.text,
+                            "timestamp": ack_timestamp.astimezone(dt.timezone.utc)
                             .isoformat()
                             .replace("+00:00", "Z"),
                         }
+                        if duplicate:
+                            payload["duplicate"] = True
                         if report_id is not None:
                             payload["report_id"] = report_id
                         await ws.send_json(payload)

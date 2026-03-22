@@ -1979,8 +1979,13 @@
       if (elements.runtimeReportText) {
         elements.runtimeReportText.value = "";
       }
-      setReportState("Field note delivered to the hub.");
-      pushFeed("Field note delivered to the hub.", "success");
+      if (payload.duplicate) {
+        setReportState("Field note was already received by the hub.");
+        pushFeed("Field note was already received by the hub.", "note");
+      } else {
+        setReportState("Field note delivered to the hub.");
+        pushFeed("Field note delivered to the hub.", "success");
+      }
     } else if (outboxAck.retryable) {
       setReportState("Field note is queued locally and will retry when the hub is ready.");
       pushFeed("Field note remains queued locally for retry.", "warning");

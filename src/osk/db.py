@@ -273,6 +273,106 @@ class Database:
             longitude,
         )
 
+    async def insert_manual_report_once(
+        self,
+        *,
+        operation_id: uuid.UUID,
+        member_id: uuid.UUID,
+        report_id: str,
+        event_id: uuid.UUID,
+        text: str,
+        timestamp: datetime,
+    ) -> dict[str, object]:
+        pool = self._require_pool()
+        async with pool.acquire() as conn:
+            async with conn.transaction():
+                existing = await conn.fetchrow(
+                    """SELECT item_id, last_seen_at
+                       FROM ingest_receipts
+                       WHERE operation_id = $1 AND kind = 'report' AND member_id = $2
+                         AND ingest_key = $3
+                       FOR UPDATE""",
+                    operation_id,
+                    member_id,
+                    report_id,
+                )
+                if existing is not None:
+                    existing_event_id = existing["item_id"]
+                    await conn.execute(
+                        """UPDATE ingest_receipts
+                           SET last_seen_at = $4,
+                               duplicate_count = duplicate_count + 1
+                           WHERE operation_id = $1 AND kind = 'report' AND member_id = $2
+                             AND ingest_key = $3""",
+                        operation_id,
+                        member_id,
+                        report_id,
+                        timestamp,
+                    )
+                    event_row = await conn.fetchrow(
+                        "SELECT id, text, timestamp FROM events WHERE id = $1",
+                        existing_event_id,
+                    )
+                    if event_row is None:
+                        await conn.execute(
+                            """INSERT INTO events (id, operation_id, severity, category, text,
+                               source_member_id, latitude, longitude, timestamp)
+                               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)""",
+                            existing_event_id,
+                            operation_id,
+                            EventSeverity.INFO.value,
+                            EventCategory.MANUAL_REPORT.value,
+                            text,
+                            member_id,
+                            None,
+                            None,
+                            timestamp,
+                        )
+                        return {
+                            "duplicate": True,
+                            "event_id": existing_event_id,
+                            "text": text,
+                            "timestamp": timestamp,
+                        }
+                    return {
+                        "duplicate": True,
+                        "event_id": event_row["id"],
+                        "text": event_row["text"],
+                        "timestamp": event_row["timestamp"],
+                    }
+
+                await conn.execute(
+                    """INSERT INTO events (id, operation_id, severity, category, text,
+                       source_member_id, latitude, longitude, timestamp)
+                       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)""",
+                    event_id,
+                    operation_id,
+                    EventSeverity.INFO.value,
+                    EventCategory.MANUAL_REPORT.value,
+                    text,
+                    member_id,
+                    None,
+                    None,
+                    timestamp,
+                )
+                await conn.execute(
+                    """INSERT INTO ingest_receipts
+                       (operation_id, kind, member_id, ingest_key, item_id,
+                        first_seen_at, last_seen_at)
+                       VALUES ($1, 'report', $2, $3, $4, $5, $5)""",
+                    operation_id,
+                    member_id,
+                    report_id,
+                    event_id,
+                    timestamp,
+                )
+        return {
+            "duplicate": False,
+            "event_id": event_id,
+            "text": text,
+            "timestamp": timestamp,
+        }
+
     async def get_events_since(self, operation_id: uuid.UUID, since: str) -> list[dict]:
         pool = self._require_pool()
         rows = await pool.fetch(

@@ -31,6 +31,7 @@ def mock_pool() -> MagicMock:
     pool = MagicMock()
     conn = MagicMock()
     conn.execute = AsyncMock()
+    conn.fetchrow = AsyncMock(return_value=None)
     tx = MagicMock()
     tx.__aenter__ = AsyncMock(return_value=None)
     tx.__aexit__ = AsyncMock(return_value=None)
@@ -411,6 +412,70 @@ async def test_claim_ingest_receipt_detects_duplicate(db: Database, mock_pool: M
     )
 
     assert duplicate is True
+
+
+async def test_insert_manual_report_once_inserts_event_and_receipt(
+    db: Database,
+    mock_pool: MagicMock,
+) -> None:
+    db._pool = mock_pool
+    conn = mock_pool.acquire.return_value.__aenter__.return_value
+    conn.fetchrow = AsyncMock(return_value=None)
+    event_id = uuid.uuid4()
+    timestamp = datetime(2026, 3, 22, 1, 0, tzinfo=timezone.utc)
+
+    result = await db.insert_manual_report_once(
+        operation_id=uuid.uuid4(),
+        member_id=uuid.uuid4(),
+        report_id="report-1",
+        event_id=event_id,
+        text="Need medics at the west gate",
+        timestamp=timestamp,
+    )
+
+    assert result == {
+        "duplicate": False,
+        "event_id": event_id,
+        "text": "Need medics at the west gate",
+        "timestamp": timestamp,
+    }
+    assert conn.execute.await_count == 2
+    assert "INSERT INTO events" in conn.execute.await_args_list[0].args[0]
+    assert "INSERT INTO ingest_receipts" in conn.execute.await_args_list[1].args[0]
+
+
+async def test_insert_manual_report_once_returns_duplicate_existing_event(
+    db: Database,
+    mock_pool: MagicMock,
+) -> None:
+    db._pool = mock_pool
+    conn = mock_pool.acquire.return_value.__aenter__.return_value
+    existing_event_id = uuid.uuid4()
+    seen_at = datetime(2026, 3, 22, 1, 5, tzinfo=timezone.utc)
+    conn.fetchrow = AsyncMock(
+        side_effect=[
+            {"item_id": existing_event_id, "last_seen_at": seen_at},
+            {"id": existing_event_id, "text": "Need medics at the west gate", "timestamp": seen_at},
+        ]
+    )
+
+    result = await db.insert_manual_report_once(
+        operation_id=uuid.uuid4(),
+        member_id=uuid.uuid4(),
+        report_id="report-1",
+        event_id=uuid.uuid4(),
+        text="Need medics at the west gate",
+        timestamp=seen_at,
+    )
+
+    assert result == {
+        "duplicate": True,
+        "event_id": existing_event_id,
+        "text": "Need medics at the west gate",
+        "timestamp": seen_at,
+    }
+    assert conn.execute.await_count == 1
+    assert "UPDATE ingest_receipts" in conn.execute.await_args.args[0]
 
 
 async def test_prune_ingest_receipts(db: Database, mock_pool: MagicMock) -> None:

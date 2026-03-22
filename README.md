@@ -116,6 +116,9 @@ What exists today:
   WebSocket, reconnect-aware runtime state for reloads and transport
   breaks through that member runtime cookie, and local browser queueing for
   notes that are created while the live hub link is unavailable
+- Duplicate-safe manual report replay when the browser resends a queued note
+  with the same `report_id`, so reconnect and ack-loss retries do not create
+  duplicate manual-report events within the retained receipt window
 - Observer-side manual media in the member runtime: snap-photo capture and
   short audio clips on the existing member ingest path, using stable ingest
   keys so duplicate-safe acks still work across reconnects and queued replay

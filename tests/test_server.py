@@ -1571,6 +1571,13 @@ def test_websocket_manual_report_ack(
     client: TestClient,
     mock_db: MagicMock,
 ) -> None:
+    report_timestamp = dt.datetime(2026, 3, 22, 1, 0, tzinfo=dt.timezone.utc)
+    mock_db.insert_manual_report_once.return_value = {
+        "duplicate": False,
+        "event_id": uuid.uuid4(),
+        "text": "Need medics at the west gate",
+        "timestamp": report_timestamp,
+    }
     with client.websocket_connect("/ws") as websocket:
         websocket.send_json({"type": "auth", "token": "valid-token", "name": "Jay"})
         websocket.receive_json()
@@ -1588,8 +1595,65 @@ def test_websocket_manual_report_ack(
     assert ack["report_id"] == "report-1"
     assert ack["event_id"]
     assert ack["text"] == "Need medics at the west gate"
-    mock_db.insert_event.assert_awaited_once()
+    assert ack["timestamp"] == "2026-03-22T01:00:00Z"
+    mock_db.insert_manual_report_once.assert_awaited_once()
     mock_db.insert_audit_event.assert_awaited()
+
+
+def test_websocket_manual_report_duplicate_ack(
+    client: TestClient,
+    mock_db: MagicMock,
+) -> None:
+    existing_event_id = uuid.uuid4()
+    report_timestamp = dt.datetime(2026, 3, 22, 1, 15, tzinfo=dt.timezone.utc)
+    mock_db.insert_manual_report_once.return_value = {
+        "duplicate": True,
+        "event_id": existing_event_id,
+        "text": "Need medics at the west gate",
+        "timestamp": report_timestamp,
+    }
+
+    with client.websocket_connect("/ws") as websocket:
+        websocket.send_json({"type": "auth", "token": "valid-token", "name": "Jay"})
+        websocket.receive_json()
+        websocket.send_json(
+            {
+                "type": "report",
+                "report_id": "report-1",
+                "text": "Need medics at the west gate",
+            }
+        )
+        ack = websocket.receive_json()
+
+    assert ack == {
+        "type": "report_ack",
+        "accepted": True,
+        "duplicate": True,
+        "event_id": str(existing_event_id),
+        "report_id": "report-1",
+        "text": "Need medics at the west gate",
+        "timestamp": "2026-03-22T01:15:00Z",
+    }
+    assert mock_db.insert_event.await_count == 0
+    mock_db.insert_manual_report_once.assert_awaited_once()
+    assert mock_db.insert_audit_event.await_args.args[2] == "report_replayed_duplicate"
+
+
+def test_websocket_manual_report_without_report_id_uses_direct_insert(
+    client: TestClient,
+    mock_db: MagicMock,
+) -> None:
+    with client.websocket_connect("/ws") as websocket:
+        websocket.send_json({"type": "auth", "token": "valid-token", "name": "Jay"})
+        websocket.receive_json()
+        websocket.send_json({"type": "report", "text": "Need medics at the west gate"})
+        ack = websocket.receive_json()
+
+    assert ack["type"] == "report_ack"
+    assert ack["accepted"] is True
+    assert "duplicate" not in ack
+    mock_db.insert_event.assert_awaited_once()
+    assert mock_db.insert_manual_report_once.await_count == 0
 
 
 def test_websocket_updates_member_buffer_status(
