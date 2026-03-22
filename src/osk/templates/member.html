@@ -10,31 +10,123 @@
   <body class="member-app">
     <main class="member-shell member-shell--runtime">
       <header class="member-hero">
-        <p class="member-eyebrow">Osk Member</p>
-        <h1 id="runtime-operation-name">Connecting</h1>
-        <div class="member-status-pill">
-          <span class="member-status-dot" id="runtime-connection-dot"></span>
-          <span id="runtime-connection-label">Checking member session</span>
+        <div class="member-hero-head">
+          <p class="member-eyebrow">Osk Member</p>
+          <div class="member-status-pill">
+            <span class="member-status-dot" id="runtime-connection-dot"></span>
+            <span id="runtime-connection-label">Checking member session</span>
+          </div>
         </div>
+        <h1 id="runtime-operation-name">Connecting</h1>
+        <p class="member-subtle member-hero-copy">
+          Live field runtime for alerts, opt-in GPS sharing, and manual reports.
+        </p>
       </header>
+
+      <section class="member-signal-strip">
+        <article class="member-signal">
+          <span class="member-label">Role</span>
+          <strong id="runtime-role">Pending</strong>
+          <small id="runtime-session-state">Authorizing</small>
+        </article>
+        <article class="member-signal">
+          <span class="member-label">GPS</span>
+          <strong id="runtime-gps-state">Off</strong>
+          <small id="runtime-gps-detail">Location sharing is off.</small>
+        </article>
+        <article class="member-signal">
+          <span class="member-label">Alerts</span>
+          <strong id="runtime-alert-count">0</strong>
+          <small id="runtime-alert-summary">Waiting for live alerts.</small>
+        </article>
+      </section>
 
       <section class="member-panel">
         <div class="member-grid">
-          <div>
+          <div class="member-grid-item">
             <span class="member-label">Display name</span>
             <strong id="runtime-display-name">--</strong>
           </div>
-          <div>
-            <span class="member-label">Role</span>
-            <strong id="runtime-role">Pending</strong>
-          </div>
-          <div>
+          <div class="member-grid-item">
             <span class="member-label">Member ID</span>
             <strong id="runtime-member-id">--</strong>
           </div>
+          <div class="member-grid-item">
+            <span class="member-label">Last report</span>
+            <strong id="runtime-last-report">None sent</strong>
+          </div>
+          <div class="member-grid-item">
+            <span class="member-label">Connection</span>
+            <strong id="runtime-connection-state">Joining</strong>
+          </div>
+        </div>
+      </section>
+
+      <section class="member-panel member-panel--actions">
+        <div class="member-panel-head">
           <div>
-            <span class="member-label">Session</span>
-            <strong id="runtime-session-state">Authorizing</strong>
+            <p class="member-eyebrow">Runtime</p>
+            <h2>Field Controls</h2>
+          </div>
+          <button class="member-button member-button--ghost" id="runtime-leave" type="button">
+            Leave
+          </button>
+        </div>
+
+        <div class="member-control-stack">
+          <section class="member-control">
+            <div class="member-control-copy">
+              <p class="member-eyebrow">Location</p>
+              <h3>Share GPS</h3>
+              <p class="member-subtle">
+                Opt in when you want the coordinator to see your latest fix. The shell
+                throttles updates instead of broadcasting every browser callback.
+              </p>
+            </div>
+            <div class="member-control-actions">
+              <button class="member-button" id="runtime-gps-toggle" type="button">
+                Start GPS
+              </button>
+            </div>
+          </section>
+
+          <form class="member-control member-report-form" id="runtime-report-form">
+            <div class="member-control-copy">
+              <p class="member-eyebrow">Manual Report</p>
+              <h3>Send A Field Note</h3>
+              <label class="member-field" for="runtime-report-text">
+                <span>What do you see?</span>
+                <textarea
+                  id="runtime-report-text"
+                  name="report_text"
+                  rows="4"
+                  maxlength="280"
+                  placeholder="Examples: police line forming at the west entrance, medics needed near the plaza, exit route blocked."
+                ></textarea>
+              </label>
+            </div>
+            <div class="member-action-row">
+              <p class="member-subtle" id="runtime-report-status">
+                Reports send over the live member connection.
+              </p>
+              <button class="member-button" id="runtime-report-send" type="submit">
+                Send report
+              </button>
+            </div>
+          </form>
+        </div>
+      </section>
+
+      <section class="member-panel member-panel--alerts">
+        <div class="member-panel-head">
+          <div>
+            <p class="member-eyebrow">Alerts</p>
+            <h2>Live Alerts</h2>
+          </div>
+        </div>
+        <div class="member-alerts" id="runtime-alerts">
+          <div class="member-empty">
+            <p>Waiting for live alerts.</p>
           </div>
         </div>
       </section>
@@ -43,11 +135,8 @@
         <div class="member-panel-head">
           <div>
             <p class="member-eyebrow">Runtime</p>
-            <h2>Live Status</h2>
+            <h2>Activity Feed</h2>
           </div>
-          <button class="member-button member-button--ghost" id="runtime-leave" type="button">
-            Leave
-          </button>
         </div>
         <div class="member-feed" id="runtime-feed">
           <div class="member-empty">
@@ -59,7 +148,9 @@
       <section class="member-panel member-panel--soft">
         <h2>Current scope</h2>
         <p class="member-subtle">
-          This runtime shell currently proves cookie-backed member auth and WebSocket bootstrap. Rich alerts, GPS, and media capture still belong to the fuller Phase 5 client work.
+          The current member runtime supports cookie-backed join bootstrap, reconnect-aware
+          WebSocket state, live alerts, opt-in GPS sharing, and manual field notes.
+          Media capture and richer sensor controls still belong to the next Phase 5 slices.
         </p>
       </section>
     </main>

@@ -247,7 +247,7 @@ git clone <repo> && cd osk
 2. Browser opens to the Osk join page bootstrap URL (served from hub)
 3. Hub exchanges the shared operation token into a clean browser session and redirects back to `/join`
 4. Enter a display name
-5. Continue into the thin member shell
+5. Continue into the current member shell with live alerts, opt-in GPS sharing, and manual report controls
 6. Coordinator can promote to Sensor from dashboard
 
 ### Coordinator Dashboard (Desktop)
@@ -283,7 +283,7 @@ Three-panel layout:
 - Alert feed (color-coded by severity, relative timestamps)
 - Group status bar (member count, nearby count, trend indicator)
 - Action bar: snap photo, record audio clip, "I see something" report button
-- Pin button on each alert
+- Current implementation: live alert feed, opt-in GPS sharing, and manual report submission are present; photo/clip capture and any alert pinning UI are still planned
 
 **Sensor view:**
 - Same alert feed as observer
@@ -324,8 +324,8 @@ Three-panel layout:
 | POST | `/api/members/<id>/promote` | Coordinator only | Promote observer to sensor |
 | POST | `/api/members/<id>/demote` | Coordinator only | Demote sensor to observer |
 | POST | `/api/members/<id>/kick` | Coordinator only | Kick member from operation |
-| POST | `/api/pin/<event_id>` | Any authenticated | Pin an event for preservation |
-| POST | `/api/report` | Any authenticated | Submit manual "I see something" report |
+| POST | `/api/pin/<event_id>` | Coordinator only in the current implementation | Pin an event for preservation |
+| POST | `/api/report` | Coordinator only in the current implementation | Direct REST manual report path; member browsers currently submit manual reports over the member WebSocket |
 | POST | `/api/rotate-token` | Coordinator only | Generate new operation token |
 | POST | `/api/wipe` | Coordinator only | Trigger emergency wipe |
 | GET | `/api/sitrep/latest` | Coordinator only | Latest situation report |

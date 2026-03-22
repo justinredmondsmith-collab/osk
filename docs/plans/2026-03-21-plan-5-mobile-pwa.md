@@ -11,7 +11,7 @@
 **Spec:** `docs/specs/2026-03-21-osk-design.md` — "Edge Components" and "Member Mobile UI" sections
 **Depends on:** Plan 1 (server, connection_manager), Plan 3 (alerts)
 
-**Current state:** A thin cookie-backed member join/runtime shell now exists at `/join` and `/member`. The QR token is exchanged into a clean `HttpOnly` browser cookie before the shell loads, and the current WebSocket bootstrap can authenticate from that cookie without exposing the shared operation token to browser JavaScript storage. The tasks below describe the fuller mobile client beyond that bootstrap slice.
+**Current state:** A cookie-backed member join/runtime shell now exists at `/join` and `/member`. The QR token is exchanged into a clean `HttpOnly` browser cookie before the shell loads, the current WebSocket bootstrap can authenticate from that cookie without exposing the shared operation token to browser JavaScript storage, and the runtime already includes live alerts, opt-in GPS sharing, reconnect-aware member resume, and manual report submission. The tasks below describe the fuller mobile client beyond that current slice.
 
 ---
 
@@ -88,10 +88,10 @@ Layout:
 - [ ] **Step 2: Create member.js**
 
 WebSocket connection:
-- Read token and name from sessionStorage
+- Read display name plus member-scoped resume state from `sessionStorage`
 - Connect to `wss://<host>/ws`
-- Send auth message: `{"type":"auth", "token":"...", "name":"..."}`
-- Handle `auth_ok` → store member_id and role
+- Send auth message: `{"type":"auth", "name":"..."}` for the normal browser flow, or include `resume_member_id` + `resume_token` when reconnecting
+- Handle `auth_ok` → store member_id, role, and reconnect token
 - Handle `role_change` → toggle sensor panel visibility
 - Handle `alert` → prepend to alert feed, color-coded by severity
 - Handle `status` → update group status bar
@@ -106,8 +106,7 @@ GPS tracking:
 
 Manual report:
 - "I see something" button → text input modal → sends `{"type":"report", "text":"..."}`
-
-Pin button on each alert → calls `POST /api/pin/<event_id>`
+- Current implementation should stay on the member WebSocket/auth surface; do not wire a member alert pin button to the current coordinator-only `/api/pin/<event_id>` route unless the auth model changes first
 
 - [ ] **Step 3: Create member.css**
 

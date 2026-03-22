@@ -176,6 +176,9 @@ def test_member_page_without_cookie_renders_runtime_shell(
     assert resp.status_code == 200
     assert "Osk Member" in resp.text
     assert "/static/member.js" in resp.text
+    assert "Share GPS" in resp.text
+    assert "Send A Field Note" in resp.text
+    assert '"gps_interval_moving_seconds": 10' in resp.text
     assert "osk_member_join" not in resp.text
     assert "content-security-policy" in resp.headers
 
@@ -190,6 +193,8 @@ def test_member_page_renders_runtime_shell(
     assert resp.status_code == 200
     assert "Osk Member" in resp.text
     assert "/static/member.js" in resp.text
+    assert "Live Alerts" in resp.text
+    assert "Field Controls" in resp.text
     assert "osk_member_join" not in resp.text
     assert "content-security-policy" in resp.headers
 
@@ -939,3 +944,39 @@ def test_websocket_resume_flow(
     assert message["resume_token"] == "resume-secret"
     assert message["resumed"] is True
     mock_op_manager.resume_member.assert_called_once()
+
+
+def test_websocket_manual_report_ack(
+    client: TestClient,
+    mock_db: MagicMock,
+) -> None:
+    with client.websocket_connect("/ws") as websocket:
+        websocket.send_json({"type": "auth", "token": "valid-token", "name": "Jay"})
+        websocket.receive_json()
+        websocket.send_json({"type": "report", "text": "Need medics at the west gate"})
+        ack = websocket.receive_json()
+
+    assert ack["type"] == "report_ack"
+    assert ack["accepted"] is True
+    assert ack["event_id"]
+    assert ack["text"] == "Need medics at the west gate"
+    mock_db.insert_event.assert_awaited_once()
+    mock_db.insert_audit_event.assert_awaited()
+
+
+def test_websocket_manual_report_requires_text(
+    client: TestClient,
+    mock_db: MagicMock,
+) -> None:
+    with client.websocket_connect("/ws") as websocket:
+        websocket.send_json({"type": "auth", "token": "valid-token", "name": "Jay"})
+        websocket.receive_json()
+        websocket.send_json({"type": "report", "text": "   "})
+        ack = websocket.receive_json()
+
+    assert ack == {
+        "type": "report_ack",
+        "accepted": False,
+        "error": "Report text is required.",
+    }
+    mock_db.insert_event.assert_not_awaited()

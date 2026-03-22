@@ -323,6 +323,13 @@ def _coerce_uuid(value) -> uuid.UUID | None:
         return None
 
 
+def _normalize_manual_report_text(value, *, max_length: int = 280) -> str:
+    if value is None:
+        return ""
+    text = " ".join(str(value).split())
+    return text[:max_length].strip()
+
+
 def _coerce_ingest_key(data: dict, *, preferred_id_key: str) -> str | None:
     for key in ("ingest_key", preferred_id_key):
         raw = str(data.get(key) or "").strip()
@@ -476,13 +483,22 @@ def _parse_review_feed_types(include: list[str] | None) -> tuple[set[str] | None
 
 
 def _member_session_bootstrap() -> dict[str, object]:
+    config = load_config()
     return {
         "paths": {
             "member_session": "/api/member/session",
             "member_page": "/member",
             "join_page": "/join",
             "websocket": "/ws",
-        }
+        },
+        "runtime": {
+            "gps_interval_moving_seconds": config.gps_interval_moving_seconds,
+            "gps_interval_stationary_seconds": config.gps_interval_stationary_seconds,
+            "gps_significant_change_meters": 15,
+            "manual_report_max_length": 280,
+            "reconnect_base_delay_ms": 1500,
+            "reconnect_max_delay_ms": 10000,
+        },
     }
 
 
@@ -1515,6 +1531,7 @@ def create_app(
                     "role": member.role.value,
                     "resume_token": member.reconnect_token,
                     "resumed": resumed,
+                    "operation_name": operation.name,
                 }
             )
 
@@ -1534,10 +1551,20 @@ def create_app(
                                 _build_location_sample(member, data)
                             )
                     elif msg_type == "report":
+                        report_text = _normalize_manual_report_text(data.get("text"))
+                        if not report_text:
+                            await ws.send_json(
+                                {
+                                    "type": "report_ack",
+                                    "accepted": False,
+                                    "error": "Report text is required.",
+                                }
+                            )
+                            continue
                         event = Event(
                             severity=EventSeverity.INFO,
                             category=EventCategory.MANUAL_REPORT,
-                            text=data["text"],
+                            text=report_text,
                             source_member_id=member_id,
                         )
                         await db.insert_event(
@@ -1556,6 +1583,17 @@ def create_app(
                             "report_submitted",
                             actor_member_id=member_id,
                             details={"event_id": str(event.id)},
+                        )
+                        await ws.send_json(
+                            {
+                                "type": "report_ack",
+                                "accepted": True,
+                                "event_id": str(event.id),
+                                "text": report_text,
+                                "timestamp": event.timestamp.astimezone(dt.timezone.utc)
+                                .isoformat()
+                                .replace("+00:00", "Z"),
+                            }
                         )
                     elif msg_type == "audio_meta":
                         pending_audio_meta = data

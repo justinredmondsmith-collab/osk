@@ -83,6 +83,9 @@ changes manually while the project is in its early public setup phase.
 - Thin member bootstrap shell: clean `/join` redirect flow, cookie-backed
   member browser session, `/member` runtime shell, and WebSocket auth that can
   bootstrap from the member cookie instead of JS-stored shared join token
+- Early member runtime slice: live alert feed, opt-in GPS sharing with
+  throttled browser updates, reconnect-aware member runtime state, and manual
+  report acknowledgements over the member WebSocket
 
 ### Changed
 
@@ -118,3 +121,5 @@ changes manually while the project is in its early public setup phase.
 - The thin `/member` shell now survives join-token rotation better by remaining
   loadable without the join cookie and reconnecting from member-scoped resume
   state instead of forcing an immediate redirect
+- Member/browser docs now distinguish the current member-auth WebSocket report
+  path from the coordinator-only REST report/pin routes
