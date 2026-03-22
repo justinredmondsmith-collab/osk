@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 import json
 import logging
 from pathlib import Path
@@ -283,6 +284,63 @@ def _cmd_rotate_token(_: argparse.Namespace) -> int:
     return 1
 
 
+def _format_bytes(num_bytes: int) -> str:
+    value = float(num_bytes)
+    for unit in ("B", "KB", "MB", "GB", "TB"):
+        if value < 1024.0 or unit == "TB":
+            return f"{value:.1f} {unit}" if unit != "B" else f"{int(value)} {unit}"
+        value /= 1024.0
+    return f"{int(num_bytes)} B"
+
+
+def _cmd_tiles_status(args: argparse.Namespace) -> int:
+    from .tiles import TileCacher
+
+    cfg = load_config()
+    status = TileCacher(Path(cfg.map_tile_cache_path)).status()
+    if args.json_output:
+        print(json.dumps(status, indent=2, sort_keys=True))
+        return 0
+
+    zooms = ", ".join(str(zoom) for zoom in status["zoom_levels"]) or "none"
+    print(f"cache_root = {status['cache_root']}")
+    print(f"tile_count = {status['tile_count']}")
+    print(f"size = {_format_bytes(int(status['total_bytes']))} ({status['total_bytes']} bytes)")
+    print(f"zoom_levels = {zooms}")
+    return 0
+
+
+def _cmd_tiles_cache(args: argparse.Namespace) -> int:
+    from .tiles import TileCacher, parse_bbox, parse_zoom_range
+
+    try:
+        bbox = parse_bbox(args.bbox)
+        zoom_levels = parse_zoom_range(args.zoom)
+    except ValueError as exc:
+        print(f"Invalid tile cache input: {exc}")
+        return 1
+
+    cfg = load_config()
+    cacher = TileCacher(Path(cfg.map_tile_cache_path))
+    try:
+        stats = asyncio.run(cacher.cache_area(bbox, zoom_levels))
+    except Exception as exc:
+        print(f"Failed to cache tiles: {exc}")
+        return 1
+
+    if args.json_output:
+        print(json.dumps(stats, indent=2, sort_keys=True))
+        return 0
+
+    print(f"cache_root = {stats['cache_root']}")
+    print(f"requested_tiles = {stats['requested_tiles']}")
+    print(f"downloaded_tiles = {stats['downloaded_tiles']}")
+    print(f"skipped_tiles = {stats['skipped_tiles']}")
+    print(f"size = {_format_bytes(int(stats['total_bytes']))} ({stats['total_bytes']} bytes)")
+    print(f"zoom_levels = {', '.join(str(zoom) for zoom in stats['zoom_levels'])}")
+    return 0
+
+
 def _cmd_evidence(args: argparse.Namespace) -> int:
     messages = {
         "unlock": "Evidence unlock is not implemented yet.",
@@ -554,6 +612,37 @@ def build_parser() -> argparse.ArgumentParser:
 
     rotate_parser = subparsers.add_parser("rotate-token", help="Rotate the operation token.")
     rotate_parser.set_defaults(func=_cmd_rotate_token)
+
+    tiles_parser = subparsers.add_parser("tiles", help="Inspect or populate the tile cache.")
+    tiles_sub = tiles_parser.add_subparsers(dest="tiles_command")
+
+    tiles_status = tiles_sub.add_parser("status", help="Show local cached tile status.")
+    tiles_status.add_argument(
+        "--json",
+        dest="json_output",
+        action="store_true",
+        help="Emit machine-readable JSON output.",
+    )
+    tiles_status.set_defaults(func=_cmd_tiles_status)
+
+    tiles_cache = tiles_sub.add_parser("cache", help="Download tiles for a bbox and zoom range.")
+    tiles_cache.add_argument(
+        "--bbox",
+        required=True,
+        help="Bounding box in south,west,north,east order.",
+    )
+    tiles_cache.add_argument(
+        "--zoom",
+        required=True,
+        help="Single zoom, inclusive range, or comma list (for example: 13-15 or 14,16).",
+    )
+    tiles_cache.add_argument(
+        "--json",
+        dest="json_output",
+        action="store_true",
+        help="Emit machine-readable JSON output.",
+    )
+    tiles_cache.set_defaults(func=_cmd_tiles_cache)
 
     evidence_parser = subparsers.add_parser("evidence", help="Manage pinned evidence.")
     evidence_sub = evidence_parser.add_subparsers(dest="evidence_command")

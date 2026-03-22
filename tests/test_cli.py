@@ -144,6 +144,24 @@ def test_parse_evidence_destroy() -> None:
     assert args.evidence_command == "destroy"
 
 
+def test_parse_tiles_status() -> None:
+    args = parse_args(["tiles", "status", "--json"])
+    assert args.command == "tiles"
+    assert args.tiles_command == "status"
+    assert args.json_output is True
+
+
+def test_parse_tiles_cache() -> None:
+    args = parse_args(
+        ["tiles", "cache", "--bbox", "39.7,-104.9,39.8,-104.8", "--zoom", "13-15", "--json"]
+    )
+    assert args.command == "tiles"
+    assert args.tiles_command == "cache"
+    assert args.bbox == "39.7,-104.9,39.8,-104.8"
+    assert args.zoom == "13-15"
+    assert args.json_output is True
+
+
 def test_parse_rotate_token() -> None:
     args = parse_args(["rotate-token"])
     assert args.command == "rotate-token"
@@ -175,6 +193,29 @@ def test_config_set_updates_value(
     assert code == 0
     assert "Set max_sensors = 5" in out
     mock_save_config.assert_called_once()
+
+
+@patch("osk.cli.load_config")
+@patch("osk.tiles.TileCacher.status")
+def test_tiles_status_prints_summary(
+    mock_status: MagicMock, mock_load_config: MagicMock, capsys
+) -> None:
+    mock_load_config.return_value = MagicMock(map_tile_cache_path="/tmp/osk-tiles")
+    mock_status.return_value = {
+        "cache_root": "/tmp/osk-tiles",
+        "present": True,
+        "tile_count": 3,
+        "total_bytes": 2048,
+        "zoom_levels": [13, 14],
+    }
+
+    code = main(["tiles", "status"])
+    out = capsys.readouterr().out
+
+    assert code == 0
+    assert "cache_root = /tmp/osk-tiles" in out
+    assert "tile_count = 3" in out
+    assert "zoom_levels = 13, 14" in out
 
 
 @patch("osk.cli._repo_root")

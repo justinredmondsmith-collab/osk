@@ -117,6 +117,9 @@ changes manually while the project is in its early public setup phase.
   transient review-feed/current-pulse items without adding new DB persistence
 - Local acknowledge/snooze controls for transient coordinator buffer signals,
   plus config-driven threshold and default snooze tuning
+- First operations-tooling tile cache slice: `osk tiles status`,
+  `osk tiles cache --bbox ... --zoom ...`, and a real local tile download/cache
+  module for the dashboard map path
 
 ### Changed
 

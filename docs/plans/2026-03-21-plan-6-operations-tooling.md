@@ -8,10 +8,11 @@
 
 **Current state:** The repo already has pieces of the operational boundary:
 `osk install`, evidence-volume creation/open/close paths in `src/osk/storage.py`,
-runtime preflight checks in `osk doctor`, and a dashboard tile-consumption path
-that reads cached local PNG tiles from `map_tile_cache_path`. The missing work
-in this phase is the broader field tooling around hotspot control, tile
-acquisition, evidence export/viewing, and validated wipe/install operations.
+runtime preflight checks in `osk doctor`, a dashboard tile-consumption path
+that reads cached local PNG tiles from `map_tile_cache_path`, and the first
+tile-cache CLI slice via `osk tiles status` and `osk tiles cache`. The missing
+work in this phase is the broader field tooling around hotspot control,
+evidence export/viewing, and validated wipe/install operations.
 
 **Tech Stack:** Python, nmcli, cryptsetup, keyctl, zipfile, subprocess
 

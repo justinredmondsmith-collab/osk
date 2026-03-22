@@ -37,6 +37,8 @@ The repository now includes:
   acknowledge/snooze controls for those transient signals, and a local
   tile-backed map surface with an explicit relative fallback when the tile
   cache is empty
+- A first operations-tooling slice for the dashboard map path:
+  `osk tiles status` and `osk tiles cache --bbox ... --zoom ...`
 - A thin member join/runtime shell under `src/osk/templates/join.html`,
   `src/osk/templates/member.html`, and `src/osk/static/member.*`; it now uses
   a clean cookie-backed join flow so the shared operation token is not kept in
@@ -129,6 +131,18 @@ environment and want an automated `/join` -> `/member` pass:
 
 ```bash
 scripts/member_shell_playwright_smoke.sh --headed
+```
+
+Inspect the current local tile cache:
+
+```bash
+osk tiles status
+```
+
+Populate the cache for a local area:
+
+```bash
+osk tiles cache --bbox "39.7,-104.9,39.8,-104.8" --zoom 13-15
 ```
 
 ## Contribution Rules
