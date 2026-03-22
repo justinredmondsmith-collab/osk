@@ -154,6 +154,14 @@ def build_app(*, operation_name: str):
 
     db = MagicMock()
     db.insert_event = AsyncMock()
+    db.insert_manual_report_once = AsyncMock(
+        side_effect=lambda **kwargs: {
+            "duplicate": False,
+            "event_id": kwargs["event_id"],
+            "text": kwargs["text"],
+            "timestamp": kwargs["timestamp"],
+        }
+    )
     db.insert_audit_event = AsyncMock()
     db.get_members = AsyncMock(return_value=[])
     db.get_latest_sitrep = AsyncMock(return_value=None)

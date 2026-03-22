@@ -62,3 +62,28 @@ def test_smoke_promote_latest_updates_connected_member_role() -> None:
 
     assert status_payload["connected_count"] == 1
     assert status_payload["members"][0]["role"] == "sensor"
+
+
+def test_smoke_member_report_ack_works() -> None:
+    smoke = _load_smoke_module()
+    app, operation = smoke.build_app(operation_name="Smoke Test")
+
+    with TestClient(app) as client:
+        with client.websocket_connect("/ws") as websocket:
+            websocket.send_json({"type": "auth", "token": operation.token, "name": "Jay"})
+            auth = websocket.receive_json()
+
+            assert auth["type"] == "auth_ok"
+
+            websocket.send_json(
+                {
+                    "type": "report",
+                    "report_id": "report-1",
+                    "text": "Need medics at the west gate",
+                }
+            )
+            ack = websocket.receive_json()
+
+    assert ack["type"] == "report_ack"
+    assert ack["accepted"] is True
+    assert ack["report_id"] == "report-1"
