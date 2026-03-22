@@ -142,6 +142,9 @@ changes manually while the project is in its early public setup phase.
 - Live wipe-readiness summaries across the coordinator surfaces: dashboard
   current pulse, `osk status --json`, and human `osk members` output now show
   stale/disconnected member browsers that may miss a live wipe
+- Wipe audit coverage history: real wipe actions now record broadcast target
+  count plus the trigger-time stale/disconnected member browsers in the audit
+  trail
 
 ### Changed
 

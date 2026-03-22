@@ -1079,6 +1079,14 @@ def wipe_hub(
 
     print("Live wipe broadcast sent to connected members.")
     print(f"operation_id = {operation_id}")
+    broadcast = wipe_result.get("response") or {}
+    if isinstance(broadcast, dict):
+        if "broadcast_target_count" in broadcast:
+            print(f"broadcast_target_count = {broadcast['broadcast_target_count']}")
+        wipe_readiness = broadcast.get("wipe_readiness")
+        if isinstance(wipe_readiness, dict):
+            print(f"wipe_readiness = {wipe_readiness.get('status')}")
+            print(f"wipe_summary = {wipe_readiness.get('summary')}")
     if stop_code != 0:
         print("Hub stop did not complete cleanly after the wipe broadcast.")
         return 1

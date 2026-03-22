@@ -22,6 +22,9 @@ The repository now includes:
 - Live wipe-readiness summary in `osk status --json` and the human `osk members`
   output, so operators can see stale/disconnected member browsers before a
   live wipe
+- Wipe audit coverage details in the existing audit trail, so a real wipe now
+  records the broadcast target count and at-risk member browsers at trigger
+  time
 - Local finding review commands (`finding show`, `finding acknowledge`,
   `finding resolve`, `finding reopen`, `finding escalate`,
   `finding correlations`, `finding note`)

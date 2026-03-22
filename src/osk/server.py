@@ -574,6 +574,26 @@ def _member_summary(members: list[dict[str, object]]) -> dict[str, int]:
     }
 
 
+def _wipe_coverage_snapshot(
+    *,
+    op_manager: OperationManager,
+    conn_manager: ConnectionManager,
+    heartbeat_timeout_seconds: int,
+) -> dict[str, object]:
+    members = [
+        _member_dashboard_snapshot(
+            row,
+            heartbeat_timeout_seconds=heartbeat_timeout_seconds,
+        )
+        for row in op_manager.get_member_list()
+    ]
+    return {
+        "broadcast_target_count": conn_manager.connected_count,
+        "captured_at": _utcnow().isoformat().replace("+00:00", "Z"),
+        "wipe_readiness": summarize_wipe_readiness(members),
+    }
+
+
 def _build_buffer_history_point(
     *,
     generated_at: str,
@@ -2063,13 +2083,23 @@ def create_app(
             return response
         if op_manager.operation is None:
             return JSONResponse({"error": "No active operation"}, status_code=503)
+        config = load_config()
+        coverage = _wipe_coverage_snapshot(
+            op_manager=op_manager,
+            conn_manager=conn_manager,
+            heartbeat_timeout_seconds=config.member_heartbeat_timeout_seconds,
+        )
         await conn_manager.broadcast({"type": "wipe"})
         await db.insert_audit_event(
             op_manager.operation.id,
             "coordinator",
             "wipe_triggered",
+            details=coverage,
         )
-        return {"status": "wipe_initiated"}
+        return {
+            "status": "wipe_initiated",
+            **coverage,
+        }
 
     @app.get("/api/events")
     async def get_events(

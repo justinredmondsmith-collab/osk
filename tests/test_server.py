@@ -1406,6 +1406,63 @@ def test_wipe_rejects_remote_client(remote_client: TestClient) -> None:
     assert resp.status_code == 403
 
 
+def test_wipe_returns_and_records_coverage(
+    client: TestClient,
+    mock_db: MagicMock,
+    mock_conn_mgr: MagicMock,
+    mock_op_manager: MagicMock,
+) -> None:
+    current = dt.datetime.now(dt.timezone.utc)
+    stale_seen = current - dt.timedelta(seconds=180)
+    disconnected_seen = current - dt.timedelta(seconds=420)
+    mock_conn_mgr.connected_count = 1
+    mock_op_manager.get_member_list.return_value = [
+        {
+            "id": str(uuid.uuid4()),
+            "name": "Observer One",
+            "role": "observer",
+            "connected_at": current,
+            "last_seen_at": stale_seen,
+            "status": "connected",
+            "last_gps_at": None,
+            "latitude": None,
+            "longitude": None,
+            "buffer_status": {},
+        },
+        {
+            "id": str(uuid.uuid4()),
+            "name": "Sensor Two",
+            "role": "sensor",
+            "connected_at": current,
+            "last_seen_at": disconnected_seen,
+            "status": "disconnected",
+            "last_gps_at": None,
+            "latitude": None,
+            "longitude": None,
+            "buffer_status": {},
+        },
+    ]
+
+    with patch(
+        "osk.server.load_config",
+        return_value=OskConfig(member_heartbeat_timeout_seconds=60),
+    ):
+        resp = client.post("/api/wipe")
+
+    assert resp.status_code == 200
+    payload = resp.json()
+    assert payload["status"] == "wipe_initiated"
+    assert payload["broadcast_target_count"] == 1
+    assert payload["wipe_readiness"]["status"] == "blocked"
+    assert payload["wipe_readiness"]["stale_members"] == 1
+    assert payload["wipe_readiness"]["disconnected_members"] == 1
+    mock_conn_mgr.broadcast.assert_awaited_once_with({"type": "wipe"})
+    mock_db.insert_audit_event.assert_awaited_once()
+    audit_details = mock_db.insert_audit_event.await_args.kwargs["details"]
+    assert audit_details["broadcast_target_count"] == 1
+    assert audit_details["wipe_readiness"]["at_risk"][0]["name"] == "Sensor Two"
+
+
 def test_websocket_auth_flow(
     client: TestClient, mock_conn_mgr: MagicMock, mock_op_manager: MagicMock
 ) -> None:

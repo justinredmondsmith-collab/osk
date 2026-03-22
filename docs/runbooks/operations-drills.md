@@ -75,6 +75,11 @@ the coordinator dashboard's wipe-readiness panel before running `osk wipe`.
 Those surfaces now call out stale/disconnected member browsers that may miss
 the live broadcast path.
 
+When you do run `osk wipe`, the audit trail now records the same trigger-time
+coverage snapshot: broadcast target count plus the stale/disconnected member
+browsers already at risk. Use `osk audit --limit ... --json` if you need that
+history after the fact.
+
 ## Current Safe Sequence
 
 For now, the safe operator sequence is:

@@ -336,6 +336,9 @@ full architecture, API contract, and threat-model assumptions.
   you need to broadcast wipe to connected members and stop the local hub
 - Add `--destroy-evidence` to `osk wipe` only when you also want permanent
   removal of preserved evidence after the hub stops
+- A real wipe now records coverage at trigger time in the audit trail, including
+  the live broadcast target count and the stale/disconnected member browsers
+  that were already at risk of missing the wipe
 - Connected member browsers now clear queued notes/media, current member
   cookies, IndexedDB outbox state, and the cached member-shell registration
   when they receive a live wipe or `op_ended` message, but disconnected

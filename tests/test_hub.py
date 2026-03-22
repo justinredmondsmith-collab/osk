@@ -416,13 +416,17 @@ def test_trigger_live_wipe_broadcast_uses_local_operator_session(
     }
     response = MagicMock()
     response.status = 200
-    response.read.return_value = b'{"status":"wipe_initiated"}'
+    response.read.return_value = (
+        b'{"status":"wipe_initiated","broadcast_target_count":2,'
+        b'"wipe_readiness":{"status":"blocked","summary":"1 member may miss a live wipe."}}'
+    )
     mock_urlopen.return_value.__enter__.return_value = response
 
     result = _trigger_live_wipe_broadcast(8443, "op-123")
 
     assert result["ok"] is True
     assert result["response"]["status"] == "wipe_initiated"
+    assert result["response"]["broadcast_target_count"] == 2
     request = mock_urlopen.call_args.args[0]
     assert request.full_url == "https://127.0.0.1:8443/api/wipe"
     assert dict(request.header_items())["X-osk-operator-session"] == "operator-token"
@@ -438,6 +442,17 @@ def test_wipe_hub_triggers_broadcast_and_stop(
     mock_stop_hub: MagicMock,
     capsys,
 ) -> None:
+    mock_trigger_live_wipe.return_value = {
+        "ok": True,
+        "response": {
+            "status": "wipe_initiated",
+            "broadcast_target_count": 2,
+            "wipe_readiness": {
+                "status": "blocked",
+                "summary": "1 member browser may miss a live wipe.",
+            },
+        },
+    }
     with patch(
         "osk.hub.read_hub_state",
         return_value={"operation_id": "op-123", "operation_name": "March", "port": 8443},
@@ -447,6 +462,8 @@ def test_wipe_hub_triggers_broadcast_and_stop(
     out = capsys.readouterr().out
     assert code == 0
     assert "Live wipe broadcast sent" in out
+    assert "broadcast_target_count = 2" in out
+    assert "wipe_readiness = blocked" in out
     assert "Preserved evidence retained" in out
     mock_trigger_live_wipe.assert_called_once_with(8443, "op-123")
     mock_stop_hub.assert_called_once_with(wait_seconds=4.0, stop_services=True)

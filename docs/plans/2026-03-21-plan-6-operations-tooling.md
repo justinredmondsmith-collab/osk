@@ -27,7 +27,9 @@ member shell on live wipe, but disconnected browsers and preserved evidence
 destruction remain separate cleanup concerns. The repo now also exposes live
 wipe-readiness summaries in `osk status --json`, human `osk members`, and the
 coordinator dashboard so those cleanup gaps are visible before an operator
-triggers `osk wipe`.
+triggers `osk wipe`. A real wipe now also records that coverage snapshot in the
+audit trail, including the live broadcast target count and the at-risk member
+browsers present at trigger time.
 
 **Tech Stack:** Python, nmcli, cryptsetup, keyctl, zipfile, subprocess
 
