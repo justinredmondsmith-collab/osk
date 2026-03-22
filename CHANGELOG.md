@@ -104,6 +104,9 @@ changes manually while the project is in its early public setup phase.
 - Member-shell manual smoke helper for real browser/device testing outside the
   sandboxed CI/runtime environment, plus per-item outbox review controls for
   queued notes, photos, and audio clips
+- Bounded sensor reconnect buffering in the member browser shell, reusing the
+  local outbox for recent audio chunks and key frames instead of dropping all
+  live capture during reconnects
 
 ### Changed
 
@@ -144,6 +147,9 @@ changes manually while the project is in its early public setup phase.
 - Member-shell docs now point to the disposable mocked smoke helper for real
   `/join` -> `/member` testing, and the offline UI now lets users retry or
   discard one queued item instead of only replaying or clearing the full queue
+- Member-shell docs now distinguish bounded sensor buffering from the larger
+  manual-item outbox and no longer describe sensor capture as live-only during
+  reconnects
 - Member docs now reflect that the current sensor runtime includes early audio
   and key-frame capture, while fuller media and offline PWA work remain planned
 - Member/browser docs now reflect that browser reload/reconnect auth is

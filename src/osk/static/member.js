@@ -50,6 +50,17 @@
       Math.max(0.4, Number(runtimeConfig.observer_photo_quality || 0.78)),
     ),
   };
+  const outboxConfig = {
+    maxPendingItems: Math.max(4, Number(runtimeConfig.member_outbox_max_items || 12)),
+    maxSensorAudioItems: Math.max(
+      1,
+      Number(runtimeConfig.sensor_audio_buffer_limit || 3),
+    ),
+    maxSensorFrameItems: Math.max(
+      1,
+      Number(runtimeConfig.sensor_frame_buffer_limit || 4),
+    ),
+  };
   const manualReportMaxLength = Math.max(
     80,
     Number(runtimeConfig.manual_report_max_length || 280),
@@ -311,6 +322,17 @@
     return `${Math.round(elapsedSeconds / 3600)}h ago`;
   }
 
+  function formatBytes(sizeBytes) {
+    const bytes = Math.max(0, Number(sizeBytes || 0));
+    if (bytes >= 1024 * 1024) {
+      return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+    }
+    if (bytes >= 1024) {
+      return `${Math.round(bytes / 1024)} KB`;
+    }
+    return `${bytes} B`;
+  }
+
   function formatCoordinate(value) {
     return Number(value).toFixed(5);
   }
@@ -558,6 +580,16 @@
     return Boolean(currentOutboxScope());
   }
 
+  function queuedOutboxEntries() {
+    return Array.isArray(state.outbox.snapshot?.entries) ? state.outbox.snapshot.entries : [];
+  }
+
+  function queuedSensorEntries(kind = null) {
+    return queuedOutboxEntries().filter(
+      (entry) => entry.source === "sensor" && (!kind || entry.kind === kind),
+    );
+  }
+
   function updateOutboxSnapshot(snapshot) {
     state.outbox.snapshot = snapshot || null;
     refreshOutboxUi();
@@ -568,6 +600,7 @@
     const snapshot = state.outbox.snapshot || {};
     const pendingCount = Number(snapshot.pendingCount || 0);
     const pendingKinds = snapshot.pendingKinds || {};
+    const pendingSources = snapshot.pendingSources || {};
     const entries = Array.isArray(snapshot.entries) ? snapshot.entries : [];
     const online = navigator.onLine !== false;
 
@@ -580,6 +613,8 @@
         summary = "Browser outbox unavailable on this device.";
       } else if (snapshot.inFlight) {
         summary = "Delivering the next queued item now.";
+      } else if (Number(pendingSources.sensor || 0) > 0 && !isSocketOpen()) {
+        summary = "Sensor capture is buffering locally until the member connection resumes.";
       } else if (pendingCount === 1) {
         summary = "1 queued note or media item waiting for delivery.";
       } else if (pendingCount > 1) {
@@ -601,16 +636,24 @@
         parts.push(`${pendingKinds.report} note${pendingKinds.report === 1 ? "" : "s"}`);
       }
       if (pendingKinds.frame) {
-        parts.push(`${pendingKinds.frame} photo${pendingKinds.frame === 1 ? "" : "s"}`);
+        parts.push(`${pendingKinds.frame} frame${pendingKinds.frame === 1 ? "" : "s"}`);
       }
       if (pendingKinds.audio) {
-        parts.push(`${pendingKinds.audio} clip${pendingKinds.audio === 1 ? "" : "s"}`);
+        parts.push(`${pendingKinds.audio} audio item${pendingKinds.audio === 1 ? "" : "s"}`);
       }
-      let detail = "Notes, photos, and short clips can queue locally until reconnect.";
+      if (pendingSources.manual) {
+        parts.push(`${pendingSources.manual} manual`);
+      }
+      if (pendingSources.sensor) {
+        parts.push(`${pendingSources.sensor} sensor`);
+      }
+      let detail =
+        "Notes, photos, short clips, and bounded sensor media can queue locally until reconnect.";
       if (parts.length) {
         detail = `${parts.join(" · ")} pending in the local browser outbox.`;
       } else if (!online) {
-        detail = "Offline now. New field notes and manual media will queue until the hub returns.";
+        detail =
+          "Offline now. New field notes and bounded sensor/manual media will queue until the hub returns.";
       }
       elements.runtimeOutboxDetail.textContent = detail;
       elements.runtimeOutboxDetail.classList.toggle("is-warning", !online || pendingCount > 0);
@@ -631,12 +674,15 @@
               Number(entry.attempts || 0) > 0
                 ? `${entry.attempts} attempt${entry.attempts === 1 ? "" : "s"}`
                 : "Waiting";
-            const metaParts = [attemptsLabel];
+            const metaParts = [entry.sourceLabel || "Queued item", attemptsLabel];
             if (entry.createdAt) {
-              metaParts.push(formatRelativeTime(entry.createdAt));
+              metaParts.push(`queued ${formatRelativeTime(entry.createdAt)}`);
             }
-            if (entry.lastError) {
-              metaParts.push(entry.lastError);
+            if (entry.updatedAt && entry.updatedAt !== entry.createdAt) {
+              metaParts.push(`touched ${formatRelativeTime(entry.updatedAt)}`);
+            }
+            if (Number(entry.sizeBytes || 0) > 0) {
+              metaParts.push(formatBytes(entry.sizeBytes));
             }
             return `
               <article class="member-outbox-item">
@@ -648,6 +694,11 @@
                   <small>${escapeHtml(metaParts.join(" · "))}</small>
                 </div>
                 <p>${escapeHtml(entry.detail || "Pending local delivery.")}</p>
+                ${
+                  entry.lastError
+                    ? `<small class="member-outbox-item__error">${escapeHtml(entry.lastError)}</small>`
+                    : ""
+                }
                 <div class="member-outbox-item__actions">
                   <button
                     class="member-button member-button--ghost member-button--small"
@@ -742,6 +793,9 @@
       canSend: () => isSocketOpen() && state.authenticated && !state.endingOperation,
       sendJson: sendSocketJson,
       sendBinary: sendSocketBinary,
+      maxPendingItems: outboxConfig.maxPendingItems,
+      maxSensorAudioItems: outboxConfig.maxSensorAudioItems,
+      maxSensorFrameItems: outboxConfig.maxSensorFrameItems,
       onStateChange: (snapshot) => updateOutboxSnapshot(snapshot),
     });
   }
@@ -755,6 +809,7 @@
         available: false,
         pendingCount: 0,
         pendingKinds: { report: 0, audio: 0, frame: 0 },
+        pendingSources: { manual: 0, sensor: 0 },
         entries: [],
         inFlight: false,
         oldestPendingAt: null,
@@ -881,6 +936,61 @@
       },
       blob: payload.blob,
     });
+  }
+
+  async function queueSensorMedia(kind, metadata, blob) {
+    ensureOutboxModule();
+    const operationId = readStoredOperationId();
+    const operationName = readStoredOperationName();
+    const memberId = String(sessionStorage.getItem(storageKeys.memberId) || "").trim();
+    const memberName = readStoredName();
+    if (!memberOutboxReady()) {
+      throw new Error("Secure member session is not ready yet.");
+    }
+    const itemId =
+      kind === "frame"
+        ? String(metadata?.frame_id || "").trim()
+        : String(metadata?.chunk_id || "").trim();
+    if (!itemId) {
+      throw new Error("Sensor capture metadata is missing an item identifier.");
+    }
+    const previousSensorCount = Number(state.outbox.snapshot?.pendingSources?.sensor || 0);
+    const result = await state.outbox.client.enqueueMedia({
+      kind,
+      source: "sensor",
+      itemId,
+      operationId,
+      operationName,
+      memberId,
+      memberName,
+      metadata: {
+        ...(metadata || {}),
+        sensor_capture: true,
+      },
+      blob,
+    });
+    const nextSnapshot = result?.snapshot || state.outbox.snapshot || {};
+    const nextSensorCount = Number(nextSnapshot.pendingSources?.sensor || 0);
+    if (previousSensorCount === 0 && nextSensorCount > 0) {
+      pushFeed("Sensor stream is buffering locally until the hub reconnects.", "warning");
+    }
+    const droppedEntries = Array.isArray(result?.droppedEntries) ? result.droppedEntries : [];
+    if (droppedEntries.length) {
+      const droppedAudio = droppedEntries.filter((entry) => entry.kind === "audio").length;
+      const droppedFrames = droppedEntries.filter((entry) => entry.kind === "frame").length;
+      const droppedParts = [];
+      if (droppedAudio) {
+        droppedParts.push(`${droppedAudio} audio`);
+      }
+      if (droppedFrames) {
+        droppedParts.push(`${droppedFrames} frame`);
+      }
+      pushFeed(
+        `Sensor buffer stayed bounded by dropping older ${droppedParts.join(" + ")} item${droppedEntries.length === 1 ? "" : "s"}.`,
+        "warning",
+      );
+    }
+    return nextSnapshot;
   }
 
   function refreshGpsState() {
@@ -1088,12 +1198,17 @@
     const frameAck = frame.lastAck;
     const audioLive = Boolean(audio.running);
     const frameLive = Boolean(frame.running);
+    const bufferedAudioCount = queuedSensorEntries("audio").length;
+    const bufferedFrameCount = queuedSensorEntries("frame").length;
 
     let sensorState = "Ready";
     let sensorDetail = "Waiting for sensor stream start.";
     if (state.sensor.starting) {
       sensorState = "Starting";
       sensorDetail = "Requesting microphone and camera access.";
+    } else if ((audioLive || frameLive) && (!state.authenticated || !isSocketOpen())) {
+      sensorState = "Buffered";
+      sensorDetail = "Live capture is buffering locally until the member connection resumes.";
     } else if (audioLive && frameLive) {
       sensorState = "Live";
       sensorDetail = "Microphone and key-frame sampling are active.";
@@ -1127,9 +1242,14 @@
           audioAck && audioAck.accepted === false
             ? ` · last ack rejected`
             : audioAck && audioAck.duplicate
-              ? " · duplicate ack"
-              : "";
-        elements.runtimeAudioDetail.textContent = `${audio.emittedChunks || 0} chunks sent${ackText}`;
+            ? " · duplicate ack"
+            : "";
+        const queueText = bufferedAudioCount
+          ? ` · ${bufferedAudioCount} buffered locally`
+          : "";
+        elements.runtimeAudioDetail.textContent = `${audio.emittedChunks || 0} chunks captured${queueText}${ackText}`;
+      } else if (bufferedAudioCount) {
+        elements.runtimeAudioDetail.textContent = `${bufferedAudioCount} buffered audio chunk${bufferedAudioCount === 1 ? "" : "s"} waiting for reconnect.`;
       } else {
         elements.runtimeAudioDetail.textContent = "No microphone capture yet.";
       }
@@ -1152,9 +1272,14 @@
           frameAck && frameAck.accepted === false
             ? " · last ack rejected"
             : frameAck && frameAck.duplicate
-              ? " · duplicate ack"
-              : "";
-        elements.runtimeFrameDetail.textContent = `${frame.emittedFrames || 0} frames sent · ${score}${ackText}`;
+            ? " · duplicate ack"
+            : "";
+        const queueText = bufferedFrameCount
+          ? ` · ${bufferedFrameCount} buffered locally`
+          : "";
+        elements.runtimeFrameDetail.textContent = `${frame.emittedFrames || 0} frames captured · ${score}${queueText}${ackText}`;
+      } else if (bufferedFrameCount) {
+        elements.runtimeFrameDetail.textContent = `${bufferedFrameCount} buffered key frame${bufferedFrameCount === 1 ? "" : "s"} waiting for reconnect.`;
       } else {
         elements.runtimeFrameDetail.textContent = "No camera sampling yet.";
       }
@@ -1316,10 +1441,29 @@
       if (typeof audioFactory !== "function") {
         throw new Error("Audio capture module is unavailable.");
       }
+      let pendingAudioMeta = null;
       state.sensor.audioCapture = audioFactory({
         chunkMs: sensorConfig.audioChunkMs,
-        sendJson: sendSocketJson,
-        sendBinary: sendSocketBinary,
+        sendJson: async (payload) => {
+          pendingAudioMeta = payload || null;
+          return true;
+        },
+        sendBinary: async (blob) => {
+          const metadata = pendingAudioMeta;
+          pendingAudioMeta = null;
+          if (!metadata) {
+            return false;
+          }
+          if (isSocketOpen() && state.authenticated) {
+            const metadataSent = sendSocketJson(metadata);
+            const payloadSent = metadataSent && sendSocketBinary(blob);
+            if (metadataSent && payloadSent) {
+              return true;
+            }
+          }
+          await queueSensorMedia("audio", metadata, blob);
+          return true;
+        },
         getContext: () => ({
           memberId: sessionStorage.getItem(storageKeys.memberId) || "",
         }),
@@ -1335,6 +1479,7 @@
       if (typeof frameFactory !== "function") {
         throw new Error("Frame sampling module is unavailable.");
       }
+      let pendingFrameMeta = null;
       state.sensor.frameSampler = frameFactory({
         fps: sensorConfig.frameSamplingFps,
         threshold: sensorConfig.frameChangeThreshold,
@@ -1344,8 +1489,26 @@
         targetHeight: sensorConfig.videoHeight,
         workerUrl: "/static/sampling-worker.js",
         previewElement: elements.runtimeSensorPreview,
-        sendJson: sendSocketJson,
-        sendBinary: sendSocketBinary,
+        sendJson: async (payload) => {
+          pendingFrameMeta = payload || null;
+          return true;
+        },
+        sendBinary: async (blob) => {
+          const metadata = pendingFrameMeta;
+          pendingFrameMeta = null;
+          if (!metadata) {
+            return false;
+          }
+          if (isSocketOpen() && state.authenticated) {
+            const metadataSent = sendSocketJson(metadata);
+            const payloadSent = metadataSent && sendSocketBinary(blob);
+            if (metadataSent && payloadSent) {
+              return true;
+            }
+          }
+          await queueSensorMedia("frame", metadata, blob);
+          return true;
+        },
         getContext: () => ({
           memberId: sessionStorage.getItem(storageKeys.memberId) || "",
         }),
@@ -1391,9 +1554,9 @@
     if (!isSensorRole(state.sensor.role) || state.sensor.starting) {
       return;
     }
-    if (!isSocketOpen()) {
+    if (!memberOutboxReady()) {
       if (!automatic) {
-        pushFeed("Connection must be live before sensor capture can start.", "warning");
+        pushFeed("Secure member session is not ready yet for sensor capture.", "warning");
       }
       return;
     }
@@ -1439,6 +1602,10 @@
     }
     if (failures.length === 1) {
       pushFeed(`Sensor capture started with partial availability: ${failures[0]}`, "warning");
+      return;
+    }
+    if (!isSocketOpen() || !state.authenticated) {
+      pushFeed("Sensor capture started and will buffer locally until reconnect.", "warning");
       return;
     }
     pushFeed(automatic ? "Sensor capture restored." : "Sensor capture started.", "success");
@@ -1569,7 +1736,7 @@
     refreshSensorUi();
     refreshObserverUi();
     updateActionAvailability();
-    if (automaticStart && shouldAutoStartSensorCapture() && isSocketOpen()) {
+    if (automaticStart && shouldAutoStartSensorCapture() && memberOutboxReady()) {
       void startSensorCapture({ automatic: true });
     }
   }
@@ -1854,8 +2021,12 @@
 
     socket.addEventListener("close", (event) => {
       state.authenticated = false;
-      void stopSensorCapture({ preservePreference: true, quiet: true });
       void stopObserverMedia({ quiet: true });
+      if (state.outbox.client) {
+        void state.outbox.client.markInflightRetry(
+          "Connection lost before hub acknowledgement. Retry pending.",
+        );
+      }
       updateActionAvailability();
       if (state.intentionallyLeaving || state.endingOperation) {
         return;
@@ -1876,18 +2047,29 @@
         return;
       }
       setSessionState("Disconnected");
-      setReportState("Live connection lost. Notes and manual media will queue until reconnect.", {
-        error: true,
-      });
+      setReportState(
+        "Live connection lost. Notes and bounded sensor/manual media will queue until reconnect.",
+        {
+          error: true,
+        },
+      );
       scheduleReconnect("Connection closed. Trying to resume.");
       refreshGpsState();
     });
 
     socket.addEventListener("error", () => {
       setConnectionState("error", "Connection error");
-      setReportState("Connection error. Notes and manual media will queue until reconnect.", {
-        error: true,
-      });
+      if (state.outbox.client) {
+        void state.outbox.client.markInflightRetry(
+          "Connection error before hub acknowledgement. Retry pending.",
+        );
+      }
+      setReportState(
+        "Connection error. Notes and bounded sensor/manual media will queue until reconnect.",
+        {
+          error: true,
+        },
+      );
     });
   }
 
@@ -1972,7 +2154,7 @@
     setReportState(
       isSocketOpen()
         ? "Reports send over the live member connection."
-        : "Reports and manual media can queue locally until reconnect.",
+        : "Reports and bounded sensor/manual media can queue locally until reconnect.",
     );
     setSessionState(session.runtime_authenticated ? "Resuming" : "Connecting");
     if (session.runtime_authenticated) {

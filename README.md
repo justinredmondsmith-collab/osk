@@ -285,6 +285,9 @@ full architecture, API contract, and threat-model assumptions.
 - The member shell now shows per-item outbox review controls for queued notes,
   photos, and short clips so operators can retry or discard one pending item
   instead of clearing the whole browser queue
+- Sensor-side audio chunks and key frames now reuse the same local browser
+  outbox in a bounded way, so reconnects buffer a small rolling capture window
+  instead of dropping everything or growing unbounded local state
 - Run `PYTHONPATH=src python scripts/member_shell_smoke.py --host 0.0.0.0 --advertise-host <lan-ip>`
   on a real machine if you want a disposable mocked `/join` -> `/member` smoke
   target for phone/browser testing outside the main hub runtime

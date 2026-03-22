@@ -278,6 +278,11 @@ button:disabled {
   color: var(--member-muted);
 }
 
+.member-outbox-item__error {
+  color: var(--member-warn);
+  line-height: 1.4;
+}
+
 .member-outbox-item__head,
 .member-outbox-item__actions {
   display: flex;

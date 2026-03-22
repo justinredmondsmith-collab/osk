@@ -2,7 +2,9 @@
   const DB_NAME = "osk-member-outbox";
   const DB_VERSION = 1;
   const STORE_NAME = "entries";
-  const MAX_PENDING_ITEMS = 12;
+  const DEFAULT_MAX_PENDING_ITEMS = 12;
+  const DEFAULT_MAX_SENSOR_AUDIO_ITEMS = 3;
+  const DEFAULT_MAX_SENSOR_FRAME_ITEMS = 4;
 
   let dbPromise = null;
 
@@ -185,7 +187,7 @@
     );
   }
 
-  function buildSnapshot(scope, entries, inFlightEntryId, lastError) {
+  function buildSnapshot(scope, entries, inFlightEntryId, lastError, maxPendingItems) {
     const oldestPendingAt = entries[0]?.createdAt || null;
     const pendingKinds = entries.reduce(
       (counts, entry) => {
@@ -194,31 +196,58 @@
       },
       { report: 0, audio: 0, frame: 0 },
     );
-    const summarizedEntries = entries.slice(0, MAX_PENDING_ITEMS).map((entry) => {
+    const pendingSources = entries.reduce(
+      (counts, entry) => {
+        const source = entry.source === "sensor" ? "sensor" : "manual";
+        counts[source] = (counts[source] || 0) + 1;
+        return counts;
+      },
+      { manual: 0, sensor: 0 },
+    );
+    const summarizedEntries = entries.slice(0, maxPendingItems).map((entry) => {
+      const source = entry.source === "sensor" ? "sensor" : "manual";
       let label = "Queued item";
       let detail = "Pending local delivery.";
       if (entry.kind === "report") {
         label = "Field note";
         detail = String(entry.text || "").trim() || "Manual field note";
       } else if (entry.kind === "frame") {
-        label = "Manual photo";
         const width = Number(entry.metadata?.width || 0);
         const height = Number(entry.metadata?.height || 0);
-        detail =
-          width && height
-            ? `Still frame ${width}x${height}`
-            : "Observer still photo";
+        const score = Number(entry.metadata?.change_score || 0);
+        if (source === "sensor") {
+          label = "Sensor key frame";
+          detail = width && height ? `Key frame ${width}x${height}` : "Sensor key frame";
+          if (score > 0) {
+            detail = `${detail} · score ${score.toFixed(2)}`;
+          }
+        } else {
+          label = "Manual photo";
+          detail =
+            width && height
+              ? `Still frame ${width}x${height}`
+              : "Observer still photo";
+        }
       } else if (entry.kind === "audio") {
-        label = "Audio clip";
         const durationMs = Number(entry.metadata?.duration_ms || 0);
-        detail = durationMs
-          ? `Short clip ${Math.max(1, Math.round(durationMs / 1000))}s`
-          : "Observer audio clip";
+        if (source === "sensor") {
+          label = "Sensor audio";
+          detail = durationMs
+            ? `Live chunk ${Math.max(1, Math.round(durationMs / 1000))}s`
+            : "Sensor audio chunk";
+        } else {
+          label = "Audio clip";
+          detail = durationMs
+            ? `Short clip ${Math.max(1, Math.round(durationMs / 1000))}s`
+            : "Observer audio clip";
+        }
       }
       return {
         id: entry.id,
         kind: entry.kind,
         itemKey: entry.itemKey,
+        source,
+        sourceLabel: source === "sensor" ? "Sensor buffer" : "Manual capture",
         label,
         detail,
         createdAt: entry.createdAt,
@@ -234,6 +263,7 @@
       scope,
       pendingCount: entries.length,
       pendingKinds,
+      pendingSources,
       entries: summarizedEntries,
       inFlight: Boolean(inFlightEntryId),
       oldestPendingAt,
@@ -247,6 +277,15 @@
     const getScope = options.getScope || (() => "");
     const sendJson = options.sendJson || (() => false);
     const sendBinary = options.sendBinary || (() => false);
+    const maxPendingItems = Math.max(4, Number(options.maxPendingItems || DEFAULT_MAX_PENDING_ITEMS));
+    const maxSensorAudioItems = Math.max(
+      1,
+      Number(options.maxSensorAudioItems || DEFAULT_MAX_SENSOR_AUDIO_ITEMS),
+    );
+    const maxSensorFrameItems = Math.max(
+      1,
+      Number(options.maxSensorFrameItems || DEFAULT_MAX_SENSOR_FRAME_ITEMS),
+    );
 
     let inFlightEntryId = null;
     let flushPromise = null;
@@ -256,6 +295,7 @@
       scope: "",
       pendingCount: 0,
       pendingKinds: { report: 0, audio: 0, frame: 0 },
+      pendingSources: { manual: 0, sensor: 0 },
       entries: [],
       inFlight: false,
       oldestPendingAt: null,
@@ -285,6 +325,7 @@
           scope: "",
           pendingCount: 0,
           pendingKinds: { report: 0, audio: 0, frame: 0 },
+          pendingSources: { manual: 0, sensor: 0 },
           entries: [],
           inFlight: false,
           oldestPendingAt: null,
@@ -295,18 +336,62 @@
       }
       await pruneToScope(scope);
       const entries = await getEntriesForScope(scope);
-      currentSnapshot = buildSnapshot(scope, entries, inFlightEntryId, lastError);
+      currentSnapshot = buildSnapshot(scope, entries, inFlightEntryId, lastError, maxPendingItems);
       onStateChange(currentSnapshot);
       return currentSnapshot;
     }
 
-    async function ensureCapacity(scope) {
+    function sensorLimitForKind(kind) {
+      if (kind === "audio") {
+        return maxSensorAudioItems;
+      }
+      if (kind === "frame") {
+        return maxSensorFrameItems;
+      }
+      return 0;
+    }
+
+    async function ensureCapacity(scope, { kind, source }) {
       const entries = await getEntriesForScope(scope);
-      if (entries.length >= MAX_PENDING_ITEMS) {
+      const entrySource = source === "sensor" ? "sensor" : "manual";
+      const removableIds = new Set();
+
+      if (entrySource === "sensor" && (kind === "audio" || kind === "frame")) {
+        const sameKindSensorEntries = entries.filter(
+          (entry) =>
+            entry.source === "sensor" && entry.kind === kind && entry.id !== inFlightEntryId,
+        );
+        const sameKindOverflow = sameKindSensorEntries.length - sensorLimitForKind(kind) + 1;
+        if (sameKindOverflow > 0) {
+          for (const entry of sameKindSensorEntries.slice(0, sameKindOverflow)) {
+            removableIds.add(entry.id);
+          }
+        }
+
+        const remainingEntries = entries.filter((entry) => !removableIds.has(entry.id));
+        const totalOverflow = remainingEntries.length - maxPendingItems + 1;
+        if (totalOverflow > 0) {
+          const removableSensorEntries = remainingEntries.filter(
+            (entry) => entry.source === "sensor" && entry.id !== inFlightEntryId,
+          );
+          for (const entry of removableSensorEntries.slice(0, totalOverflow)) {
+            removableIds.add(entry.id);
+          }
+        }
+      }
+
+      const removableEntries = entries.filter((entry) => removableIds.has(entry.id));
+      if (removableEntries.length) {
+        await Promise.all(removableEntries.map((entry) => deleteEntry(entry.id)));
+        return { droppedEntries: removableEntries };
+      }
+
+      if (entries.length >= maxPendingItems) {
         throw new Error(
           "The member outbox is full. Reconnect or clear queued items before capturing more.",
         );
       }
+      return { droppedEntries: [] };
     }
 
     async function enqueueReport({
@@ -321,13 +406,14 @@
       if (!scope) {
         throw new Error("Secure member session is not ready yet.");
       }
-      await ensureCapacity(scope);
+      await ensureCapacity(scope, { kind: "report", source: "manual" });
       const createdAt = new Date().toISOString();
       await putEntry({
         id: `report:${reportId}`,
         lookupKey: `${scope}:report:${reportId}`,
         scope,
         kind: "report",
+        source: "manual",
         itemKey: reportId,
         createdAt,
         updatedAt: createdAt,
@@ -348,6 +434,7 @@
       itemId,
       metadata,
       blob,
+      source,
       operationId,
       operationName,
       memberId,
@@ -357,13 +444,15 @@
       if (!scope) {
         throw new Error("Secure member session is not ready yet.");
       }
-      await ensureCapacity(scope);
+      const entrySource = source === "sensor" ? "sensor" : "manual";
+      const capacity = await ensureCapacity(scope, { kind, source: entrySource });
       const createdAt = new Date().toISOString();
       await putEntry({
         id: `${kind}:${itemId}`,
         lookupKey: `${scope}:${kind}:${itemId}`,
         scope,
         kind,
+        source: entrySource,
         itemKey: itemId,
         createdAt,
         updatedAt: createdAt,
@@ -378,7 +467,10 @@
       });
       await refresh();
       void flush();
-      return currentSnapshot;
+      return {
+        droppedEntries: capacity.droppedEntries,
+        snapshot: currentSnapshot,
+      };
     }
 
     async function clearPending() {
@@ -432,18 +524,45 @@
       return currentSnapshot;
     }
 
+    async function markInflightRetry(reason) {
+      if (!inFlightEntryId) {
+        return refresh();
+      }
+      const scope = scopeKey();
+      const targetId = inFlightEntryId;
+      inFlightEntryId = null;
+      if (!scope) {
+        lastError = String(reason || "Connection lost before acknowledgement. Retry pending.");
+        return refresh();
+      }
+      const entries = await getEntriesForScope(scope);
+      const entry = entries.find((candidate) => candidate.id === targetId);
+      if (!entry) {
+        lastError = String(reason || "Connection lost before acknowledgement. Retry pending.");
+        return refresh();
+      }
+      entry.updatedAt = new Date().toISOString();
+      entry.lastError = String(reason || "Connection lost before acknowledgement. Retry pending.");
+      await putEntry(entry);
+      lastError = entry.lastError;
+      return refresh();
+    }
+
     async function sendEntry(entry) {
       if (entry.kind === "report") {
-        return sendJson({
+        return await Promise.resolve(
+          sendJson({
           type: "report",
           report_id: entry.itemKey,
           text: entry.text,
-        });
+          }),
+        );
       }
-      if (!sendJson(entry.metadata)) {
+      const metadataSent = await Promise.resolve(sendJson(entry.metadata));
+      if (!metadataSent) {
         return false;
       }
-      return sendBinary(entry.blob);
+      return await Promise.resolve(sendBinary(entry.blob));
     }
 
     async function flush() {
@@ -554,6 +673,7 @@
       enqueueReport,
       flush,
       handleAck,
+      markInflightRetry,
       prioritizeEntry,
       refresh,
       removeEntry,

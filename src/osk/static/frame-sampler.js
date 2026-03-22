@@ -116,10 +116,12 @@
         payload.ingest_key = `${context.memberId}:frame:${sequenceNo}`;
       }
       sequenceNo += 1;
-      if (!sendJson(payload)) {
+      const metadataAccepted = await Promise.resolve(sendJson(payload));
+      if (!metadataAccepted) {
         throw new Error("Frame metadata could not be sent.");
       }
-      if (!sendBinary(blob)) {
+      const payloadAccepted = await Promise.resolve(sendBinary(blob));
+      if (!payloadAccepted) {
         throw new Error("Frame payload could not be sent.");
       }
       emittedFrames += 1;

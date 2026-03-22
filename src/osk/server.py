@@ -565,6 +565,9 @@ def _member_session_bootstrap() -> dict[str, object]:
             "observer_clip_duration_seconds": config.observer_clip_duration_seconds,
             "observer_clip_cooldown_seconds": config.observer_clip_cooldown_seconds,
             "observer_photo_quality": config.observer_photo_quality,
+            "member_outbox_max_items": config.member_outbox_max_items,
+            "sensor_audio_buffer_limit": config.sensor_audio_buffer_limit,
+            "sensor_frame_buffer_limit": config.sensor_frame_buffer_limit,
         },
     }
 

@@ -43,7 +43,8 @@ The repository now includes:
   GPS sharing, manual report submission, observer-side photo/audio clip
   capture, early sensor-side audio/key-frame capture on the member WebSocket
   path, a browser outbox for reconnect-safe manual report/media retries with
-  per-item review controls, and a first manifest/service-worker/installable
+  per-item review controls, bounded sensor-side reconnect buffering for recent
+  audio/key-frame capture, and a first manifest/service-worker/installable
   offline PWA layer
 - A manual browser/device smoke helper at `scripts/member_shell_smoke.py` for
   testing the member shell against a disposable mocked hub outside CI/sandboxed

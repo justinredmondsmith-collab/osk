@@ -105,10 +105,12 @@
         payload.ingest_key = `${context.memberId}:audio:${sequenceNo}`;
       }
       sequenceNo += 1;
-      if (!sendJson(payload)) {
+      const metadataAccepted = await Promise.resolve(sendJson(payload));
+      if (!metadataAccepted) {
         throw new Error("Audio metadata could not be sent.");
       }
-      if (!sendBinary(blob)) {
+      const payloadAccepted = await Promise.resolve(sendBinary(blob));
+      if (!payloadAccepted) {
         throw new Error("Audio chunk could not be sent.");
       }
       emittedChunks += 1;

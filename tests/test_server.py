@@ -189,12 +189,16 @@ def test_member_page_without_cookie_renders_runtime_shell(
     assert "Snap Photo + Record Audio Clip" in resp.text
     assert "No queued items in this browser." in resp.text
     assert "Retry queued" in resp.text
+    assert "bounded sensor media can queue locally until reconnect" in resp.text
     assert "Live Audio + Key Frames" in resp.text
     assert "Keep moving through reconnects" in resp.text
     assert "Install app" in resp.text
     assert '"gps_interval_moving_seconds": 10' in resp.text
     assert '"audio_chunk_ms": 4000' in resp.text
     assert '"observer_clip_duration_seconds": 10' in resp.text
+    assert '"member_outbox_max_items": 12' in resp.text
+    assert '"sensor_audio_buffer_limit": 3' in resp.text
+    assert '"sensor_frame_buffer_limit": 4' in resp.text
     assert "osk_member_join" not in resp.text
     assert "content-security-policy" in resp.headers
 
@@ -215,6 +219,7 @@ def test_member_page_renders_runtime_shell(
     assert "Snap photo" in resp.text
     assert "Record clip" in resp.text
     assert "No queued items in this browser." in resp.text
+    assert "bounded local buffering" in resp.text
     assert "osk_member_join" not in resp.text
     assert "content-security-policy" in resp.headers
 

@@ -53,6 +53,9 @@ class OskConfig(BaseModel):
     observer_clip_duration_seconds: int = 10
     observer_clip_cooldown_seconds: int = 20
     observer_photo_quality: float = 0.78
+    member_outbox_max_items: int = 12
+    sensor_audio_buffer_limit: int = 3
+    sensor_frame_buffer_limit: int = 4
     luks_volume_size_gb: int = 1
     tls_cert_path: str = str(Path.home() / ".config" / "osk" / "cert.pem")
     tls_key_path: str = str(Path.home() / ".config" / "osk" / "key.pem")
