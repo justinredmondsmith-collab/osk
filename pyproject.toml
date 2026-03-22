@@ -48,7 +48,7 @@ package-dir = { "" = "src" }
 where = ["src"]
 
 [tool.setuptools.package-data]
-osk = ["static/*.css", "static/*.js", "templates/*.html"]
+osk = ["static/*.css", "static/*.js", "static/*.svg", "static/*.webmanifest", "templates/*.html"]
 
 [tool.pytest.ini_options]
 addopts = "-q"

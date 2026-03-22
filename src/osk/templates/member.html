@@ -4,6 +4,8 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="referrer" content="no-referrer" />
+    <meta name="theme-color" content="#07101b" />
+    <link rel="manifest" href="/manifest.webmanifest" />
     <title>Osk Member</title>
     <link rel="stylesheet" href="/static/member.css" />
   </head>
@@ -169,6 +171,43 @@
               </button>
             </div>
           </form>
+
+          <section class="member-control member-control--observer" id="runtime-observer-panel">
+            <div class="member-control-copy">
+              <p class="member-eyebrow">Observer Media</p>
+              <h3>Snap Photo + Record Audio Clip</h3>
+              <p class="member-subtle" id="runtime-observer-summary">
+                Capture a quick still or a short audio clip when there is something worth review,
+                without switching into full sensor mode.
+              </p>
+            </div>
+
+            <div class="member-sensor-grid">
+              <div class="member-grid-item">
+                <span class="member-label">Photo</span>
+                <strong id="runtime-photo-state">Ready</strong>
+                <small id="runtime-photo-detail">Still images upload as high-priority observer evidence.</small>
+              </div>
+              <div class="member-grid-item">
+                <span class="member-label">Audio Clip</span>
+                <strong id="runtime-clip-state">Ready</strong>
+                <small id="runtime-clip-detail">Short audio clips help the hub transcribe urgent context.</small>
+              </div>
+            </div>
+
+            <div class="member-control-actions member-control-actions--observer">
+              <button class="member-button" id="runtime-photo-capture" type="button">
+                Snap photo
+              </button>
+              <button
+                class="member-button member-button--ghost"
+                id="runtime-clip-toggle"
+                type="button"
+              >
+                Record clip
+              </button>
+            </div>
+          </section>
         </div>
       </section>
 
@@ -214,8 +253,10 @@
     </main>
 
     <script id="osk-member-bootstrap" type="application/json">__OSK_MEMBER_BOOTSTRAP__</script>
+    <script src="/static/pwa-runtime.js" defer></script>
     <script src="/static/audio-capture.js" defer></script>
     <script src="/static/frame-sampler.js" defer></script>
+    <script src="/static/observer-media.js" defer></script>
     <script src="/static/member.js" defer></script>
   </body>
 </html>

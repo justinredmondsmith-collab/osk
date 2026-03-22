@@ -93,6 +93,10 @@ changes manually while the project is in its early public setup phase.
   browser `member_session_code` exchange into an `HttpOnly` runtime cookie,
   WebSocket resume from that cookie, and browser reconnect flow without a
   JS-stored member reconnect secret
+- Observer media and first PWA layer: dedicated observer photo/audio-clip
+  capture module, duplicate-safe ingest keys for manual media, root manifest
+  and service worker routes, cached member shell/static assets, and offline
+  fallback behavior for previously loaded join/member pages
 
 ### Changed
 
@@ -135,3 +139,5 @@ changes manually while the project is in its early public setup phase.
 - Member/browser docs now reflect that browser reload/reconnect auth is
   upgraded into a short-lived `HttpOnly` runtime cookie instead of relying on a
   JS-stored reconnect secret
+- Member/browser docs now reflect observer manual photo/audio clip support and
+  the first real manifest/service-worker/offline-shell PWA slice

@@ -102,7 +102,7 @@ Unless stated otherwise in the repository root, all code added to Osk is intende
 **Audio capture:**
 - `MediaRecorder` API with `getUserMedia()`
 - Records in 5-10 second chunks, streams to hub via WebSocket as binary frames
-- Sensor role: continuous streaming. Observer role: tap-to-record for manual clips.
+- Sensor role: continuous streaming. Observer role: short tap-to-record clips for manual context capture.
 
 **Video/key frame sampling (on-device intelligence):**
 - `getUserMedia()` for camera → hidden `<canvas>`
@@ -283,14 +283,14 @@ Three-panel layout:
 - Alert feed (color-coded by severity, relative timestamps)
 - Group status bar (member count, nearby count, trend indicator)
 - Action bar: snap photo, record audio clip, "I see something" report button
-- Current implementation: live alert feed, opt-in GPS sharing, and manual report submission are present; photo/clip capture and any alert pinning UI are still planned
+- Current implementation: live alert feed, opt-in GPS sharing, manual report submission, observer-side snap photo, and short audio clip capture are present; alert pinning UI and richer review affordances are still planned
 
 **Sensor view:**
 - Same alert feed as observer
 - Stream status panel: audio latency, video frame rate, GPS lock
 - Source attribution on alerts generated from their data
 - Action bar: pause stream, mute audio, "I see something"
-- Current implementation: early live microphone capture and worker-backed key-frame sampling are present in the member shell, but richer sensor controls and offline/PWA behavior are still planned
+- Current implementation: early live microphone capture and worker-backed key-frame sampling are present in the member shell, and the first manifest/service-worker/offline-shell PWA layer exists, but richer sensor controls and fuller resilient offline behavior are still planned
 
 ### Operation Lifecycle
 

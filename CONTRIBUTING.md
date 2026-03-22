@@ -40,8 +40,9 @@ The repository now includes:
   the post-QR URL or browser JavaScript storage, upgrades browser members into
   a short-lived `HttpOnly` runtime cookie after auth, and the current runtime
   shell already includes reconnect-aware WebSocket state, live alerts, opt-in
-  GPS sharing, manual report submission, and early sensor-side audio/key-frame
-  capture on the member WebSocket path
+  GPS sharing, manual report submission, observer-side photo/audio clip
+  capture, early sensor-side audio/key-frame capture on the member WebSocket
+  path, and a first manifest/service-worker/offline-shell PWA layer
 
 The repository does **not** yet contain the full intelligence pipeline,
 synthesis layer, full coordinator dashboard, or mobile client described in the
@@ -160,6 +161,9 @@ Code contributions should:
 - Keep browser media capture modular: add mic/camera/client-side analysis work
   behind dedicated static modules instead of folding codec/capture logic
   directly into the main member runtime script
+- Keep PWA/offline behavior honest: cache only what the current member flow can
+  really resume, and make sure wipe/logout flows clear service-worker caches
+  and other browser-managed offline state when the docs say they do
 - Keep dashboard map/status surfaces truthful: the current field map is a
   local cached-tile surface driven by member GPS, with an explicit
   relative-position fallback when no cached tiles cover the current area; docs

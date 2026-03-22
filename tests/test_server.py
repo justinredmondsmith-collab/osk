@@ -137,6 +137,8 @@ def test_join_page_valid_token(client: TestClient, mock_op_manager: MagicMock) -
     resp = client.get("/join?token=valid-token")
     assert resp.status_code == 200
     assert "Continue to member shell" in resp.text
+    assert "/manifest.webmanifest" in resp.text
+    assert "/static/pwa-runtime.js" in resp.text
     assert "sessionStorage.setItem('osk_token'" not in resp.text
     assert "content-security-policy" in resp.headers
 
@@ -177,13 +179,17 @@ def test_member_page_without_cookie_renders_runtime_shell(
     assert resp.status_code == 200
     assert "Osk Member" in resp.text
     assert "/static/member.js" in resp.text
+    assert "/static/pwa-runtime.js" in resp.text
     assert "/static/audio-capture.js" in resp.text
     assert "/static/frame-sampler.js" in resp.text
+    assert "/static/observer-media.js" in resp.text
     assert "Share GPS" in resp.text
     assert "Send A Field Note" in resp.text
+    assert "Snap Photo + Record Audio Clip" in resp.text
     assert "Live Audio + Key Frames" in resp.text
     assert '"gps_interval_moving_seconds": 10' in resp.text
     assert '"audio_chunk_ms": 4000' in resp.text
+    assert '"observer_clip_duration_seconds": 10' in resp.text
     assert "osk_member_join" not in resp.text
     assert "content-security-policy" in resp.headers
 
@@ -201,6 +207,8 @@ def test_member_page_renders_runtime_shell(
     assert "Live Alerts" in resp.text
     assert "Field Controls" in resp.text
     assert "Mute mic" in resp.text
+    assert "Snap photo" in resp.text
+    assert "Record clip" in resp.text
     assert "osk_member_join" not in resp.text
     assert "content-security-policy" in resp.headers
 
@@ -510,6 +518,8 @@ def test_member_sensor_assets_serve(client: TestClient) -> None:
     audio_resp = client.get("/static/audio-capture.js")
     frame_resp = client.get("/static/frame-sampler.js")
     worker_resp = client.get("/static/sampling-worker.js")
+    observer_resp = client.get("/static/observer-media.js")
+    pwa_resp = client.get("/static/pwa-runtime.js")
 
     assert audio_resp.status_code == 200
     assert "createAudioCapture" in audio_resp.text
@@ -517,6 +527,28 @@ def test_member_sensor_assets_serve(client: TestClient) -> None:
     assert "createFrameSampler" in frame_resp.text
     assert worker_resp.status_code == 200
     assert 'type: "frame_score"' in worker_resp.text
+    assert observer_resp.status_code == 200
+    assert "createObserverMediaCapture" in observer_resp.text
+    assert pwa_resp.status_code == 200
+    assert "registerMemberPwa" in pwa_resp.text
+
+
+def test_member_manifest_serves(client: TestClient) -> None:
+    resp = client.get("/manifest.webmanifest")
+
+    assert resp.status_code == 200
+    assert "application/manifest+json" in resp.headers["content-type"]
+    assert resp.json()["name"] == "Osk Member"
+    assert resp.json()["icons"][0]["src"] == "/static/icon.svg"
+
+
+def test_member_service_worker_serves(client: TestClient) -> None:
+    resp = client.get("/sw.js")
+
+    assert resp.status_code == 200
+    assert "application/javascript" in resp.headers["content-type"]
+    assert resp.headers["service-worker-allowed"] == "/"
+    assert "osk-member-v1" in resp.text
 
 
 @patch("osk.server.load_config")

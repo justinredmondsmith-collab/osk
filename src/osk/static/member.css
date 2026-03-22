@@ -47,6 +47,15 @@ body::before {
   mask-image: linear-gradient(180deg, rgba(0, 0, 0, 0.82), transparent);
 }
 
+html[data-osk-network="offline"] .member-hero {
+  border-color: rgba(255, 209, 102, 0.3);
+}
+
+html[data-osk-network="offline"] .member-status-pill {
+  border-color: rgba(255, 209, 102, 0.26);
+  color: var(--member-warn);
+}
+
 button,
 input,
 textarea {
@@ -222,6 +231,10 @@ button:disabled {
 }
 
 .member-control-actions--sensor .member-button {
+  flex: 1 1 11rem;
+}
+
+.member-control-actions--observer .member-button {
   flex: 1 1 11rem;
 }
 
@@ -451,6 +464,12 @@ button:disabled {
 
 #runtime-report-status.is-error {
   color: var(--member-critical);
+}
+
+#runtime-observer-panel {
+  background:
+    linear-gradient(180deg, rgba(10, 24, 38, 0.94), rgba(7, 17, 29, 0.92)),
+    rgba(5, 13, 22, 0.56);
 }
 
 @media (min-width: 680px) {

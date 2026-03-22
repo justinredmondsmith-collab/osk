@@ -77,6 +77,8 @@ TEMPLATE_ROOT = PACKAGE_ROOT / "templates"
 COORDINATOR_TEMPLATE_PATH = TEMPLATE_ROOT / "coordinator.html"
 JOIN_TEMPLATE_PATH = TEMPLATE_ROOT / "join.html"
 MEMBER_TEMPLATE_PATH = TEMPLATE_ROOT / "member.html"
+PWA_MANIFEST_PATH = STATIC_ROOT / "manifest.webmanifest"
+SERVICE_WORKER_PATH = STATIC_ROOT / "sw.js"
 DASHBOARD_STREAM_INTERVAL_SECONDS = 2.0
 DASHBOARD_STREAM_KEEPALIVE_SECONDS = 15.0
 TRANSPARENT_TILE_PNG = base64.b64decode(
@@ -560,6 +562,9 @@ def _member_session_bootstrap() -> dict[str, object]:
             "frame_jpeg_quality": 0.68,
             "sensor_video_width": 960,
             "sensor_video_height": 540,
+            "observer_clip_duration_seconds": config.observer_clip_duration_seconds,
+            "observer_clip_cooldown_seconds": config.observer_clip_cooldown_seconds,
+            "observer_photo_quality": config.observer_photo_quality,
         },
     }
 
@@ -870,6 +875,25 @@ def create_app(
     app = FastAPI(title="Osk Hub", docs_url=None, redoc_url=None)
     app.state.intelligence_service = intelligence_service
     app.mount("/static", StaticFiles(directory=str(STATIC_ROOT)), name="static")
+
+    @app.get("/manifest.webmanifest")
+    async def member_manifest():
+        return FileResponse(
+            PWA_MANIFEST_PATH,
+            media_type="application/manifest+json",
+            headers={"Cache-Control": "no-store"},
+        )
+
+    @app.get("/sw.js")
+    async def member_service_worker():
+        return FileResponse(
+            SERVICE_WORKER_PATH,
+            media_type="application/javascript",
+            headers={
+                "Cache-Control": "no-store",
+                "Service-Worker-Allowed": "/",
+            },
+        )
 
     @app.get("/join")
     async def join_page(request: Request, token: str | None = Query(default=None)):

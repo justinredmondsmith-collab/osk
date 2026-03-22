@@ -21,10 +21,12 @@ situations where shared awareness matters.
 > health and ingest context, and a local tile-backed map that falls back to a
 > relative-position view when cached tiles are unavailable. The repo now also
 > has an early cookie-backed member runtime shell with reconnect-aware
-> WebSocket state, live alerts, opt-in GPS sharing, manual field reports, and
-> early sensor-side live audio plus key-frame sampling without keeping the
-> shared join token or member reconnect secret in the post-QR browser URL or
-> browser JavaScript storage.
+> WebSocket state, live alerts, opt-in GPS sharing, manual field reports,
+> observer-side snap-photo plus short audio clip actions, early sensor-side
+> live audio plus key-frame sampling, and a first PWA layer with manifest,
+> service worker, and offline shell fallback, all without keeping the shared
+> join token or member reconnect secret in the post-QR browser URL or browser
+> JavaScript storage.
 > The fuller dashboard surface and broader mobile product work are still
 > planned.
 
@@ -109,9 +111,15 @@ What exists today:
   throttled browser updates, manual report submission over the member
   WebSocket, and reconnect-aware runtime state for reloads and transport
   breaks through that member runtime cookie
+- Observer-side manual media in the member runtime: snap-photo capture and
+  short audio clips on the existing member ingest path, using stable ingest
+  keys so duplicate-safe acks still work across reconnects
 - Early sensor capture in the member runtime: browser mic capture via
   MediaRecorder, key-frame camera sampling via a worker-backed diff loop, and
   live audio/frame submission on the existing member WebSocket ingest path
+- First member PWA layer: `manifest.webmanifest`, root-scoped service worker
+  registration, cached shell/static assets, and offline fallback behavior for
+  previously loaded join/member pages
 - Hub-owned Phase 2 intelligence service: shared ingest/result models,
   config-selectable fake or real transcript/vision adapters, bounded
   audio/frame ingest queues, location processing, background audio/vision
@@ -148,8 +156,9 @@ What is still missing:
   operator surfaces
 - Mobile PWA user experience
   The current join/member shell covers bootstrap, alerts, GPS, manual
-  reports, and early sensor streaming, but not the fuller resilient offline
-  PWA client described in Phase 5
+  reports, observer manual media, early sensor streaming, and a first
+  installable/offline shell layer, but not the fuller resilient mobile client
+  described in Phase 5
 - Validated wipe timing and production-grade evidence/export tooling
 
 ## Planned Operating Model
@@ -267,6 +276,9 @@ full architecture, API contract, and threat-model assumptions.
 - Use the thin `/member` shell after join if you want to exercise the current
   cookie-backed member bootstrap, runtime-session exchange, and WebSocket auth
   path
+- On supported secure/local browser setups, the member shell now also exposes
+  a manifest and service worker so you can exercise the first installable
+  offline-capable PWA layer
 - Use `/api/intelligence/status`, `/api/intelligence/observations`,
   `/api/intelligence/findings`, `/api/intelligence/review-feed`, `/api/events`,
   `/api/sitreps`, `/api/coordinator/dashboard-state`, and
