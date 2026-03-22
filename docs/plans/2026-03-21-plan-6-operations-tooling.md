@@ -6,7 +6,7 @@
 
 **Architecture:** Host-side Python modules that wrap system commands (nmcli, cryptsetup, keyctl). These run outside the Docker stack on the coordinator's Linux laptop. The CLI commands (`osk install`, `osk tiles cache`, `osk evidence`) invoke these modules.
 
-**Current state:** The repo already has pieces of the operational boundary:
+**Current state:** The repo already has real pieces of the operational boundary:
 `osk install`, evidence-volume creation/open/close paths in `src/osk/storage.py`,
 runtime preflight checks in `osk doctor`, a dashboard tile-consumption path
 that reads cached local PNG tiles from `map_tile_cache_path`, the first
@@ -30,6 +30,10 @@ coordinator dashboard so those cleanup gaps are visible before an operator
 triggers `osk wipe`. A real wipe now also records that coverage snapshot in the
 audit trail, including the live broadcast target count and the at-risk member
 browsers present at trigger time.
+
+**Planning note:** This is the current active hardening phase for the repo.
+Much of the remaining work here is validation, runbooks, and careful operator
+orchestration rather than greenfield command creation.
 
 **Tech Stack:** Python, nmcli, cryptsetup, keyctl, zipfile, subprocess
 
@@ -397,7 +401,7 @@ git commit -m "feat: sudoers configuration script for Osk privileged operations"
 tiles_p = sub.add_parser("tiles", help="Manage offline map tiles")
 tiles_sub = tiles_p.add_subparsers(dest="tiles_command")
 cache_p = tiles_sub.add_parser("cache", help="Cache tiles for an area")
-cache_p.add_argument("--area", required=True, help="Bounding box: south,west,north,east")
+cache_p.add_argument("--bbox", required=True, help="Bounding box: south,west,north,east")
 cache_p.add_argument("--zoom", default="13-17", help="Zoom range (default: 13-17)")
 ```
 

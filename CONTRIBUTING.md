@@ -4,9 +4,10 @@ Thank you for your interest in contributing.
 
 ## Current Project State
 
-Osk is currently a public design-plus-foundation repository. At this stage, the
-repo contains architecture, governance, and planning documentation, plus an
-early but real Phase 1 host/runtime implementation.
+Osk is currently a public implementation-and-validation repository. The repo
+still contains architecture, governance, and planning documentation, but it now
+also has real implementation slices across Phases 1 through 6 rather than only
+the original host/runtime scaffold.
 
 The repository now includes:
 
@@ -77,20 +78,19 @@ The repository now includes:
   `scripts/member_shell_playwright_smoke.sh` for environments where localhost
   is reachable from the browser runtime
 
-The repository does **not** yet contain the full production-grade or full
-planned versions of the intelligence pipeline, synthesis/review system,
+The repository does **not** yet contain the full production-grade or fully
+validated versions of the intelligence pipeline, synthesis/review system,
 coordinator dashboard, mobile client, or operations tooling described in the
-design documents. It does contain early real slices of those phases, so
-contributions should extend the current surfaces rather than assuming they do
-not exist.
+design documents. It does contain real slices of those phases, so contributions
+should extend the current surfaces rather than assuming they do not exist.
 
 That means the most useful contributions right now are:
 
-- Documentation clarity and consistency
-- Threat-model and privacy-model review
-- Licensing, provenance, and repo-governance cleanup
-- Design review grounded in the existing specs and plans
-- Small, verified implementation steps that follow the phase plans
+- Documentation truthfulness and consistency
+- Real browser/device validation and smoke coverage
+- Runtime and operations hardening grounded in current behavior
+- Threat-model and privacy-model review against the existing implementation
+- Small, verified implementation steps that follow the phase plans and runbooks
 
 ## Before You Start
 
@@ -155,6 +155,10 @@ environment and want an automated `/join` -> `/member` pass:
 ```bash
 scripts/member_shell_playwright_smoke.sh --headed
 ```
+
+If your change touches the coordinator shell, member shell, install/wipe flows,
+or browser persistence behavior, prefer running one of the smoke paths above on
+a real machine and update the relevant runbook/docs in the same change.
 
 Inspect the current local tile cache:
 

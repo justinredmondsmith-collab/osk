@@ -218,5 +218,9 @@ changes manually while the project is in its early public setup phase.
 - Wipe docs and drills now distinguish the stronger connected-browser cleanup
   path from the still-partial disconnected-client and browser-history cleanup
   boundary
+- Public docs now describe Osk as an implementation-and-validation-stage repo
+  with real slices across Phases 1 through 6, and they point current work
+  toward field validation and operational hardening instead of earlier
+  foundation-only framing
 - Dashboard and operations docs now point operators at the live wipe-readiness
   surfaces before they trigger `osk wipe`

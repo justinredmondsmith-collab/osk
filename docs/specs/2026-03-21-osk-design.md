@@ -1,7 +1,7 @@
 # Osk — Civilian Situational Awareness Platform
 
 **Date:** 2026-03-21
-**Status:** Design-and-foundation, partially implemented
+**Status:** Partially implemented, active validation and hardening
 **Repository:** osk
 
 ## Overview
@@ -9,10 +9,11 @@
 Osk is a civilian situational awareness platform that gives groups of people LEO/IC-grade intelligence capabilities for protests, gatherings, public meetings, large events, and personal safety. It uses a hub-and-spoke architecture where a coordinator runs a laptop-based intelligence hub and group members connect via their phones.
 
 This specification should be read as a design target layered on top of a
-partially implemented public foundation repository. The current repo already
-contains early real slices of the host runtime, intelligence service,
-heuristic synthesis/review path, coordinator dashboard shell, and member
-join/runtime PWA shell, but not the full validated end-state described here.
+partially implemented public repository. The current repo already contains real
+slices of the host runtime, intelligence service, heuristic synthesis/review
+path, coordinator dashboard shell, member join/runtime PWA shell, and
+operations tooling, but not the full validated end-state described here. The
+current major phase is field validation and operational hardening.
 
 The project is a new codebase that plans to transplant proven intelligence engines from the existing `bodycam-summarizer` project (Whisper transcription, Ollama vision analysis, AI summarization, temporal fusion) into a civilian-focused platform with fundamentally different data models, security posture, and user experience.
 
@@ -284,6 +285,15 @@ Three-panel layout:
 - QR code button (show for new joiners)
 - Emergency wipe button (prominent, always visible)
 
+Current implementation note:
+- A thinner review-first dashboard shell already exists at `/coordinator`
+- It uses a one-time dashboard code exchange into a short-lived `HttpOnly`
+  local cookie, same-origin SSE, a tile-backed local field map with relative
+  fallback, member health and ingest-pressure context, transient buffer
+  signals, and live wipe-readiness visibility
+- Broader map controls, richer review ergonomics, and fuller operator surfaces
+  are still planned
+
 ### Member Mobile UI
 
 **Observer view:**
@@ -299,7 +309,19 @@ Three-panel layout:
 - Action bar: pause stream, mute audio, "I see something"
 - Current implementation: early live microphone capture and worker-backed key-frame sampling are present in the member shell, and the first manifest/service-worker/offline-shell PWA layer now includes install prompting plus a browser outbox for reconnect-safe manual actions, but richer sensor controls and fuller resilient offline behavior are still planned
 
+Validation note:
+- The current member shell and PWA path are implemented enough to exercise on
+  real devices, but they should still be treated as validation-stage software
+  rather than finished field-ready mobile UX
+
 ### Operation Lifecycle
+
+Current implementation note:
+- The repo already has `osk drill install`, `osk drill wipe`, `osk wipe`, live
+  wipe-readiness summaries in the CLI/dashboard, and wipe coverage snapshots in
+  the audit trail
+- Connected-browser cleanup is materially implemented; disconnected-device
+  cleanup and full preserved-evidence destruction validation remain outstanding
 
 ```bash
 # Normal shutdown
@@ -445,7 +467,7 @@ should be treated as the authoritative current list.
 ## Offline Map Tiles
 
 - Tile source: OpenStreetMap (default) or any XYZ tile server.
-- Pre-caching via CLI: `osk tiles cache --area "39.7,-104.9,39.8,-104.8" --zoom 13-17`
+- Pre-caching via CLI: `osk tiles cache --bbox "39.7,-104.9,39.8,-104.8" --zoom 13-17`
   - Area specified as bounding box (south,west,north,east) or by place name with geocoding.
   - Zoom levels 13-17 cover neighborhood to street level.
   - Approximate size: ~50-100 MB per square mile at zoom 13-17.

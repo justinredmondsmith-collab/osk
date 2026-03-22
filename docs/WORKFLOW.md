@@ -47,8 +47,9 @@ Before merging, confirm:
 
 ## Current Gate
 
-The repo now has meaningful implementation slices across Phases 1 through 5.
-The next stage should stay disciplined in a different way:
+The repo now has meaningful implementation slices across Phases 1 through 6.
+The current major phase is field validation and operational hardening, so the
+next stage should stay disciplined in a different way:
 
 - Prefer operational hardening and real-world validation over new surface area
 - Keep fake and real adapters behind the same owned service boundary
@@ -70,20 +71,19 @@ The next stage should stay disciplined in a different way:
 
 ## Suggested Order For The Next Stage
 
-For the next implementation stage, follow this order:
+For the current implementation stage, follow this order:
 
 1. Real browser/device validation for `/join` -> `/member`, offline/outbox
-   replay, installability, and reconnect behavior
-2. Operations tooling: finish the host-side field tooling around the slices
-   already in repo, including conservative hotspot/startup guidance,
-   tile-caching workflows, evidence/export, wipe drills, and the install path
-   that makes the current runtime more field-usable
+   replay, installability, reconnect behavior, and wipe handling
+2. Operations and runbook hardening around the current install/start/wipe
+   flows, using the existing drills and audit/readiness surfaces as the source
+   of truth
 3. Broader resend/session hardening across hub restarts so member/mobile
    capture survives more than transient reconnects
-4. Higher-quality synthesis and review ergonomics beyond the current heuristic
-   correlation model
-5. Dashboard and mobile UX expansion on top of those hardened/runtime-validated
-   surfaces
+4. Deployment/field ergonomics only where validation shows they are needed,
+   such as opt-in hotspot orchestration or richer export/restore drills
+5. Higher-quality synthesis and broader dashboard/mobile UX only after those
+   runtime surfaces are field-validated
 
 ## When To Require Extra Human Attention
 

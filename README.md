@@ -2,35 +2,17 @@
 
 Local-first situational awareness for civilian groups.
 
-Osk is a design-stage project for a hub-and-spoke system that helps groups
-coordinate during protests, public meetings, large events, travel, and other
-situations where shared awareness matters.
+Osk is a public implementation-stage project for a hub-and-spoke system that
+helps groups coordinate during protests, public meetings, large events, travel,
+and other situations where shared awareness matters.
 
-> Status: Osk is currently a public design-and-foundation repository. The repo
-> contains specs, plans, governance documents, and a working Phase 1 host/runtime
-> baseline for local install, start/stop, operator sessions, audit, logs, and
-> member visibility. Phase 2 now also includes a hub-owned intelligence service
-> with config-selectable fake or real transcript/vision adapters, live
-> member audio/frame/GPS ingest wiring, persisted observations, `ffmpeg`-backed
-> compressed audio decode for Whisper mode, duplicate-safe media resubmission
-> hooks, persisted ingest receipts for restart-safe duplicate detection, and a
-> heuristic synthesis layer with reviewable findings, corroboration, sitrep
-> output, coordinator triage actions, and a thin local-only coordinator review
-> shell served by FastAPI with one-time dashboard code exchange into a
-> short-lived local cookie session, a live dashboard stream, right-rail member
-> health and ingest context, and a local tile-backed map that falls back to a
-> relative-position view when cached tiles are unavailable. The repo now also
-> has an early cookie-backed member runtime shell with reconnect-aware
-> WebSocket state, live alerts, opt-in GPS sharing, manual field reports,
-> observer-side snap-photo plus short audio clip actions, early sensor-side
-> live audio plus key-frame sampling, reconnect-safe browser outbox retries for
-> manual notes/photos/clips, and a first installable PWA layer with manifest,
-> service worker, offline shell fallback, and connected-browser wipe teardown
-> that clears queued member state plus the cached shell registration, all
-> without keeping the shared join token or member reconnect secret in the
-> post-QR browser URL or browser JavaScript storage.
-> The fuller dashboard surface and broader mobile product work are still
-> planned.
+> Status: Osk now contains real implementation slices across Phases 1 through 6:
+> host/runtime control, operator auth and audit, live ingest and persistence,
+> heuristic synthesis and review, a live local coordinator dashboard shell, a
+> cookie-backed member join/runtime PWA shell, and standalone field tooling for
+> tiles, hotspot management, evidence handling, drills, and explicit wipe
+> control. The repo is still not the full end-state platform described in the
+> spec. The current major phase is field validation and operational hardening.
 
 ## At a Glance
 
@@ -59,8 +41,8 @@ signals into alerts and situation reports.
 
 ## What This Repository Contains
 
-Right now, this repo is best understood as the public groundwork for the
-project:
+Right now, this repo is best understood as the public implementation,
+documentation, and validation base for the project:
 
 - [Design specification](docs/specs/2026-03-21-osk-design.md): architecture,
   data model, API contract, privacy model, and operating assumptions
@@ -82,11 +64,11 @@ project:
   are tracked
 
 If you are looking for the full intended platform described in the plans, it
-has not landed yet. The repo now contains real foundation slices across Phases
-1 through 5, but not the full breadth, hardening, or field validation implied
-by the end-state design.
+has not landed yet. The repo now contains real slices across Phases 1 through
+6, but not the full breadth, validation, or field hardening implied by the
+end-state design.
 
-## Current Foundation
+## Current Implementation
 
 What exists today:
 
@@ -269,10 +251,14 @@ The initial implementation is split into six phases:
 | [3. Synthesis Layer](docs/plans/2026-03-21-plan-3-synthesis-layer.md) | Events, alerts, SitReps | Heuristic synthesis + review surfaces in repo |
 | [4. Coordinator Dashboard](docs/plans/2026-03-21-plan-4-coordinator-dashboard.md) | Map, timeline, sensor management | Live review shell with member health and wipe-readiness context in repo |
 | [5. Mobile PWA](docs/plans/2026-03-21-plan-5-mobile-pwa.md) | Join flow, alert feed, edge sampling | Join/runtime shell with alerts, GPS, queued manual reports/media, early sensor capture, and first installable/offline behavior in repo |
-| [6. Operations Tooling](docs/plans/2026-03-21-plan-6-operations-tooling.md) | Hotspot, evidence, tile caching | Tile cache CLI + standalone hotspot/evidence tools, hotspot-aware doctor/start guidance, install/wipe drills, and explicit coordinator wipe flow in repo |
+| [6. Operations Tooling](docs/plans/2026-03-21-plan-6-operations-tooling.md) | Hotspot, evidence, tile caching | Real operator tooling in repo: tiles, hotspot, evidence, install/wipe drills, live wipe-readiness surfaces, and explicit coordinator wipe flow |
 
 See the [design specification](docs/specs/2026-03-21-osk-design.md) for the
 full architecture, API contract, and threat-model assumptions.
+
+Current major phase: field validation and operational hardening. The most
+important remaining work is proving the existing coordinator/member/runtime
+flows on real devices and tightening the gaps those exercises expose.
 
 ## What You Can Do Right Now
 

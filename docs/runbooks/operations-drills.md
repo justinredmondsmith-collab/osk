@@ -3,6 +3,10 @@
 Read-only operator drills now exist for the two highest-risk operational paths:
 install/start readiness and wipe/cleanup boundaries.
 
+They support the repo's current field-validation and operational-hardening
+phase: the goal is to make the real install/wipe boundary explicit before
+anyone claims more than the implementation actually does today.
+
 These drills are meant to answer:
 
 - What will Osk touch on this machine?
