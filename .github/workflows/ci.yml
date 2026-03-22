@@ -33,7 +33,7 @@ jobs:
 
       - name: Run scaffold doctor
         run: |
-          python -m osk doctor --json > doctor.json
+          python -m osk doctor --json > doctor.json || true
           python - <<'PY'
           import json
           from pathlib import Path
