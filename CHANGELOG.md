@@ -151,6 +151,9 @@ changes manually while the project is in its early public setup phase.
 - Sensor browser media ingest keys now derive from stable per-item IDs rather
   than tab-local counters, avoiding false duplicate collisions after reloads
   inside the retained ingest-receipt window
+- The member-shell smoke helper now exposes smoke-only status/promote/wipe
+  controls, and the Playwright smoke path now exercises reload/resume and live
+  wipe clearing in addition to offline queue replay
 
 ### Changed
 

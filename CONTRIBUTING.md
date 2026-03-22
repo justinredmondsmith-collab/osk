@@ -73,10 +73,12 @@ The repository now includes:
   `/join`
 - A manual browser/device smoke helper at `scripts/member_shell_smoke.py` for
   testing the member shell against a disposable mocked hub outside CI/sandboxed
-  environments
+  environments; it now includes smoke-only control routes for status, role
+  promotion, and live wipe / `op_ended` checks
 - A Playwright-driven browser smoke helper at
   `scripts/member_shell_playwright_smoke.sh` for environments where localhost
-  is reachable from the browser runtime
+  is reachable from the browser runtime, now covering queue replay, reload /
+  resume, and live wipe clearing
 
 The repository does **not** yet contain the full production-grade or fully
 validated versions of the intelligence pipeline, synthesis/review system,

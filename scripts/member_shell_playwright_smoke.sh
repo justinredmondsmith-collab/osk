@@ -117,6 +117,7 @@ trap cleanup EXIT
 HELPER_PID="$!"
 
 JOIN_URL=""
+WIPE_URL=""
 for _ in $(seq 1 40); do
   if [[ -f "${METADATA_PATH}" ]]; then
     JOIN_URL="$(python - <<'PY' "${METADATA_PATH}"
@@ -126,6 +127,15 @@ from pathlib import Path
 
 payload = json.loads(Path(sys.argv[1]).read_text())
 print(payload["join_url"])
+PY
+)"
+    WIPE_URL="$(python - <<'PY' "${METADATA_PATH}"
+import json
+import sys
+from pathlib import Path
+
+payload = json.loads(Path(sys.argv[1]).read_text())
+print(payload.get("controls", {}).get("wipe_url", ""))
 PY
 )"
     if curl -sS -I "${JOIN_URL}" >/dev/null; then
@@ -144,6 +154,12 @@ fi
 if ! curl -sS -I "${JOIN_URL}" >/dev/null; then
   echo "Smoke helper did not become reachable at ${JOIN_URL}" >&2
   cat "${HELPER_LOG}" >&2 || true
+  exit 1
+fi
+
+if [[ -z "${WIPE_URL}" ]]; then
+  echo "Smoke helper metadata did not expose a wipe control URL." >&2
+  cat "${METADATA_PATH}" >&2 || true
   exit 1
 fi
 
@@ -176,18 +192,40 @@ await page.waitForFunction(() => {
   return document.querySelector("#runtime-outbox-count")?.textContent?.trim() === "0";
 }, { timeout: 20000 });
 
+await page.reload({ waitUntil: "networkidle" });
+await page.waitForSelector("#runtime-report-form");
+await page.waitForFunction(() => {
+  const memberId = document.querySelector("#runtime-member-id")?.textContent?.trim();
+  return memberId && memberId !== "--";
+}, { timeout: 15000 });
+
 const operationName = document.querySelector("#runtime-operation-name")?.textContent?.trim() || "";
 const connectionLabel = document.querySelector("#runtime-connection-label")?.textContent?.trim() || "";
 const reportStatus = document.querySelector("#runtime-report-status")?.textContent?.trim() || "";
+const sessionState = document.querySelector("#runtime-session-state")?.textContent?.trim() || "";
 
 return JSON.stringify({
   url: page.url(),
   displayName,
   operationName,
   connectionLabel,
+  sessionState,
   queuedCount,
   queuedState,
   reportStatus,
+});
+EOF
+)
+
+WIPE_VERIFY_CODE=$(cat <<'EOF'
+await page.waitForFunction(() => {
+  return document.body.innerText.includes("Local session cleared");
+}, { timeout: 15000 });
+
+return JSON.stringify({
+  url: page.url(),
+  title: document.title,
+  body: document.body.innerText,
 });
 EOF
 )
@@ -202,6 +240,8 @@ else
 fi
 
 bash "${PWCLI}" --session "${SESSION_NAME}" run-code "${SMOKE_CODE}" | tee "${RESULT_PATH}"
+curl -sS -X POST "${WIPE_URL}" >/dev/null
+bash "${PWCLI}" --session "${SESSION_NAME}" run-code "${WIPE_VERIFY_CODE}" | tee -a "${RESULT_PATH}"
 bash "${PWCLI}" --session "${SESSION_NAME}" screenshot
 bash "${PWCLI}" --session "${SESSION_NAME}" close >/dev/null 2>&1 || true
 popd >/dev/null

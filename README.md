@@ -363,10 +363,13 @@ flows on real devices and tightening the gaps those exercises expose.
   instead of dropping everything or growing unbounded local state
 - Run `PYTHONPATH=src python scripts/member_shell_smoke.py --host 0.0.0.0 --advertise-host <lan-ip>`
   on a real machine if you want a disposable mocked `/join` -> `/member` smoke
-  target for phone/browser testing outside the main hub runtime
+  target for phone/browser testing outside the main hub runtime; the helper now
+  also exposes smoke-only control routes for status, role promotion, and live
+  wipe / `op_ended` testing
 - Run `scripts/member_shell_playwright_smoke.sh` in an environment where
   localhost is reachable from Playwright if you want a browser-driven smoke of
-  join, member-shell load, offline queueing, and reconnect replay
+  join, member-shell load, offline queueing, reconnect replay, page reload /
+  session restore, and live wipe clearing
 - Use `/api/intelligence/status`, `/api/intelligence/observations`,
   `/api/intelligence/findings`, `/api/intelligence/review-feed`, `/api/events`,
   `/api/sitreps`, `/api/coordinator/dashboard-state`, and
