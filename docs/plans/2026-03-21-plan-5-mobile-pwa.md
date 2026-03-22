@@ -11,7 +11,7 @@
 **Spec:** `docs/specs/2026-03-21-osk-design.md` — "Edge Components" and "Member Mobile UI" sections
 **Depends on:** Plan 1 (server, connection_manager), Plan 3 (alerts)
 
-**Current state:** A cookie-backed member join/runtime shell now exists at `/join` and `/member`. The QR token is exchanged into a clean `HttpOnly` browser cookie before the shell loads, the current WebSocket bootstrap can authenticate from that cookie without exposing the shared operation token to browser JavaScript storage, and the runtime already includes live alerts, opt-in GPS sharing, reconnect-aware member resume, manual report submission, and early sensor-side audio plus key-frame capture. The tasks below describe the fuller mobile client beyond that current slice.
+**Current state:** A cookie-backed member join/runtime shell now exists at `/join` and `/member`. The QR token is exchanged into a clean `HttpOnly` join cookie before the shell loads, the browser authenticates the member WebSocket from that cookie, and the server then upgrades the browser into a short-lived `HttpOnly` member runtime cookie so reload/reconnect do not depend on a reconnect secret in browser JavaScript storage. The runtime already includes live alerts, opt-in GPS sharing, manual report submission, and early sensor-side audio plus key-frame capture. The tasks below describe the fuller mobile client beyond that current slice.
 
 ---
 
@@ -47,17 +47,17 @@ Page flow:
 3. Note: "No real names needed. This is temporary."
 4. Permission request section: Location (required), Microphone (optional), Camera (optional)
 5. "Join as Observer" button
-6. On submit: stores token + name in sessionStorage, requests browser permissions, redirects to `/member`
+6. On submit: stores display name in `sessionStorage`, relies on the existing cookie-backed join session, and redirects to `/member`
 
 Dark theme matching the coordinator dashboard. Mobile-optimized (large tap targets, readable text).
 
 - [ ] **Step 2: Update server.py join route**
 
-Modify the existing `/join` GET handler to render the full join.html template instead of the minimal HTML stub. Pass operation name and token as template variables.
+Modify the existing `/join` GET handler to render the full join.html template instead of the minimal HTML stub. Pass operation/session bootstrap state as template variables; do not re-expose the shared operation token in rendered HTML.
 
 - [ ] **Step 3: Add `/member` route**
 
-Add `GET /member` that serves the member.html template. Checks that sessionStorage has token (done client-side via JS redirect if missing).
+Add `GET /member` that serves the member.html template. Server-side auth should rely on the join/runtime cookies; client JS can still redirect back to `/join` if no valid member session is available.
 
 - [ ] **Step 4: Test join page renders with valid token**
 - [ ] **Step 5: Commit**
@@ -88,15 +88,15 @@ Layout:
 - [ ] **Step 2: Create member.js**
 
 WebSocket connection:
-- Read display name plus member-scoped resume state from `sessionStorage`
+- Read display name plus non-secret member identity/preferences from `sessionStorage`; resumable auth should come from the browser's `HttpOnly` member runtime cookie
 - Connect to `wss://<host>/ws`
-- Send auth message: `{"type":"auth", "name":"..."}` for the normal browser flow, or include `resume_member_id` + `resume_token` when reconnecting
-- Handle `auth_ok` → store member_id, role, and reconnect token
+- Send auth message: `{"type":"auth", "name":"..."}` for the normal browser flow. Legacy non-browser clients may still include explicit token or resume credentials when needed.
+- Handle `auth_ok` → store member_id and role, then exchange the returned short-lived `member_session_code` into the member runtime cookie
 - Handle `role_change` → toggle sensor panel visibility
 - Handle `alert` → prepend to alert feed, color-coded by severity
 - Handle `status` → update group status bar
 - Handle `ping` → respond with `pong`
-- Handle `wipe` → clear sessionStorage, indexedDB, show "Operation ended"
+- Handle `wipe` → clear sessionStorage, runtime cookies, indexedDB, show "Operation ended"
 - Handle `op_ended` → show "Operation ended" message
 
 GPS tracking:
@@ -300,10 +300,11 @@ git commit -m "feat: PWA service worker and manifest for offline resilience"
 
 On receiving `{"type":"wipe"}` via WebSocket:
 1. Clear `sessionStorage`
-2. Clear any `IndexedDB` databases
-3. Send `wipe` message to service worker
-4. Replace page content with "Operation ended" message
-5. Close WebSocket
+2. Clear member auth cookies / runtime session state
+3. Clear any `IndexedDB` databases
+4. Send `wipe` message to service worker
+5. Replace page content with "Operation ended" message
+6. Close WebSocket
 
 - [ ] **Step 2: Commit**
 

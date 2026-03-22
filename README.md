@@ -23,7 +23,8 @@ situations where shared awareness matters.
 > has an early cookie-backed member runtime shell with reconnect-aware
 > WebSocket state, live alerts, opt-in GPS sharing, manual field reports, and
 > early sensor-side live audio plus key-frame sampling without keeping the
-> shared join token in the post-QR browser URL or browser JavaScript storage.
+> shared join token or member reconnect secret in the post-QR browser URL or
+> browser JavaScript storage.
 > The fuller dashboard surface and broader mobile product work are still
 > planned.
 
@@ -100,13 +101,14 @@ What exists today:
   flow
 - Cookie-backed member join bootstrap: `/join?token=...` now exchanges the
   shared operation token into a clean `/join` browser session, and the thin
-  `/member` shell authenticates WebSocket startup from that cookie instead of
-  from JS-stored operation token state; the shell can also reconnect from the
-  member-scoped resume state if the shared join token has been rotated
+  `/member` shell authenticates initial WebSocket startup from that cookie,
+  then exchanges a short-lived member session code into a short-lived
+  `HttpOnly` member runtime cookie so reload/reconnect no longer depend on a
+  JS-stored reconnect secret
 - Early member runtime shell: live alert feed, opt-in GPS sharing with
   throttled browser updates, manual report submission over the member
   WebSocket, and reconnect-aware runtime state for reloads and transport
-  breaks
+  breaks through that member runtime cookie
 - Early sensor capture in the member runtime: browser mic capture via
   MediaRecorder, key-frame camera sampling via a worker-backed diff loop, and
   live audio/frame submission on the existing member WebSocket ingest path
@@ -259,8 +261,12 @@ full architecture, API contract, and threat-model assumptions.
 - Scan the QR join link into `/join?token=...`; the hub now exchanges that
   token into a clean `HttpOnly` browser cookie and redirects back to `/join`
   without leaving the shared operation token in the visible URL
+- After the member WebSocket authenticates, the browser upgrades into a
+  short-lived `HttpOnly` member runtime cookie so reloads and reconnects do
+  not depend on a reconnect secret in browser-managed JavaScript storage
 - Use the thin `/member` shell after join if you want to exercise the current
-  cookie-backed member bootstrap and WebSocket auth path
+  cookie-backed member bootstrap, runtime-session exchange, and WebSocket auth
+  path
 - Use `/api/intelligence/status`, `/api/intelligence/observations`,
   `/api/intelligence/findings`, `/api/intelligence/review-feed`, `/api/events`,
   `/api/sitreps`, `/api/coordinator/dashboard-state`, and

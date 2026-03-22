@@ -45,7 +45,6 @@
     memberId: "osk_member_id",
     memberName: "osk_member_name",
     operationName: "osk_operation_name",
-    resumeToken: "osk_member_resume_token",
     gpsEnabled: "osk_member_gps_enabled",
     sensorEnabled: "osk_member_sensor_enabled",
     audioMuted: "osk_member_audio_muted",
@@ -181,13 +180,6 @@
     sessionStorage.setItem(storageKeys.operationName, operationName);
   }
 
-  function hasResumeState() {
-    return Boolean(
-      sessionStorage.getItem(storageKeys.memberId) &&
-        sessionStorage.getItem(storageKeys.resumeToken),
-    );
-  }
-
   function shouldAutoRestartGps() {
     return sessionStorage.getItem(storageKeys.gpsEnabled) === "1";
   }
@@ -229,7 +221,6 @@
     sessionStorage.removeItem(storageKeys.memberId);
     sessionStorage.removeItem(storageKeys.memberName);
     sessionStorage.removeItem(storageKeys.operationName);
-    sessionStorage.removeItem(storageKeys.resumeToken);
     sessionStorage.removeItem(storageKeys.gpsEnabled);
     sessionStorage.removeItem(storageKeys.sensorEnabled);
     sessionStorage.removeItem(storageKeys.audioMuted);
@@ -969,6 +960,46 @@
     }
   }
 
+  function applySessionIdentity(session) {
+    if (!session) {
+      return;
+    }
+    if (session.member_id) {
+      sessionStorage.setItem(storageKeys.memberId, String(session.member_id));
+    }
+    if (session.member_name) {
+      const memberName = normalizeWhitespace(session.member_name);
+      if (memberName) {
+        sessionStorage.setItem(storageKeys.memberName, memberName);
+      }
+    }
+    if (session.operation_name) {
+      updateOperationName(session.operation_name);
+    }
+  }
+
+  async function exchangeMemberRuntimeSession(memberSessionCode) {
+    const code = String(memberSessionCode || "").trim();
+    if (!code) {
+      return null;
+    }
+    try {
+      const session = await fetchJson(bootstrap.paths.member_runtime_session, {
+        method: "POST",
+        body: JSON.stringify({ member_session_code: code }),
+      });
+      state.session = session;
+      applySessionIdentity(session);
+      return session;
+    } catch (error) {
+      pushFeed(
+        "Secure member session refresh failed. A full reload may require rescanning the coordinator QR code.",
+        "warning",
+      );
+      return null;
+    }
+  }
+
   async function clearMemberSession() {
     state.intentionallyLeaving = true;
     clearReconnectTimer();
@@ -1007,7 +1038,6 @@
       state.authenticated = true;
       state.reconnectAttempt = 0;
       sessionStorage.setItem(storageKeys.memberId, String(payload.member_id || ""));
-      sessionStorage.setItem(storageKeys.resumeToken, String(payload.resume_token || ""));
       if (payload.operation_name) {
         updateOperationName(payload.operation_name);
       }
@@ -1023,6 +1053,9 @@
         maybeSendLatestGps({ force: true });
       } else {
         refreshGpsState();
+      }
+      if (payload.member_session_code) {
+        void exchangeMemberRuntimeSession(payload.member_session_code);
       }
       updateActionAvailability();
       return;
@@ -1117,16 +1150,10 @@
 
     socket.addEventListener("open", () => {
       clearReconnectTimer();
-      const resumeMemberId = sessionStorage.getItem(storageKeys.memberId);
-      const resumeToken = sessionStorage.getItem(storageKeys.resumeToken);
       const payload = {
         type: "auth",
         name: memberName,
       };
-      if (resumeMemberId && resumeToken) {
-        payload.resume_member_id = resumeMemberId;
-        payload.resume_token = resumeToken;
-      }
       setSessionState("Authorizing");
       setConnectionState("pending", "Authorizing");
       socket.send(JSON.stringify(payload));
@@ -1142,11 +1169,26 @@
       handleSocketMessage(payload);
     });
 
-    socket.addEventListener("close", () => {
+    socket.addEventListener("close", (event) => {
       state.authenticated = false;
       void stopSensorCapture({ preservePreference: true, quiet: true });
       updateActionAvailability();
       if (state.intentionallyLeaving || state.endingOperation) {
+        return;
+      }
+      if (event.code === 4003 || event.code === 4004) {
+        setSessionState("Expired");
+        setConnectionState("error", "Rejoin required");
+        pushFeed(
+          event.code === 4004
+            ? "The operation is no longer available. Clearing the local member session."
+            : "Secure member session expired. Clearing the local member session.",
+          "critical",
+        );
+        window.setTimeout(() => {
+          void clearMemberSession();
+        }, 250);
+        refreshGpsState();
         return;
       }
       setSessionState("Disconnected");
@@ -1180,7 +1222,11 @@
     }
 
     state.session = session;
-    rememberOperationName(session.operation_name);
+    applySessionIdentity(session);
+    if (session.runtime_authenticated) {
+      window.location.href = bootstrap.paths.member_page;
+      return;
+    }
     if (elements.joinOperationName) {
       elements.joinOperationName.textContent = session.operation_name || "Osk";
     }
@@ -1201,18 +1247,26 @@
 
   async function initializeMemberPage() {
     const session = await fetchMemberSession();
-    const resumeReady = hasResumeState();
-    if (!session && !resumeReady) {
+    if (!session) {
       clearLocalMemberState();
       window.location.href = bootstrap.paths.join_page;
       return;
     }
     state.session = session;
-    const memberName = readStoredName() || "Observer";
-    updateOperationName(session?.operation_name || readStoredOperationName() || "Osk");
+    applySessionIdentity(session);
+    const memberName = normalizeWhitespace(session.member_name || readStoredName() || "Observer");
+    if (memberName) {
+      sessionStorage.setItem(storageKeys.memberName, memberName);
+    }
+    updateOperationName(session.operation_name || readStoredOperationName() || "Osk");
     if (elements.runtimeDisplayName) {
       elements.runtimeDisplayName.textContent = memberName;
     }
+    updateIdentity(
+      session.role || state.sensor.role || "observer",
+      session.member_id || sessionStorage.getItem(storageKeys.memberId) || "--",
+    );
+    applyMemberRole(String(session.role || "observer"), { automaticStart: false });
     if (elements.runtimeLastReport) {
       elements.runtimeLastReport.textContent = "None sent";
     }
@@ -1223,14 +1277,9 @@
     updateActionAvailability();
     refreshGpsState();
     setReportState("Reports send over the live member connection.");
-    if (!session && resumeReady) {
-      setSessionState("Resuming");
-      pushFeed(
-        "Join session is no longer present. Attempting reconnect from local member resume state.",
-        "warning",
-      );
-    } else {
-      setSessionState("Connecting");
+    setSessionState(session.runtime_authenticated ? "Resuming" : "Connecting");
+    if (session.runtime_authenticated) {
+      pushFeed("Secure member session restored from the local browser session.", "note");
     }
     connectMemberSocket();
   }

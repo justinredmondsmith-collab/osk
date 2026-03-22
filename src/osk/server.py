@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import datetime as dt
+import hashlib
 import ipaddress
 import json
 import logging
@@ -13,6 +14,7 @@ from collections import Counter
 from http.cookies import SimpleCookie
 from pathlib import Path
 
+from cryptography.fernet import Fernet, InvalidToken
 from fastapi import FastAPI, Query, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import (
     FileResponse,
@@ -61,6 +63,7 @@ ADMIN_TOKEN_HEADER = "X-Osk-Coordinator-Token"
 OPERATOR_SESSION_HEADER = "X-Osk-Operator-Session"
 DASHBOARD_SESSION_COOKIE = "osk_dashboard_session"
 MEMBER_SESSION_COOKIE = "osk_member_join"
+MEMBER_RUNTIME_SESSION_COOKIE = "osk_member_runtime"
 LOCAL_ADMIN_TEST_HOSTS = {"testclient", "localhost"}
 MAX_AUDIT_LIMIT = 200
 MAX_OBSERVATION_LIMIT = 200
@@ -96,6 +99,10 @@ class FindingNoteRequest(BaseModel):
 
 class DashboardSessionRequest(BaseModel):
     dashboard_code: str
+
+
+class MemberRuntimeSessionRequest(BaseModel):
+    member_session_code: str
 
 
 def _utcnow() -> dt.datetime:
@@ -186,6 +193,29 @@ def _member_session_cookie_payload(request: Request) -> dict[str, object]:
     }
 
 
+def _member_runtime_session_cookie_payload(
+    request: Request,
+    session: dict[str, object],
+) -> dict[str, object]:
+    expires_at_raw = session.get("expires_at")
+    max_age: int | None = None
+    if isinstance(expires_at_raw, str):
+        try:
+            expires_at = dt.datetime.fromisoformat(expires_at_raw)
+        except ValueError:
+            expires_at = None
+        if expires_at is not None:
+            max_age = max(int((expires_at - _utcnow()).total_seconds()), 1)
+
+    return {
+        "httponly": True,
+        "max_age": max_age,
+        "path": "/",
+        "samesite": "strict",
+        "secure": request.url.scheme == "https",
+    }
+
+
 def _set_dashboard_session_cookie(
     response: JSONResponse,
     request: Request,
@@ -213,6 +243,21 @@ def _set_member_session_cookie(
     )
 
 
+def _set_member_runtime_session_cookie(
+    response: Response,
+    request: Request,
+    session: dict[str, object],
+) -> None:
+    token = session.get("token")
+    if not isinstance(token, str) or not token.strip():
+        return
+    response.set_cookie(
+        MEMBER_RUNTIME_SESSION_COOKIE,
+        token,
+        **_member_runtime_session_cookie_payload(request, session),
+    )
+
+
 def _clear_dashboard_session_cookie(response: JSONResponse, request: Request) -> None:
     response.delete_cookie(
         DASHBOARD_SESSION_COOKIE,
@@ -225,6 +270,15 @@ def _clear_dashboard_session_cookie(response: JSONResponse, request: Request) ->
 def _clear_member_session_cookie(response: Response, request: Request) -> None:
     response.delete_cookie(
         MEMBER_SESSION_COOKIE,
+        path="/",
+        samesite="strict",
+        secure=request.url.scheme == "https",
+    )
+
+
+def _clear_member_runtime_session_cookie(response: Response, request: Request) -> None:
+    response.delete_cookie(
+        MEMBER_RUNTIME_SESSION_COOKIE,
         path="/",
         samesite="strict",
         secure=request.url.scheme == "https",
@@ -487,6 +541,7 @@ def _member_session_bootstrap() -> dict[str, object]:
     return {
         "paths": {
             "member_session": "/api/member/session",
+            "member_runtime_session": "/api/member/runtime-session",
             "member_page": "/member",
             "join_page": "/join",
             "websocket": "/ws",
@@ -516,6 +571,154 @@ def _member_session_token_from_request(request: Request) -> str | None:
 
 def _member_session_token_from_websocket(ws: WebSocket) -> str | None:
     return _cookie_from_header(ws.headers.get("cookie"), MEMBER_SESSION_COOKIE)
+
+
+def _member_runtime_session_token_from_request(request: Request) -> str | None:
+    token = str(request.cookies.get(MEMBER_RUNTIME_SESSION_COOKIE) or "").strip()
+    return token or None
+
+
+def _member_runtime_session_token_from_websocket(ws: WebSocket) -> str | None:
+    return _cookie_from_header(ws.headers.get("cookie"), MEMBER_RUNTIME_SESSION_COOKIE)
+
+
+def _member_runtime_cipher(op_manager: OperationManager) -> Fernet | None:
+    operation = op_manager.operation
+    if operation is None:
+        return None
+    key_material = hashlib.sha256(operation.coordinator_token.encode("utf-8")).digest()
+    return Fernet(base64.urlsafe_b64encode(key_material))
+
+
+def _issue_member_runtime_token(
+    op_manager: OperationManager,
+    *,
+    member: Member,
+    reconnect_token: str,
+    ttl_minutes: int,
+    purpose: str,
+) -> dict[str, object]:
+    operation = op_manager.operation
+    if operation is None:
+        raise RuntimeError("No active operation")
+    cipher = _member_runtime_cipher(op_manager)
+    if cipher is None:
+        raise RuntimeError("No active operation")
+    expires_at = _utcnow() + dt.timedelta(minutes=max(ttl_minutes, 1))
+    payload = {
+        "purpose": purpose,
+        "operation_id": str(operation.id),
+        "member_id": str(member.id),
+        "reconnect_token": reconnect_token,
+        "expires_at": expires_at.isoformat(),
+    }
+    token = cipher.encrypt(json.dumps(payload, sort_keys=True).encode("utf-8")).decode("utf-8")
+    return {
+        "token": token,
+        "operation_id": str(operation.id),
+        "member_id": str(member.id),
+        "expires_at": expires_at.isoformat(),
+    }
+
+
+def _decode_member_runtime_token(
+    op_manager: OperationManager,
+    token: str | None,
+    *,
+    expected_purpose: str,
+) -> dict[str, object] | None:
+    raw_token = str(token or "").strip()
+    if not raw_token:
+        return None
+    cipher = _member_runtime_cipher(op_manager)
+    operation = op_manager.operation
+    if cipher is None or operation is None:
+        return None
+    try:
+        payload_raw = cipher.decrypt(raw_token.encode("utf-8"))
+    except (InvalidToken, ValueError):
+        return None
+    try:
+        payload = json.loads(payload_raw.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return None
+    if payload.get("purpose") != expected_purpose:
+        return None
+    if payload.get("operation_id") != str(operation.id):
+        return None
+    member_id = _coerce_uuid(payload.get("member_id"))
+    reconnect_token = str(payload.get("reconnect_token") or "").strip()
+    expires_at_raw = payload.get("expires_at")
+    if member_id is None or not reconnect_token or not isinstance(expires_at_raw, str):
+        return None
+    try:
+        expires_at = dt.datetime.fromisoformat(expires_at_raw)
+    except ValueError:
+        return None
+    if expires_at <= _utcnow():
+        return None
+    member = op_manager.members.get(member_id)
+    if member is None or member.status == MemberStatus.KICKED:
+        return None
+    return {
+        "operation_id": str(operation.id),
+        "member_id": member_id,
+        "reconnect_token": reconnect_token,
+        "expires_at": expires_at.isoformat(),
+        "member": member,
+    }
+
+
+def _member_runtime_session_from_request(
+    request: Request,
+    op_manager: OperationManager,
+) -> dict[str, object] | None:
+    return _decode_member_runtime_token(
+        op_manager,
+        _member_runtime_session_token_from_request(request),
+        expected_purpose="member_session",
+    )
+
+
+def _member_runtime_session_from_websocket(
+    ws: WebSocket,
+    op_manager: OperationManager,
+) -> dict[str, object] | None:
+    return _decode_member_runtime_token(
+        op_manager,
+        _member_runtime_session_token_from_websocket(ws),
+        expected_purpose="member_session",
+    )
+
+
+def _member_session_payload(
+    operation,
+    *,
+    join_authenticated: bool,
+    runtime_authenticated: bool,
+    runtime_session: dict[str, object] | None = None,
+) -> dict[str, object]:
+    payload: dict[str, object] = {
+        "authenticated": join_authenticated or runtime_authenticated,
+        "join_authenticated": join_authenticated,
+        "runtime_authenticated": runtime_authenticated,
+        "operation_id": str(operation.id),
+        "operation_name": operation.name,
+    }
+    if not runtime_authenticated or runtime_session is None:
+        return payload
+
+    member = runtime_session["member"]
+    payload.update(
+        {
+            "member_id": str(member.id),
+            "member_name": member.name,
+            "role": member.role.value,
+            "status": member.status.value,
+            "expires_at": runtime_session["expires_at"],
+        }
+    )
+    return payload
 
 
 def _map_tile_cache_status(config) -> dict[str, object]:
@@ -678,18 +881,22 @@ def create_app(
             if not op_manager.validate_token(token):
                 response = JSONResponse({"error": "Invalid token"}, status_code=403)
                 _clear_member_session_cookie(response, request)
+                _clear_member_runtime_session_cookie(response, request)
                 return response
             response = RedirectResponse(url="/join", status_code=303)
             _set_member_session_cookie(response, request, token.strip())
+            _clear_member_runtime_session_cookie(response, request)
             response.headers["Cache-Control"] = "no-store"
             return response
 
         join_token = _member_session_token_from_request(request)
         authenticated = bool(join_token and op_manager.validate_token(join_token))
+        runtime_token = _member_runtime_session_token_from_request(request)
+        runtime_session = _member_runtime_session_from_request(request, op_manager)
         bootstrap = {
             **_member_session_bootstrap(),
             "page": "join",
-            "session_authenticated": authenticated,
+            "session_authenticated": authenticated or runtime_session is not None,
         }
         response = HTMLResponse(
             _render_member_shell(JOIN_TEMPLATE_PATH, bootstrap),
@@ -697,6 +904,8 @@ def create_app(
         )
         if not authenticated and join_token is not None:
             _clear_member_session_cookie(response, request)
+        if runtime_session is None and runtime_token is not None:
+            _clear_member_runtime_session_cookie(response, request)
         return response
 
     @app.get("/member")
@@ -704,20 +913,23 @@ def create_app(
         operation = op_manager.operation
         if operation is None:
             return JSONResponse({"error": "No active operation"}, status_code=503)
+        join_token = _member_session_token_from_request(request)
+        join_authenticated = bool(join_token and op_manager.validate_token(join_token))
+        runtime_token = _member_runtime_session_token_from_request(request)
+        runtime_session = _member_runtime_session_from_request(request, op_manager)
         bootstrap = {
             **_member_session_bootstrap(),
             "page": "member",
-            "session_authenticated": bool(
-                (join_token := _member_session_token_from_request(request))
-                and op_manager.validate_token(join_token)
-            ),
+            "session_authenticated": join_authenticated or runtime_session is not None,
         }
         response = HTMLResponse(
             _render_member_shell(MEMBER_TEMPLATE_PATH, bootstrap),
             headers=_shell_headers(),
         )
-        if join_token is not None and not op_manager.validate_token(join_token):
+        if join_token is not None and not join_authenticated:
             _clear_member_session_cookie(response, request)
+        if runtime_session is None and runtime_token is not None:
+            _clear_member_runtime_session_cookie(response, request)
         return response
 
     @app.get("/api/member/session")
@@ -727,7 +939,12 @@ def create_app(
             return JSONResponse({"error": "No active operation"}, status_code=503)
 
         join_token = _member_session_token_from_request(request)
-        if join_token is None or not op_manager.validate_token(join_token):
+        runtime_token = _member_runtime_session_token_from_request(request)
+        join_authenticated = bool(join_token and op_manager.validate_token(join_token))
+        runtime_session = _member_runtime_session_from_request(request, op_manager)
+        runtime_authenticated = runtime_session is not None
+
+        if not join_authenticated and not runtime_authenticated:
             response = JSONResponse(
                 {
                     "authenticated": False,
@@ -735,17 +952,77 @@ def create_app(
                 },
                 status_code=401,
             )
-            _clear_member_session_cookie(response, request)
+            if join_token is not None:
+                _clear_member_session_cookie(response, request)
+            if runtime_token is not None:
+                _clear_member_runtime_session_cookie(response, request)
             return response
 
-        return JSONResponse(
-            {
-                "authenticated": True,
-                "operation_id": str(operation.id),
-                "operation_name": operation.name,
-            },
+        response = JSONResponse(
+            _member_session_payload(
+                operation,
+                join_authenticated=join_authenticated,
+                runtime_authenticated=runtime_authenticated,
+                runtime_session=runtime_session,
+            ),
             headers={"Cache-Control": "no-store"},
         )
+        if join_token is not None and not join_authenticated:
+            _clear_member_session_cookie(response, request)
+        if runtime_token is not None and not runtime_authenticated:
+            _clear_member_runtime_session_cookie(response, request)
+        return response
+
+    @app.post("/api/member/runtime-session")
+    async def create_member_runtime_session(
+        request: Request,
+        payload: MemberRuntimeSessionRequest,
+    ):
+        operation = op_manager.operation
+        if operation is None:
+            return JSONResponse({"error": "No active operation"}, status_code=503)
+
+        member_session_code = payload.member_session_code.strip()
+        if not member_session_code:
+            return JSONResponse({"error": "Member session code is required."}, status_code=400)
+
+        bootstrap_session = _decode_member_runtime_token(
+            op_manager,
+            member_session_code,
+            expected_purpose="member_bootstrap",
+        )
+        if bootstrap_session is None:
+            response = JSONResponse(
+                {
+                    "authenticated": False,
+                    "error": "Member login expired. Rescan the coordinator QR code.",
+                },
+                status_code=401,
+            )
+            _clear_member_runtime_session_cookie(response, request)
+            return response
+
+        member = bootstrap_session["member"]
+        config = load_config()
+        runtime_session = _issue_member_runtime_token(
+            op_manager,
+            member=member,
+            reconnect_token=str(bootstrap_session["reconnect_token"]),
+            ttl_minutes=config.member_runtime_session_ttl_minutes,
+            purpose="member_session",
+        )
+        response = JSONResponse(
+            _member_session_payload(
+                operation,
+                join_authenticated=False,
+                runtime_authenticated=True,
+                runtime_session={**runtime_session, "member": member},
+            ),
+            headers={"Cache-Control": "no-store"},
+        )
+        _set_member_runtime_session_cookie(response, request, runtime_session)
+        _clear_member_session_cookie(response, request)
+        return response
 
     @app.delete("/api/member/session")
     async def clear_member_session(request: Request):
@@ -754,6 +1031,7 @@ def create_app(
             headers={"Cache-Control": "no-store"},
         )
         _clear_member_session_cookie(response, request)
+        _clear_member_runtime_session_cookie(response, request)
         return response
 
     @app.get("/coordinator")
@@ -1496,23 +1774,29 @@ def create_app(
                 await ws.close(code=4001, reason="First message must be auth")
                 return
 
-            token = str(auth_message.get("token", "")).strip()
-            if not token:
-                token = str(_member_session_token_from_websocket(ws) or "").strip()
             name = auth_message.get("name", "Anonymous")
-            if not op_manager.validate_token(token):
-                await ws.close(code=4003, reason="Invalid token")
-                return
 
             operation = op_manager.operation
             if operation is None:
                 await ws.close(code=4004, reason="No active operation")
                 return
 
+            runtime_session = _member_runtime_session_from_websocket(ws, op_manager)
             resume_member_id = auth_message.get("resume_member_id")
             resume_token = auth_message.get("resume_token")
             resumed = False
-            if resume_member_id and resume_token:
+            if runtime_session is not None:
+                try:
+                    member = await op_manager.resume_member(
+                        operation.id,
+                        runtime_session["member_id"],
+                        str(runtime_session["reconnect_token"]),
+                    )
+                    resumed = True
+                except (KeyError, PermissionError, ValueError):
+                    await ws.close(code=4003, reason="Invalid member session")
+                    return
+            elif resume_member_id and resume_token:
                 try:
                     member = await op_manager.resume_member(
                         operation.id,
@@ -1524,21 +1808,35 @@ def create_app(
                     await ws.close(code=4003, reason="Invalid resume credentials")
                     return
             else:
+                token = str(auth_message.get("token", "")).strip()
+                if not token:
+                    token = str(_member_session_token_from_websocket(ws) or "").strip()
+                if not op_manager.validate_token(token):
+                    await ws.close(code=4003, reason="Invalid token")
+                    return
                 member = await op_manager.add_member(operation.id, name)
 
             member_id = member.id
             if member_id in conn_manager.connections:
                 await conn_manager.disconnect(member_id)
             conn_manager.register(member_id, ws, member.role)
+            runtime_bootstrap = _issue_member_runtime_token(
+                op_manager,
+                member=member,
+                reconnect_token=member.reconnect_token,
+                ttl_minutes=load_config().member_runtime_bootstrap_ttl_minutes,
+                purpose="member_bootstrap",
+            )
 
             await ws.send_json(
                 {
                     "type": "auth_ok",
                     "member_id": str(member_id),
                     "role": member.role.value,
-                    "resume_token": member.reconnect_token,
                     "resumed": resumed,
                     "operation_name": operation.name,
+                    "member_session_code": runtime_bootstrap["token"],
+                    "member_session_expires_at": runtime_bootstrap["expires_at"],
                 }
             )
 

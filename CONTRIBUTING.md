@@ -37,9 +37,10 @@ The repository now includes:
 - A thin member join/runtime shell under `src/osk/templates/join.html`,
   `src/osk/templates/member.html`, and `src/osk/static/member.*`; it now uses
   a clean cookie-backed join flow so the shared operation token is not kept in
-  the post-QR URL or browser JavaScript storage, and the current runtime shell
-  already includes reconnect-aware WebSocket state, live alerts, opt-in GPS
-  sharing, manual report submission, and early sensor-side audio/key-frame
+  the post-QR URL or browser JavaScript storage, upgrades browser members into
+  a short-lived `HttpOnly` runtime cookie after auth, and the current runtime
+  shell already includes reconnect-aware WebSocket state, live alerts, opt-in
+  GPS sharing, manual report submission, and early sensor-side audio/key-frame
   capture on the member WebSocket path
 
 The repository does **not** yet contain the full intelligence pipeline,
@@ -149,8 +150,9 @@ Code contributions should:
   operator/coordinator tokens in request query strings, rendered HTML, or
   long-lived browser-managed JS storage when extending the dashboard flow
 - Keep the member join bootstrap on the same standard: the shared operation
-  token should remain a one-time QR bootstrap input, not a persistent browser
-  storage value
+  token should remain a one-time QR bootstrap input, and member reconnect or
+  runtime-session secrets should remain on `HttpOnly` cookie/session-exchange
+  paths instead of long-lived browser-managed JS storage
 - Keep member-initiated actions on the member auth boundary: if the member
   browser can do something directly, prefer the member cookie/WebSocket flow
   over coordinator-only REST routes unless the auth model is intentionally

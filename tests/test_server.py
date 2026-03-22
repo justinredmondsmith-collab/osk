@@ -12,7 +12,7 @@ from fastapi.testclient import TestClient
 
 from osk.config import OskConfig
 from osk.intelligence_service import IngestSubmissionResult
-from osk.models import MemberRole, Operation
+from osk.models import MemberRole, MemberStatus, Operation
 from osk.server import create_app
 
 
@@ -42,6 +42,7 @@ def mock_op_manager(operation: Operation) -> MagicMock:
     mgr.promote_member = AsyncMock()
     mgr.demote_member = AsyncMock()
     mgr.kick_member = AsyncMock()
+    mgr.resume_member = AsyncMock()
     mgr.mark_disconnected = AsyncMock()
     mgr.touch_member_heartbeat = AsyncMock()
     mgr.update_member_gps = AsyncMock()
@@ -222,19 +223,107 @@ def test_member_session_status_accepts_cookie(
 
     assert resp.status_code == 200
     assert resp.json()["authenticated"] is True
+    assert resp.json()["join_authenticated"] is True
+    assert resp.json()["runtime_authenticated"] is False
     assert resp.json()["operation_name"] == "Test Op"
+
+
+@patch("osk.server._member_runtime_session_from_request")
+def test_member_session_status_accepts_runtime_cookie(
+    mock_member_runtime_session_from_request: MagicMock,
+    unauthenticated_client: TestClient,
+) -> None:
+    member_id = uuid.uuid4()
+    mock_member_runtime_session_from_request.return_value = {
+        "member": SimpleNamespace(
+            id=member_id,
+            name="Jay",
+            role=MemberRole.OBSERVER,
+            status=MemberStatus.CONNECTED,
+        ),
+        "member_id": member_id,
+        "reconnect_token": "resume-secret",
+        "expires_at": "2026-03-21T19:30:00+00:00",
+    }
+    unauthenticated_client.cookies.set("osk_member_runtime", "runtime-cookie")
+
+    resp = unauthenticated_client.get("/api/member/session")
+
+    assert resp.status_code == 200
+    payload = resp.json()
+    assert payload["authenticated"] is True
+    assert payload["join_authenticated"] is False
+    assert payload["runtime_authenticated"] is True
+    assert payload["member_id"] == str(member_id)
+    assert payload["member_name"] == "Jay"
+    assert payload["role"] == "observer"
+    assert payload["status"] == "connected"
+    assert payload["expires_at"] == "2026-03-21T19:30:00+00:00"
+
+
+@patch("osk.server._issue_member_runtime_token")
+@patch("osk.server._decode_member_runtime_token")
+def test_member_runtime_session_exchange_sets_runtime_cookie(
+    mock_decode_member_runtime_token: MagicMock,
+    mock_issue_member_runtime_token: MagicMock,
+    unauthenticated_client: TestClient,
+    operation: Operation,
+) -> None:
+    member_id = uuid.uuid4()
+    member = SimpleNamespace(
+        id=member_id,
+        name="Jay",
+        role=MemberRole.OBSERVER,
+        status=MemberStatus.CONNECTED,
+    )
+    mock_decode_member_runtime_token.return_value = {
+        "member": member,
+        "member_id": member_id,
+        "reconnect_token": "resume-secret",
+        "expires_at": "2026-03-21T18:05:00+00:00",
+    }
+    mock_issue_member_runtime_token.return_value = {
+        "token": "runtime-cookie-token",
+        "operation_id": str(operation.id),
+        "member_id": str(member_id),
+        "expires_at": "2026-03-21T22:00:00+00:00",
+    }
+    unauthenticated_client.cookies.set("osk_member_join", "valid-token")
+
+    resp = unauthenticated_client.post(
+        "/api/member/runtime-session",
+        json={"member_session_code": "bootstrap-code"},
+    )
+
+    assert resp.status_code == 200
+    payload = resp.json()
+    assert payload["authenticated"] is True
+    assert payload["join_authenticated"] is False
+    assert payload["runtime_authenticated"] is True
+    assert payload["member_id"] == str(member_id)
+    assert payload["member_name"] == "Jay"
+    assert payload["expires_at"] == "2026-03-21T22:00:00+00:00"
+    set_cookie_headers = resp.headers.get_list("set-cookie")
+    assert any("osk_member_runtime=runtime-cookie-token" in header for header in set_cookie_headers)
+    assert any("osk_member_join=" in header for header in set_cookie_headers)
+    args, kwargs = mock_decode_member_runtime_token.call_args
+    assert args[1] == "bootstrap-code"
+    assert kwargs["expected_purpose"] == "member_bootstrap"
 
 
 def test_member_session_delete_clears_cookie(
     unauthenticated_client: TestClient,
 ) -> None:
     unauthenticated_client.cookies.set("osk_member_join", "valid-token")
+    unauthenticated_client.cookies.set("osk_member_runtime", "runtime-cookie")
 
     resp = unauthenticated_client.delete("/api/member/session")
 
     assert resp.status_code == 200
     assert resp.json()["cleared"] is True
-    assert "osk_member_join=" in resp.headers["set-cookie"]
+    set_cookie_headers = resp.headers.get_list("set-cookie")
+    assert any("osk_member_join=" in header for header in set_cookie_headers)
+    assert any("osk_member_runtime=" in header for header in set_cookie_headers)
 
 
 def test_coordinator_dashboard_renders_local_shell(client: TestClient) -> None:
@@ -911,7 +1000,9 @@ def test_websocket_auth_flow(
         message = websocket.receive_json()
 
     assert message["type"] == "auth_ok"
-    assert message["resume_token"]
+    assert message["member_session_code"]
+    assert message["member_session_expires_at"]
+    assert "resume_token" not in message
     assert message["resumed"] is False
     mock_conn_mgr.register.assert_called_once()
     mock_op_manager.add_member.assert_called_once()
@@ -929,8 +1020,48 @@ def test_websocket_auth_flow_accepts_member_cookie(
         message = websocket.receive_json()
 
     assert message["type"] == "auth_ok"
+    assert message["member_session_code"]
     mock_conn_mgr.register.assert_called_once()
     mock_op_manager.add_member.assert_called_once()
+
+
+@patch("osk.server._member_runtime_session_from_websocket")
+def test_websocket_auth_flow_accepts_member_runtime_cookie(
+    mock_member_runtime_session_from_websocket: MagicMock,
+    unauthenticated_client: TestClient,
+    mock_conn_mgr: MagicMock,
+    mock_op_manager: MagicMock,
+) -> None:
+    member_id = uuid.uuid4()
+    resumed_member = MagicMock(
+        id=member_id,
+        name="Jay",
+        role=MemberRole.OBSERVER,
+        reconnect_token="resume-secret",
+    )
+    mock_member_runtime_session_from_websocket.return_value = {
+        "member": resumed_member,
+        "member_id": member_id,
+        "reconnect_token": "resume-secret",
+        "expires_at": "2026-03-21T19:30:00+00:00",
+    }
+    mock_op_manager.resume_member = AsyncMock(return_value=resumed_member)
+    unauthenticated_client.cookies.set("osk_member_runtime", "runtime-cookie")
+
+    with unauthenticated_client.websocket_connect("/ws") as websocket:
+        websocket.send_json({"type": "auth", "name": "Jay"})
+        message = websocket.receive_json()
+
+    assert message["type"] == "auth_ok"
+    assert message["member_id"] == str(member_id)
+    assert message["resumed"] is True
+    assert message["member_session_code"]
+    mock_conn_mgr.register.assert_called_once()
+    mock_op_manager.resume_member.assert_called_once_with(
+        mock_op_manager.operation.id,
+        member_id,
+        "resume-secret",
+    )
 
 
 def test_websocket_resume_flow(
@@ -959,7 +1090,8 @@ def test_websocket_resume_flow(
 
     assert message["type"] == "auth_ok"
     assert message["member_id"] == str(member_id)
-    assert message["resume_token"] == "resume-secret"
+    assert message["member_session_code"]
+    assert "resume_token" not in message
     assert message["resumed"] is True
     mock_op_manager.resume_member.assert_called_once()
 

@@ -89,6 +89,10 @@ changes manually while the project is in its early public setup phase.
 - Early sensor media capture slice: browser-side microphone capture,
   worker-backed key-frame sampling, dedicated capture modules, and member
   runtime wiring for live audio/frame ingest
+- Hardened member runtime sessions: `/api/member/runtime-session`, short-lived
+  browser `member_session_code` exchange into an `HttpOnly` runtime cookie,
+  WebSocket resume from that cookie, and browser reconnect flow without a
+  JS-stored member reconnect secret
 
 ### Changed
 
@@ -128,3 +132,6 @@ changes manually while the project is in its early public setup phase.
   path from the coordinator-only REST report/pin routes
 - Member docs now reflect that the current sensor runtime includes early audio
   and key-frame capture, while fuller media and offline PWA work remain planned
+- Member/browser docs now reflect that browser reload/reconnect auth is
+  upgraded into a short-lived `HttpOnly` runtime cookie instead of relying on a
+  JS-stored reconnect secret

@@ -66,6 +66,8 @@ class OskConfig(BaseModel):
     operator_session_ttl_minutes: int = 240
     dashboard_bootstrap_ttl_minutes: int = 5
     dashboard_session_ttl_minutes: int = 120
+    member_runtime_bootstrap_ttl_minutes: int = 5
+    member_runtime_session_ttl_minutes: int = 240
     storage_backend: Literal["luks", "directory"] = "luks"
 
 

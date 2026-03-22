@@ -175,7 +175,7 @@ Users may face real consequences if their data is accessed by adversaries (law e
 
 - **Triggers:** keyboard shortcut (Ctrl+Alt+W), hardware button (if configured), or dashboard button.
 - **Action sequence:**
-  1. Hub broadcasts `{"type": "wipe"}` to all connected members. The PWA client responds by clearing `sessionStorage`, service worker cache, and any `IndexedDB` data. (Browser history and OS-level caches are outside the app's control — documented as accepted risk.)
+  1. Hub broadcasts `{"type": "wipe"}` to all connected members. The PWA client responds by clearing browser-managed member state, including `sessionStorage`, member auth cookies, service worker cache, and any `IndexedDB` data. (Browser history and OS-level caches are outside the app's control — documented as accepted risk.)
   2. Kernel keyring passphrase entry revoked (`keyctl revoke`).
   3. LUKS volume closed (`cryptsetup luksClose`) — the design assumes that once
      the key is no longer available through the keyring, the encrypted data is
@@ -199,8 +199,8 @@ Users may face real consequences if their data is accessed by adversaries (law e
 - On `osk start`, the hub generates a cryptographically random 32-byte **operation token** (base64url-encoded).
 - The QR code encodes a URL: `http://<hub-ip>:<port>/join?token=<operation-token>`
 - When a member opens this URL, the hub now exchanges the token into a clean browser session by setting an `HttpOnly` cookie and redirecting back to `/join` without the token in the visible URL.
-- The current thin member shell can bootstrap WebSocket auth from that cookie. It may still keep member-scoped reconnect state in browser session state, but the shared operation token is no longer kept in browser JavaScript storage, and the shell can reconnect from that member-scoped resume state after join-token rotation.
-- On WebSocket upgrade, the first JSON message is still `{"type": "auth", "name": "<display-name>"}` or `{"type": "auth", "token": "<token>", "name": "<display-name>"}` when a non-browser client is used. The hub validates the shared operation token and assigns a member ID. Invalid tokens get an immediate close frame.
+- The current thin member shell can bootstrap initial WebSocket auth from that join cookie. After `auth_ok`, the browser exchanges a short-lived `member_session_code` into a short-lived `HttpOnly` member runtime cookie, so reload/reconnect no longer depend on a reconnect secret in browser JavaScript storage.
+- On WebSocket upgrade, the first JSON message is still `{"type": "auth", "name": "<display-name>"}` for the normal browser flow, or `{"type": "auth", "token": "<token>", "name": "<display-name>"}` when a non-browser client is used. The hub currently accepts browser reconnects from the member runtime cookie, while legacy explicit `resume_member_id` + `resume_token` support remains available for non-browser/compatibility use. Invalid auth gets an immediate close frame.
 - Tokens are planned to be per-operation shared secrets, with all members in an
   operation using the same token.
 - **Token rotation:** Coordinator can run `osk rotate-token` or tap "New QR" in the dashboard. This generates a new token; existing authenticated members stay connected, but new joins require the new QR code.
@@ -247,7 +247,7 @@ git clone <repo> && cd osk
 2. Browser opens to the Osk join page bootstrap URL (served from hub)
 3. Hub exchanges the shared operation token into a clean browser session and redirects back to `/join`
 4. Enter a display name
-5. Continue into the current member shell with live alerts, opt-in GPS sharing, manual report controls, and early sensor capture when promoted
+5. Browser authenticates the member WebSocket, upgrades into the short-lived member runtime cookie, and continues into the current member shell with live alerts, opt-in GPS sharing, manual report controls, and early sensor capture when promoted
 6. Coordinator can promote to Sensor from dashboard
 
 ### Coordinator Dashboard (Desktop)
@@ -316,10 +316,11 @@ Three-panel layout:
 | Method | Path | Auth | Description |
 |---|---|---|---|
 | GET | `/join?token=<token>` | Token in query | Serves the join page |
-| GET | `/join` | Member session cookie | Serves the clean join page after QR bootstrap |
-| GET | `/member` | Member session cookie | Serves the thin member runtime shell |
-| GET | `/api/member/session` | Member session cookie | Reports current member browser-session status |
-| DELETE | `/api/member/session` | Member session cookie | Clears the current member browser-session cookie |
+| GET | `/join` | Join or member runtime cookie | Serves the clean join page after QR bootstrap |
+| GET | `/member` | Join or member runtime cookie | Serves the thin member runtime shell |
+| GET | `/api/member/session` | Join or member runtime cookie | Reports current member browser-session status |
+| POST | `/api/member/runtime-session` | Short-lived member session code | Exchanges a post-auth browser code into the member runtime cookie |
+| DELETE | `/api/member/session` | Join or member runtime cookie | Clears the current member browser-session cookies |
 | GET | `/api/operation/status` | Coordinator only | Operation metadata and stats |
 | GET | `/api/members` | Coordinator only | List all members with roles and status |
 | POST | `/api/members/<id>/promote` | Coordinator only | Promote observer to sensor |
@@ -340,7 +341,7 @@ Single WebSocket endpoint: `wss://<hub>/ws`
 
 | Type | Format | Roles | Description |
 |---|---|---|---|
-| `auth` | `{"type":"auth", "name":"<name>"}` or `{"type":"auth", "token":"<token>", "name":"<name>"}` | All | First message after connect. Browser members can authenticate from the cookie-backed join session; non-browser clients can still send the token explicitly. Hub responds with `{"type":"auth_ok", "member_id":"<id>", "role":"observer"}` or closes connection. |
+| `auth` | `{"type":"auth", "name":"<name>"}` or `{"type":"auth", "token":"<token>", "name":"<name>"}` | All | First message after connect. Browser members can authenticate from the cookie-backed join/runtime sessions; non-browser clients can still send the token explicitly. Hub responds with `auth_ok` including `member_id`, `role`, and a short-lived `member_session_code` for browser runtime-session upgrade, or closes the connection. |
 | `audio` | Binary frame (PCM 16-bit, 16kHz) | Sensor | Audio chunk. Preceded by `{"type":"audio_meta", "duration_ms": N}` JSON frame. |
 | `key_frame` | Binary frame (JPEG) | Sensor | Key frame from edge sampling. Preceded by `{"type":"frame_meta", "change_score": 0.0-1.0}` JSON frame. |
 | `gps` | `{"type":"gps", "lat": N, "lon": N, "accuracy": N}` | All | Location update. |
