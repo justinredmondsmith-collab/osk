@@ -370,15 +370,16 @@ flows on real devices and tightening the gaps those exercises expose.
   on a real machine if you want a disposable mocked `/join` -> `/member` smoke
   target for phone/browser testing outside the main hub runtime; the helper now
   also exposes smoke-only control routes for status, role promotion, and live
-  wipe / `op_ended` testing
+  wipe / `op_ended` testing, plus smoke-only synthetic sensor audio/frame
+  controls so bounded sensor replay can be exercised without mic/camera access
 - That smoke path has now been exercised on a real WLAN browser for
   join, offline field-note queueing, reconnect replay, page reload / session
   resume, and live wipe clearing; treat that as validated behavior for the
   helper path, not for every browser/device or for disconnected wipe cleanup
 - Run `scripts/member_shell_playwright_smoke.sh` in an environment where
   localhost is reachable from Playwright if you want a browser-driven smoke of
-  join, member-shell load, offline queueing, reconnect replay, page reload /
-  session restore, and live wipe clearing
+  join, member-shell load, offline field-note plus synthetic sensor queueing,
+  reconnect replay, page reload / session restore, and live wipe clearing
 - Use `/api/intelligence/status`, `/api/intelligence/observations`,
   `/api/intelligence/findings`, `/api/intelligence/review-feed`, `/api/events`,
   `/api/sitreps`, `/api/coordinator/dashboard-state`, and

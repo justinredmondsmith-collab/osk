@@ -118,6 +118,7 @@ HELPER_PID="$!"
 
 JOIN_URL=""
 WIPE_URL=""
+PROMOTE_LATEST_URL=""
 for _ in $(seq 1 40); do
   if [[ -f "${METADATA_PATH}" ]]; then
     JOIN_URL="$(python - <<'PY' "${METADATA_PATH}"
@@ -136,6 +137,15 @@ from pathlib import Path
 
 payload = json.loads(Path(sys.argv[1]).read_text())
 print(payload.get("controls", {}).get("wipe_url", ""))
+PY
+)"
+    PROMOTE_LATEST_URL="$(python - <<'PY' "${METADATA_PATH}"
+import json
+import sys
+from pathlib import Path
+
+payload = json.loads(Path(sys.argv[1]).read_text())
+print(payload.get("controls", {}).get("promote_latest_url", ""))
 PY
 )"
     if curl -sS -I "${JOIN_URL}" >/dev/null; then
@@ -163,7 +173,22 @@ if [[ -z "${WIPE_URL}" ]]; then
   exit 1
 fi
 
+if [[ -z "${PROMOTE_LATEST_URL}" ]]; then
+  echo "Smoke helper metadata did not expose a promote-latest control URL." >&2
+  cat "${METADATA_PATH}" >&2 || true
+  exit 1
+fi
+
+PROMOTE_LATEST_URL_JSON="$(python - <<'PY' "${PROMOTE_LATEST_URL}"
+import json
+import sys
+
+print(json.dumps(sys.argv[1]))
+PY
+)"
+
 SMOKE_CODE=$(cat <<'EOF'
+const promoteUrl = __PROMOTE_LATEST_URL__;
 const displayName = `Smoke ${Date.now()}`;
 await page.waitForLoadState("networkidle");
 await page.locator("#join-display-name").fill(displayName);
@@ -177,15 +202,55 @@ await page.waitForFunction(() => {
   return memberId && memberId !== "--";
 }, { timeout: 15000 });
 
+const promoteResult = await page.evaluate(async (url) => {
+  const response = await fetch(url, { method: "POST" });
+  let payload = {};
+  try {
+    payload = await response.json();
+  } catch (error) {
+    payload = {};
+  }
+  return {
+    ok: response.ok,
+    status: response.status,
+    payload,
+  };
+}, promoteUrl);
+if (!promoteResult.ok) {
+  throw new Error(`Promote latest failed: ${promoteResult.status} ${JSON.stringify(promoteResult.payload)}`);
+}
+
+await page.waitForFunction(() => {
+  const role = document.querySelector("#runtime-role")?.textContent?.trim()?.toLowerCase() || "";
+  return role.includes("sensor");
+}, { timeout: 15000 });
+await page.waitForFunction(() => {
+  const audioButton = document.querySelector("#runtime-sensor-smoke-audio");
+  const frameButton = document.querySelector("#runtime-sensor-smoke-frame");
+  const controls = document.querySelector("#runtime-sensor-smoke-actions");
+  return Boolean(
+    controls &&
+    !controls.hidden &&
+    audioButton &&
+    frameButton &&
+    !audioButton.disabled &&
+    !frameButton.disabled
+  );
+}, { timeout: 15000 });
+
 await page.context().setOffline(true);
 await page.locator("#runtime-report-text").fill("Playwright offline note");
 await page.locator("#runtime-report-form").evaluate((form) => form.requestSubmit());
+await page.locator("#runtime-sensor-smoke-audio").click();
+await page.locator("#runtime-sensor-smoke-frame").click();
 await page.waitForFunction(() => {
-  return document.querySelector("#runtime-outbox-count")?.textContent?.trim() !== "0";
+  return Number(document.querySelector("#runtime-outbox-count")?.textContent?.trim() || "0") >= 3;
 }, { timeout: 10000 });
 
 const queuedCount = document.querySelector("#runtime-outbox-count")?.textContent?.trim() || "0";
 const queuedState = document.querySelector("#runtime-outbox-state")?.textContent?.trim() || "";
+const sensorState = document.querySelector("#runtime-sensor-state")?.textContent?.trim() || "";
+const sensorDetail = document.querySelector("#runtime-sensor-detail")?.textContent?.trim() || "";
 
 await page.context().setOffline(false);
 await page.waitForFunction(() => {
@@ -203,19 +268,25 @@ const operationName = document.querySelector("#runtime-operation-name")?.textCon
 const connectionLabel = document.querySelector("#runtime-connection-label")?.textContent?.trim() || "";
 const reportStatus = document.querySelector("#runtime-report-status")?.textContent?.trim() || "";
 const sessionState = document.querySelector("#runtime-session-state")?.textContent?.trim() || "";
+const role = document.querySelector("#runtime-role")?.textContent?.trim() || "";
 
 return JSON.stringify({
   url: page.url(),
   displayName,
   operationName,
+  role,
   connectionLabel,
   sessionState,
   queuedCount,
   queuedState,
+  sensorState,
+  sensorDetail,
   reportStatus,
+  promotePayload: promoteResult.payload,
 });
 EOF
 )
+SMOKE_CODE="${SMOKE_CODE/__PROMOTE_LATEST_URL__/${PROMOTE_LATEST_URL_JSON}}"
 
 WIPE_VERIFY_CODE=$(cat <<'EOF'
 await page.waitForFunction(() => {

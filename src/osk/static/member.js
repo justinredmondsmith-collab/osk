@@ -6,6 +6,9 @@
 
   const bootstrap = JSON.parse(bootstrapNode.textContent || "{}");
   const runtimeConfig = bootstrap.runtime || {};
+  function runtimeFlagEnabled(value) {
+    return value === true || value === 1 || value === "1" || value === "true";
+  }
   const reconnectConfig = {
     baseDelayMs: Math.max(750, Number(runtimeConfig.reconnect_base_delay_ms || 1500)),
     maxDelayMs: Math.max(2500, Number(runtimeConfig.reconnect_max_delay_ms || 10000)),
@@ -60,6 +63,9 @@
       1,
       Number(runtimeConfig.sensor_frame_buffer_limit || 4),
     ),
+  };
+  const smokeConfig = {
+    syntheticSensorCaptureEnabled: runtimeFlagEnabled(runtimeConfig.smoke_sensor_capture_enabled),
   };
   const manualReportMaxLength = Math.max(
     80,
@@ -158,6 +164,10 @@
     runtimeSensorPreviewCopy: document.getElementById("runtime-sensor-preview-copy"),
     runtimeSensorToggle: document.getElementById("runtime-sensor-toggle"),
     runtimeAudioToggle: document.getElementById("runtime-audio-toggle"),
+    runtimeSensorSmokeActions: document.getElementById("runtime-sensor-smoke-actions"),
+    runtimeSensorSmokeCopy: document.getElementById("runtime-sensor-smoke-copy"),
+    runtimeSensorSmokeAudio: document.getElementById("runtime-sensor-smoke-audio"),
+    runtimeSensorSmokeFrame: document.getElementById("runtime-sensor-smoke-frame"),
     runtimeObserverPanel: document.getElementById("runtime-observer-panel"),
     runtimeObserverSummary: document.getElementById("runtime-observer-summary"),
     runtimePhotoState: document.getElementById("runtime-photo-state"),
@@ -194,6 +204,13 @@
 
   function isSensorRole(role) {
     return String(role || "").toLowerCase() === "sensor";
+  }
+
+  function createLocalId(prefix) {
+    if (globalThis.crypto && typeof globalThis.crypto.randomUUID === "function") {
+      return `${prefix}-${globalThis.crypto.randomUUID()}`;
+    }
+    return `${prefix}-${Date.now()}-${Math.round(Math.random() * 1e9)}`;
   }
 
   async function fetchJson(path, options = {}) {
@@ -1074,6 +1091,127 @@
     return nextSnapshot;
   }
 
+  async function submitSensorMedia(kind, metadata, blob) {
+    if (isSocketOpen() && state.authenticated) {
+      const metadataSent = sendSocketJson(metadata);
+      const payloadSent = metadataSent && sendSocketBinary(blob);
+      if (metadataSent && payloadSent) {
+        return "sent";
+      }
+    }
+    await queueSensorMedia(kind, metadata, blob);
+    return "queued";
+  }
+
+  async function buildSyntheticSensorAudioSample() {
+    const capturedAt = new Date().toISOString();
+    const chunkId = createLocalId("smoke-audio");
+    const durationMs = 1600;
+    const payloadBytes = new Uint8Array(2048);
+    for (let index = 0; index < payloadBytes.length; index += 1) {
+      payloadBytes[index] = index % 251;
+    }
+    const blob = new Blob([payloadBytes], { type: "audio/webm" });
+    const memberId = String(sessionStorage.getItem(storageKeys.memberId) || "").trim();
+    return {
+      metadata: {
+        type: "audio_meta",
+        chunk_id: chunkId,
+        ingest_key: memberId ? `${memberId}:audio:${chunkId}` : chunkId,
+        sequence_no: 0,
+        duration_ms: durationMs,
+        sample_rate_hz: 16000,
+        codec: "audio/webm",
+        captured_at: capturedAt,
+        smoke_capture: true,
+      },
+      blob,
+    };
+  }
+
+  async function buildSyntheticSensorFrameSample() {
+    const canvas = document.createElement("canvas");
+    canvas.width = 640;
+    canvas.height = 360;
+    const context = canvas.getContext("2d");
+    if (!context) {
+      throw new Error("Synthetic sensor frame could not be rendered in this browser.");
+    }
+    context.fillStyle = "#09111a";
+    context.fillRect(0, 0, canvas.width, canvas.height);
+    context.fillStyle = "#ffcf66";
+    context.fillRect(24, 24, 180, 80);
+    context.fillStyle = "#0f1f2c";
+    context.font = "bold 30px sans-serif";
+    context.fillText("OSK SMOKE", 44, 74);
+    context.fillStyle = "#c7f0ff";
+    context.font = "20px sans-serif";
+    context.fillText(new Date().toISOString(), 24, 134);
+    const blob = await new Promise((resolve, reject) => {
+      canvas.toBlob(
+        (nextBlob) => {
+          if (!nextBlob) {
+            reject(new Error("Synthetic sensor frame encoding failed."));
+            return;
+          }
+          resolve(nextBlob);
+        },
+        "image/jpeg",
+        0.78,
+      );
+    });
+    const frameId = createLocalId("smoke-frame");
+    const capturedAt = new Date().toISOString();
+    const memberId = String(sessionStorage.getItem(storageKeys.memberId) || "").trim();
+    return {
+      metadata: {
+        type: "frame_meta",
+        frame_id: frameId,
+        ingest_key: memberId ? `${memberId}:frame:${frameId}` : frameId,
+        sequence_no: 0,
+        content_type: "image/jpeg",
+        width: canvas.width,
+        height: canvas.height,
+        change_score: 1.0,
+        captured_at: capturedAt,
+        smoke_capture: true,
+      },
+      blob,
+    };
+  }
+
+  async function queueSyntheticSensorCapture(kind) {
+    if (!smokeConfig.syntheticSensorCaptureEnabled) {
+      throw new Error("Synthetic sensor capture is unavailable in this runtime.");
+    }
+    if (!isSensorRole(state.sensor.role)) {
+      throw new Error("Promote this member to sensor before queueing smoke media.");
+    }
+    if (!memberOutboxReady()) {
+      throw new Error("Secure member session is not ready yet for smoke media.");
+    }
+    const sample =
+      kind === "audio"
+        ? await buildSyntheticSensorAudioSample()
+        : await buildSyntheticSensorFrameSample();
+    const result = await submitSensorMedia(kind, sample.metadata, sample.blob);
+    if (result === "queued") {
+      pushFeed(
+        kind === "audio"
+          ? "Smoke sensor audio queued locally for reconnect."
+          : "Smoke sensor frame queued locally for reconnect.",
+        "warning",
+      );
+      return;
+    }
+    pushFeed(
+      kind === "audio"
+        ? "Smoke sensor audio sent to the hub."
+        : "Smoke sensor frame sent to the hub.",
+      "note",
+    );
+  }
+
   function refreshGpsState() {
     if (!navigator.geolocation) {
       setGpsState("Unsupported", "This browser cannot share location.");
@@ -1250,6 +1388,14 @@
     }
     if (elements.runtimeSensorSignal) {
       elements.runtimeSensorSignal.hidden = !sensorRole;
+    }
+    if (elements.runtimeSensorSmokeActions) {
+      elements.runtimeSensorSmokeActions.hidden =
+        !sensorRole || !smokeConfig.syntheticSensorCaptureEnabled;
+    }
+    if (elements.runtimeSensorSmokeCopy) {
+      elements.runtimeSensorSmokeCopy.hidden =
+        !sensorRole || !smokeConfig.syntheticSensorCaptureEnabled;
     }
 
     if (!sensorRole) {
@@ -1488,6 +1634,20 @@
         ? "Unmute mic"
         : "Mute mic";
     }
+    if (elements.runtimeSensorSmokeAudio) {
+      elements.runtimeSensorSmokeAudio.disabled =
+        !smokeConfig.syntheticSensorCaptureEnabled ||
+        !isSensorRole(state.sensor.role) ||
+        !outboxReady ||
+        state.endingOperation;
+    }
+    if (elements.runtimeSensorSmokeFrame) {
+      elements.runtimeSensorSmokeFrame.disabled =
+        !smokeConfig.syntheticSensorCaptureEnabled ||
+        !isSensorRole(state.sensor.role) ||
+        !outboxReady ||
+        state.endingOperation;
+    }
     if (elements.runtimePhotoCapture) {
       const photoBusy = Boolean(state.observer.snapshot?.photo?.capturing);
       elements.runtimePhotoCapture.disabled =
@@ -1535,14 +1695,7 @@
           if (!metadata) {
             return false;
           }
-          if (isSocketOpen() && state.authenticated) {
-            const metadataSent = sendSocketJson(metadata);
-            const payloadSent = metadataSent && sendSocketBinary(blob);
-            if (metadataSent && payloadSent) {
-              return true;
-            }
-          }
-          await queueSensorMedia("audio", metadata, blob);
+          await submitSensorMedia("audio", metadata, blob);
           return true;
         },
         getContext: () => ({
@@ -1580,14 +1733,7 @@
           if (!metadata) {
             return false;
           }
-          if (isSocketOpen() && state.authenticated) {
-            const metadataSent = sendSocketJson(metadata);
-            const payloadSent = metadataSent && sendSocketBinary(blob);
-            if (metadataSent && payloadSent) {
-              return true;
-            }
-          }
-          await queueSensorMedia("frame", metadata, blob);
+          await submitSensorMedia("frame", metadata, blob);
           return true;
         },
         getContext: () => ({
@@ -1931,6 +2077,11 @@
     const outboxAck = state.outbox.client
       ? await state.outbox.client.handleAck(payload)
       : { handled: false, retryable: false };
+    const smokeCaptureId =
+      kind === "audio"
+        ? String(payload.chunk_id || "").trim()
+        : String(payload.frame_id || "").trim();
+    const isSmokeCapture = smokeCaptureId.startsWith("smoke-");
     if (kind === "audio" && state.sensor.audioCapture) {
       state.sensor.audioCapture.handleAck(payload);
     }
@@ -1961,6 +2112,21 @@
         );
       } else if (payload.accepted === false && outboxAck.retryable) {
         pushFeed("Manual photo is still queued and will retry on reconnect.", "warning");
+      }
+    }
+    if (isSmokeCapture) {
+      if (payload.accepted === true) {
+        pushFeed(
+          payload.duplicate
+            ? `Smoke sensor ${kind} was already received by the hub.`
+            : `Smoke sensor ${kind} delivered to the hub.`,
+          payload.duplicate ? "note" : "success",
+        );
+      } else if (outboxAck.retryable) {
+        pushFeed(
+          `Smoke sensor ${kind} remains queued locally and will retry on reconnect.`,
+          "warning",
+        );
       }
     }
     if (payload.accepted === false && !outboxAck.retryable) {
@@ -2304,6 +2470,28 @@
     if (elements.runtimeAudioToggle) {
       elements.runtimeAudioToggle.addEventListener("click", () => {
         toggleAudioMute();
+      });
+    }
+
+    if (elements.runtimeSensorSmokeAudio) {
+      elements.runtimeSensorSmokeAudio.addEventListener("click", () => {
+        void queueSyntheticSensorCapture("audio").catch((error) => {
+          pushFeed(
+            error instanceof Error ? error.message : "Smoke sensor audio could not be queued.",
+            "warning",
+          );
+        });
+      });
+    }
+
+    if (elements.runtimeSensorSmokeFrame) {
+      elements.runtimeSensorSmokeFrame.addEventListener("click", () => {
+        void queueSyntheticSensorCapture("frame").catch((error) => {
+          pushFeed(
+            error instanceof Error ? error.message : "Smoke sensor frame could not be queued.",
+            "warning",
+          );
+        });
       });
     }
 

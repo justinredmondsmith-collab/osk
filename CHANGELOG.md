@@ -152,8 +152,9 @@ changes manually while the project is in its early public setup phase.
   than tab-local counters, avoiding false duplicate collisions after reloads
   inside the retained ingest-receipt window
 - The member-shell smoke helper now exposes smoke-only status/promote/wipe
-  controls, and the Playwright smoke path now exercises reload/resume and live
-  wipe clearing in addition to offline queue replay
+  controls plus smoke-only synthetic sensor media actions, and the Playwright
+  smoke path now exercises offline field-note plus synthetic sensor replay,
+  reload/resume, and live wipe clearing
 - The disposable member-shell smoke path has now also been exercised on a real
   WLAN browser for join, offline field-note replay after reconnect,
   reload/session resume, and live wipe clearing

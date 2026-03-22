@@ -186,6 +186,7 @@ def build_app(*, operation_name: str):
         conn_manager=conn_manager,
         db=db,
         intelligence_service=intelligence_service,
+        member_runtime_overrides={"smoke_sensor_capture_enabled": True},
     )
 
     @app.get("/__smoke/status")
@@ -307,11 +308,12 @@ def main() -> int:
     print(
         "3. Toggle the browser offline, queue a field note, and confirm it appears in the outbox."
     )
-    print("4. If camera/mic permissions are available, queue a photo or short clip offline.")
-    print("5. Restore connectivity and confirm queued items replay and disappear.")
-    print("6. Reload /member and confirm the secure member session resumes.")
-    print("7. POST to /__smoke/wipe and confirm the browser clears into the local wiped shell.")
-    print("8. If the browser supports it, test the install prompt and standalone launch.")
+    print("4. Optionally POST to /__smoke/promote-latest, then queue smoke audio/frame offline.")
+    print("5. If camera/mic permissions are available, queue a photo or short clip offline.")
+    print("6. Restore connectivity and confirm queued items replay and disappear.")
+    print("7. Reload /member and confirm the secure member session resumes.")
+    print("8. POST to /__smoke/wipe and confirm the browser clears into the local wiped shell.")
+    print("9. If the browser supports it, test the install prompt and standalone launch.")
     print()
     print("Press Ctrl+C to stop.")
     print()

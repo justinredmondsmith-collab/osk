@@ -74,11 +74,14 @@ The repository now includes:
 - A manual browser/device smoke helper at `scripts/member_shell_smoke.py` for
   testing the member shell against a disposable mocked hub outside CI/sandboxed
   environments; it now includes smoke-only control routes for status, role
-  promotion, and live wipe / `op_ended` checks
+  promotion, and live wipe / `op_ended` checks, plus smoke-only synthetic
+  sensor media controls so bounded replay can be exercised without device
+  permissions
 - A Playwright-driven browser smoke helper at
   `scripts/member_shell_playwright_smoke.sh` for environments where localhost
-  is reachable from the browser runtime, now covering queue replay, reload /
-  resume, and live wipe clearing
+  is reachable from the browser runtime, now covering offline queue replay for
+  field notes plus synthetic sensor media, reload / resume, and live wipe
+  clearing
 
 The repository does **not** yet contain the full production-grade or fully
 validated versions of the intelligence pipeline, synthesis/review system,

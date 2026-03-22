@@ -807,8 +807,33 @@ def _parse_review_feed_types(include: list[str] | None) -> tuple[set[str] | None
     return include_types, invalid_types
 
 
-def _member_session_bootstrap() -> dict[str, object]:
+def _member_session_bootstrap(
+    runtime_overrides: dict[str, object] | None = None,
+) -> dict[str, object]:
     config = load_config()
+    runtime = {
+        "gps_interval_moving_seconds": config.gps_interval_moving_seconds,
+        "gps_interval_stationary_seconds": config.gps_interval_stationary_seconds,
+        "gps_significant_change_meters": 15,
+        "manual_report_max_length": 280,
+        "reconnect_base_delay_ms": 1500,
+        "reconnect_max_delay_ms": 10000,
+        "audio_chunk_ms": 4000,
+        "frame_sampling_fps": config.frame_sampling_fps,
+        "frame_change_threshold": config.frame_change_threshold,
+        "frame_baseline_interval_seconds": config.frame_baseline_interval_seconds,
+        "frame_jpeg_quality": 0.68,
+        "sensor_video_width": 960,
+        "sensor_video_height": 540,
+        "observer_clip_duration_seconds": config.observer_clip_duration_seconds,
+        "observer_clip_cooldown_seconds": config.observer_clip_cooldown_seconds,
+        "observer_photo_quality": config.observer_photo_quality,
+        "member_outbox_max_items": config.member_outbox_max_items,
+        "sensor_audio_buffer_limit": config.sensor_audio_buffer_limit,
+        "sensor_frame_buffer_limit": config.sensor_frame_buffer_limit,
+    }
+    if runtime_overrides:
+        runtime.update(runtime_overrides)
     return {
         "paths": {
             "member_session": "/api/member/session",
@@ -817,27 +842,7 @@ def _member_session_bootstrap() -> dict[str, object]:
             "join_page": "/join",
             "websocket": "/ws",
         },
-        "runtime": {
-            "gps_interval_moving_seconds": config.gps_interval_moving_seconds,
-            "gps_interval_stationary_seconds": config.gps_interval_stationary_seconds,
-            "gps_significant_change_meters": 15,
-            "manual_report_max_length": 280,
-            "reconnect_base_delay_ms": 1500,
-            "reconnect_max_delay_ms": 10000,
-            "audio_chunk_ms": 4000,
-            "frame_sampling_fps": config.frame_sampling_fps,
-            "frame_change_threshold": config.frame_change_threshold,
-            "frame_baseline_interval_seconds": config.frame_baseline_interval_seconds,
-            "frame_jpeg_quality": 0.68,
-            "sensor_video_width": 960,
-            "sensor_video_height": 540,
-            "observer_clip_duration_seconds": config.observer_clip_duration_seconds,
-            "observer_clip_cooldown_seconds": config.observer_clip_cooldown_seconds,
-            "observer_photo_quality": config.observer_photo_quality,
-            "member_outbox_max_items": config.member_outbox_max_items,
-            "sensor_audio_buffer_limit": config.sensor_audio_buffer_limit,
-            "sensor_frame_buffer_limit": config.sensor_frame_buffer_limit,
-        },
+        "runtime": runtime,
     }
 
 
@@ -1176,6 +1181,7 @@ def create_app(
     conn_manager: ConnectionManager,
     db,
     intelligence_service=None,
+    member_runtime_overrides: dict[str, object] | None = None,
 ) -> FastAPI:
     app = FastAPI(title="Osk Hub", docs_url=None, redoc_url=None)
     app.state.intelligence_service = intelligence_service
@@ -1225,7 +1231,7 @@ def create_app(
         runtime_token = _member_runtime_session_token_from_request(request)
         runtime_session = _member_runtime_session_from_request(request, op_manager)
         bootstrap = {
-            **_member_session_bootstrap(),
+            **_member_session_bootstrap(member_runtime_overrides),
             "page": "join",
             "session_authenticated": authenticated or runtime_session is not None,
         }
@@ -1249,7 +1255,7 @@ def create_app(
         runtime_token = _member_runtime_session_token_from_request(request)
         runtime_session = _member_runtime_session_from_request(request, op_manager)
         bootstrap = {
-            **_member_session_bootstrap(),
+            **_member_session_bootstrap(member_runtime_overrides),
             "page": "member",
             "session_authenticated": join_authenticated or runtime_session is not None,
         }

@@ -192,6 +192,32 @@
                 Mute mic
               </button>
             </div>
+
+            <div
+              class="member-control-actions member-control-actions--sensor"
+              id="runtime-sensor-smoke-actions"
+              hidden
+            >
+              <button
+                class="member-button member-button--ghost"
+                id="runtime-sensor-smoke-audio"
+                type="button"
+              >
+                Queue smoke audio
+              </button>
+              <button
+                class="member-button member-button--ghost"
+                id="runtime-sensor-smoke-frame"
+                type="button"
+              >
+                Queue smoke frame
+              </button>
+            </div>
+            <p class="member-subtle" id="runtime-sensor-smoke-copy" hidden>
+              Smoke helper only. These controls queue synthetic sensor media so
+              reconnect buffering and replay can be exercised without mic/camera
+              permissions.
+            </p>
           </section>
 
           <section class="member-control">

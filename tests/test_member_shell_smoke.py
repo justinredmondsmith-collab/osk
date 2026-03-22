@@ -87,3 +87,16 @@ def test_smoke_member_report_ack_works() -> None:
     assert ack["type"] == "report_ack"
     assert ack["accepted"] is True
     assert ack["report_id"] == "report-1"
+
+
+def test_smoke_member_page_enables_synthetic_sensor_controls() -> None:
+    smoke = _load_smoke_module()
+    app, _operation = smoke.build_app(operation_name="Smoke Test")
+
+    with TestClient(app) as client:
+        response = client.get("/member")
+
+    assert response.status_code == 200
+    assert "Queue smoke audio" in response.text
+    assert "Queue smoke frame" in response.text
+    assert '"smoke_sensor_capture_enabled": true' in response.text
