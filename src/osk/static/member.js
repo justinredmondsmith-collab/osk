@@ -24,6 +24,18 @@
       Number(runtimeConfig.gps_significant_change_meters || 15),
     ),
   };
+  const sensorConfig = {
+    audioChunkMs: Math.max(1000, Number(runtimeConfig.audio_chunk_ms || 4000)),
+    frameSamplingFps: Math.max(0.5, Number(runtimeConfig.frame_sampling_fps || 2)),
+    frameChangeThreshold: Math.max(0, Number(runtimeConfig.frame_change_threshold || 0.15)),
+    frameBaselineIntervalSeconds: Math.max(
+      5,
+      Number(runtimeConfig.frame_baseline_interval_seconds || 30),
+    ),
+    frameJpegQuality: Math.min(0.92, Math.max(0.3, Number(runtimeConfig.frame_jpeg_quality || 0.68))),
+    videoWidth: Math.max(320, Number(runtimeConfig.sensor_video_width || 960)),
+    videoHeight: Math.max(240, Number(runtimeConfig.sensor_video_height || 540)),
+  };
   const manualReportMaxLength = Math.max(
     80,
     Number(runtimeConfig.manual_report_max_length || 280),
@@ -35,6 +47,8 @@
     operationName: "osk_operation_name",
     resumeToken: "osk_member_resume_token",
     gpsEnabled: "osk_member_gps_enabled",
+    sensorEnabled: "osk_member_sensor_enabled",
+    audioMuted: "osk_member_audio_muted",
   };
 
   const state = {
@@ -56,6 +70,14 @@
       lastSentAt: null,
       lastSentPosition: null,
       error: null,
+    },
+    sensor: {
+      role: "observer",
+      starting: false,
+      audioCapture: null,
+      frameSampler: null,
+      audio: null,
+      frame: null,
     },
   };
 
@@ -87,6 +109,19 @@
     runtimeReportText: document.getElementById("runtime-report-text"),
     runtimeReportStatus: document.getElementById("runtime-report-status"),
     runtimeReportSend: document.getElementById("runtime-report-send"),
+    runtimeSensorSignal: document.getElementById("runtime-sensor-signal"),
+    runtimeSensorState: document.getElementById("runtime-sensor-state"),
+    runtimeSensorDetail: document.getElementById("runtime-sensor-detail"),
+    runtimeSensorPanel: document.getElementById("runtime-sensor-panel"),
+    runtimeSensorSummary: document.getElementById("runtime-sensor-summary"),
+    runtimeAudioState: document.getElementById("runtime-audio-state"),
+    runtimeAudioDetail: document.getElementById("runtime-audio-detail"),
+    runtimeFrameState: document.getElementById("runtime-frame-state"),
+    runtimeFrameDetail: document.getElementById("runtime-frame-detail"),
+    runtimeSensorPreview: document.getElementById("runtime-sensor-preview"),
+    runtimeSensorPreviewCopy: document.getElementById("runtime-sensor-preview-copy"),
+    runtimeSensorToggle: document.getElementById("runtime-sensor-toggle"),
+    runtimeAudioToggle: document.getElementById("runtime-audio-toggle"),
   };
 
   function escapeHtml(value) {
@@ -100,6 +135,10 @@
 
   function normalizeWhitespace(value) {
     return String(value ?? "").replace(/\s+/g, " ").trim();
+  }
+
+  function isSensorRole(role) {
+    return String(role || "").toLowerCase() === "sensor";
   }
 
   async function fetchJson(path, options = {}) {
@@ -161,12 +200,39 @@
     }
   }
 
+  function setSensorPreference(enabled) {
+    if (enabled) {
+      sessionStorage.setItem(storageKeys.sensorEnabled, "1");
+    } else {
+      sessionStorage.setItem(storageKeys.sensorEnabled, "0");
+    }
+  }
+
+  function shouldAutoStartSensorCapture() {
+    const stored = sessionStorage.getItem(storageKeys.sensorEnabled);
+    return stored === null ? true : stored === "1";
+  }
+
+  function setAudioMutePreference(muted) {
+    if (muted) {
+      sessionStorage.setItem(storageKeys.audioMuted, "1");
+    } else {
+      sessionStorage.removeItem(storageKeys.audioMuted);
+    }
+  }
+
+  function shouldStartMuted() {
+    return sessionStorage.getItem(storageKeys.audioMuted) === "1";
+  }
+
   function clearLocalMemberState() {
     sessionStorage.removeItem(storageKeys.memberId);
     sessionStorage.removeItem(storageKeys.memberName);
     sessionStorage.removeItem(storageKeys.operationName);
     sessionStorage.removeItem(storageKeys.resumeToken);
     sessionStorage.removeItem(storageKeys.gpsEnabled);
+    sessionStorage.removeItem(storageKeys.sensorEnabled);
+    sessionStorage.removeItem(storageKeys.audioMuted);
   }
 
   function formatTime(timestamp) {
@@ -256,7 +322,7 @@
         elements.runtimeGpsToggle.disabled = true;
         elements.runtimeGpsToggle.textContent = "GPS unsupported";
       } else {
-        elements.runtimeGpsToggle.disabled = false;
+        elements.runtimeGpsToggle.disabled = state.endingOperation;
         elements.runtimeGpsToggle.textContent = state.gps.active ? "Stop GPS" : "Start GPS";
       }
     }
@@ -266,10 +332,6 @@
     if (elements.runtimeReportStatus) {
       elements.runtimeReportStatus.textContent = message;
       elements.runtimeReportStatus.classList.toggle("is-error", error);
-    }
-    if (elements.runtimeReportSend) {
-      const socketOpen = state.socket && state.socket.readyState === WebSocket.OPEN;
-      elements.runtimeReportSend.disabled = state.manualReportPending || !socketOpen;
     }
   }
 
@@ -427,6 +489,14 @@
     return true;
   }
 
+  function sendSocketBinary(payload) {
+    if (!isSocketOpen()) {
+      return false;
+    }
+    state.socket.send(payload);
+    return true;
+  }
+
   function refreshGpsState() {
     if (!navigator.geolocation) {
       setGpsState("Unsupported", "This browser cannot share location.");
@@ -529,14 +599,14 @@
         state.gps.error = null;
         maybeSendLatestGps({ force: state.gps.lastSentAt === null });
       },
-      (error) => {
+      (gpsError) => {
         const message =
-          error && error.code === error.PERMISSION_DENIED
+          gpsError && gpsError.code === gpsError.PERMISSION_DENIED
             ? "Location permission was denied."
             : "Location fix unavailable.";
         state.gps.error = message;
         pushFeed(message, "warning");
-        if (error && error.code === error.PERMISSION_DENIED) {
+        if (gpsError && gpsError.code === gpsError.PERMISSION_DENIED) {
           stopGpsWatch({ preserveError: true });
           return;
         }
@@ -560,6 +630,334 @@
     pushFeed("Location sharing requested.", "note");
   }
 
+  function updateSensorSnapshot(kind, snapshot) {
+    state.sensor[kind] = snapshot || null;
+    refreshSensorUi();
+    updateActionAvailability();
+  }
+
+  function sensorStreamRunning() {
+    return Boolean(state.sensor.audio?.running || state.sensor.frame?.running || state.sensor.starting);
+  }
+
+  function renderSensorStatus(stateLabel, detailLabel) {
+    if (elements.runtimeSensorState) {
+      elements.runtimeSensorState.textContent = stateLabel;
+    }
+    if (elements.runtimeSensorDetail) {
+      elements.runtimeSensorDetail.textContent = detailLabel;
+    }
+  }
+
+  function refreshSensorUi() {
+    const sensorRole = isSensorRole(state.sensor.role);
+    if (elements.runtimeSensorPanel) {
+      elements.runtimeSensorPanel.hidden = !sensorRole;
+    }
+    if (elements.runtimeSensorSignal) {
+      elements.runtimeSensorSignal.hidden = !sensorRole;
+    }
+
+    if (!sensorRole) {
+      renderSensorStatus("Observer", "Promote this member to sensor to start live capture.");
+      if (elements.runtimeSensorSummary) {
+        elements.runtimeSensorSummary.textContent =
+          "Observer mode. Promote this member to sensor before starting live capture.";
+      }
+      if (elements.runtimeAudioState) {
+        elements.runtimeAudioState.textContent = "Idle";
+      }
+      if (elements.runtimeAudioDetail) {
+        elements.runtimeAudioDetail.textContent = "No microphone capture yet.";
+      }
+      if (elements.runtimeFrameState) {
+        elements.runtimeFrameState.textContent = "Idle";
+      }
+      if (elements.runtimeFrameDetail) {
+        elements.runtimeFrameDetail.textContent = "No camera sampling yet.";
+      }
+      return;
+    }
+
+    const audio = state.sensor.audio || {};
+    const frame = state.sensor.frame || {};
+    const audioAck = audio.lastAck;
+    const frameAck = frame.lastAck;
+    const audioLive = Boolean(audio.running);
+    const frameLive = Boolean(frame.running);
+
+    let sensorState = "Ready";
+    let sensorDetail = "Waiting for sensor stream start.";
+    if (state.sensor.starting) {
+      sensorState = "Starting";
+      sensorDetail = "Requesting microphone and camera access.";
+    } else if (audioLive && frameLive) {
+      sensorState = "Live";
+      sensorDetail = "Microphone and key-frame sampling are active.";
+    } else if (audioLive || frameLive) {
+      sensorState = "Partial";
+      sensorDetail = "One live stream is active; the other needs attention.";
+    } else if (audio.error || frame.error) {
+      sensorState = "Blocked";
+      sensorDetail = audio.error || frame.error || "Sensor capture could not start.";
+    }
+    renderSensorStatus(sensorState, sensorDetail);
+
+    if (elements.runtimeSensorSummary) {
+      elements.runtimeSensorSummary.textContent = sensorDetail;
+    }
+
+    if (elements.runtimeAudioState) {
+      elements.runtimeAudioState.textContent = audio.error
+        ? "Blocked"
+        : audioLive
+          ? audio.muted
+            ? "Muted"
+            : "Live"
+          : "Idle";
+    }
+    if (elements.runtimeAudioDetail) {
+      if (audio.error) {
+        elements.runtimeAudioDetail.textContent = audio.error;
+      } else if (audioLive) {
+        const ackText =
+          audioAck && audioAck.accepted === false
+            ? ` · last ack rejected`
+            : audioAck && audioAck.duplicate
+              ? " · duplicate ack"
+              : "";
+        elements.runtimeAudioDetail.textContent = `${audio.emittedChunks || 0} chunks sent${ackText}`;
+      } else {
+        elements.runtimeAudioDetail.textContent = "No microphone capture yet.";
+      }
+    }
+
+    if (elements.runtimeFrameState) {
+      elements.runtimeFrameState.textContent = frame.error
+        ? "Blocked"
+        : frameLive
+          ? "Live"
+          : "Idle";
+    }
+    if (elements.runtimeFrameDetail) {
+      if (frame.error) {
+        elements.runtimeFrameDetail.textContent = frame.error;
+      } else if (frameLive) {
+        const score =
+          typeof frame.lastScore === "number" ? `score ${frame.lastScore.toFixed(2)}` : "sampling";
+        const ackText =
+          frameAck && frameAck.accepted === false
+            ? " · last ack rejected"
+            : frameAck && frameAck.duplicate
+              ? " · duplicate ack"
+              : "";
+        elements.runtimeFrameDetail.textContent = `${frame.emittedFrames || 0} frames sent · ${score}${ackText}`;
+      } else {
+        elements.runtimeFrameDetail.textContent = "No camera sampling yet.";
+      }
+    }
+  }
+
+  function updateActionAvailability() {
+    const socketOpen = isSocketOpen();
+    if (elements.runtimeReportText) {
+      elements.runtimeReportText.disabled = state.endingOperation;
+      elements.runtimeReportText.maxLength = manualReportMaxLength;
+    }
+    if (elements.runtimeReportSend) {
+      elements.runtimeReportSend.disabled =
+        !socketOpen || state.manualReportPending || state.endingOperation;
+    }
+    if (elements.runtimeSensorToggle) {
+      elements.runtimeSensorToggle.disabled =
+        !isSensorRole(state.sensor.role) ||
+        state.sensor.starting ||
+        (!socketOpen && !sensorStreamRunning()) ||
+        state.endingOperation;
+      elements.runtimeSensorToggle.textContent = sensorStreamRunning()
+        ? "Stop sensor stream"
+        : "Start sensor stream";
+    }
+    if (elements.runtimeAudioToggle) {
+      const audioRunning = Boolean(state.sensor.audio?.running);
+      elements.runtimeAudioToggle.disabled =
+        !isSensorRole(state.sensor.role) || !audioRunning || state.endingOperation;
+      elements.runtimeAudioToggle.textContent = state.sensor.audio?.muted
+        ? "Unmute mic"
+        : "Mute mic";
+    }
+  }
+
+  function ensureSensorModules() {
+    if (!state.sensor.audioCapture) {
+      const audioFactory = globalThis.OskAudioCapture?.createAudioCapture;
+      if (typeof audioFactory !== "function") {
+        throw new Error("Audio capture module is unavailable.");
+      }
+      state.sensor.audioCapture = audioFactory({
+        chunkMs: sensorConfig.audioChunkMs,
+        sendJson: sendSocketJson,
+        sendBinary: sendSocketBinary,
+        getContext: () => ({
+          memberId: sessionStorage.getItem(storageKeys.memberId) || "",
+        }),
+        onStateChange: (snapshot) => updateSensorSnapshot("audio", snapshot),
+        onError: (message) => {
+          pushFeed(message, "warning");
+        },
+      });
+    }
+
+    if (!state.sensor.frameSampler) {
+      const frameFactory = globalThis.OskFrameSampler?.createFrameSampler;
+      if (typeof frameFactory !== "function") {
+        throw new Error("Frame sampling module is unavailable.");
+      }
+      state.sensor.frameSampler = frameFactory({
+        fps: sensorConfig.frameSamplingFps,
+        threshold: sensorConfig.frameChangeThreshold,
+        baselineIntervalSeconds: sensorConfig.frameBaselineIntervalSeconds,
+        jpegQuality: sensorConfig.frameJpegQuality,
+        targetWidth: sensorConfig.videoWidth,
+        targetHeight: sensorConfig.videoHeight,
+        workerUrl: "/static/sampling-worker.js",
+        previewElement: elements.runtimeSensorPreview,
+        sendJson: sendSocketJson,
+        sendBinary: sendSocketBinary,
+        getContext: () => ({
+          memberId: sessionStorage.getItem(storageKeys.memberId) || "",
+        }),
+        onStateChange: (snapshot) => updateSensorSnapshot("frame", snapshot),
+        onError: (message) => {
+          pushFeed(message, "warning");
+        },
+      });
+    }
+  }
+
+  async function startSensorCapture({ automatic = false } = {}) {
+    if (!isSensorRole(state.sensor.role) || state.sensor.starting) {
+      return;
+    }
+    if (!isSocketOpen()) {
+      if (!automatic) {
+        pushFeed("Connection must be live before sensor capture can start.", "warning");
+      }
+      return;
+    }
+
+    setSensorPreference(true);
+    state.sensor.starting = true;
+    refreshSensorUi();
+    updateActionAvailability();
+
+    try {
+      ensureSensorModules();
+    } catch (error) {
+      state.sensor.starting = false;
+      refreshSensorUi();
+      updateActionAvailability();
+      pushFeed(error instanceof Error ? error.message : "Sensor modules are unavailable.", "critical");
+      return;
+    }
+
+    const failures = [];
+    try {
+      await state.sensor.audioCapture.start();
+      if (shouldStartMuted()) {
+        state.sensor.audioCapture.mute();
+      }
+    } catch (error) {
+      failures.push(error instanceof Error ? error.message : "Microphone capture failed.");
+    }
+
+    try {
+      await state.sensor.frameSampler.start();
+    } catch (error) {
+      failures.push(error instanceof Error ? error.message : "Camera sampling failed.");
+    }
+
+    state.sensor.starting = false;
+    refreshSensorUi();
+    updateActionAvailability();
+
+    if (failures.length >= 2) {
+      pushFeed("Sensor capture could not start. Check microphone and camera permissions.", "warning");
+      return;
+    }
+    if (failures.length === 1) {
+      pushFeed(`Sensor capture started with partial availability: ${failures[0]}`, "warning");
+      return;
+    }
+    pushFeed(automatic ? "Sensor capture restored." : "Sensor capture started.", "success");
+  }
+
+  async function stopSensorCapture({ preservePreference = false, quiet = false } = {}) {
+    state.sensor.starting = false;
+    if (!preservePreference) {
+      setSensorPreference(false);
+    }
+    const tasks = [];
+    if (state.sensor.audioCapture) {
+      tasks.push(state.sensor.audioCapture.stop());
+    }
+    if (state.sensor.frameSampler) {
+      tasks.push(state.sensor.frameSampler.stop());
+    }
+    if (tasks.length) {
+      await Promise.allSettled(tasks);
+    }
+    refreshSensorUi();
+    updateActionAvailability();
+    if (!quiet) {
+      pushFeed("Sensor capture stopped.", "note");
+    }
+  }
+
+  function toggleSensorCapture() {
+    if (sensorStreamRunning()) {
+      void stopSensorCapture();
+      return;
+    }
+    void startSensorCapture();
+  }
+
+  function toggleAudioMute() {
+    if (!state.sensor.audioCapture || !state.sensor.audio?.running) {
+      return;
+    }
+    if (state.sensor.audio?.muted) {
+      state.sensor.audioCapture.unmute();
+      setAudioMutePreference(false);
+      pushFeed("Microphone unmuted.", "note");
+      return;
+    }
+    state.sensor.audioCapture.mute();
+    setAudioMutePreference(true);
+    pushFeed("Microphone muted.", "note");
+  }
+
+  function applyMemberRole(role, { automaticStart = true } = {}) {
+    state.sensor.role = String(role || "observer");
+    updateIdentity(
+      state.sensor.role,
+      sessionStorage.getItem(storageKeys.memberId) || "--",
+    );
+    if (!isSensorRole(state.sensor.role)) {
+      if (sensorStreamRunning()) {
+        void stopSensorCapture({ preservePreference: false, quiet: true });
+      }
+      refreshSensorUi();
+      updateActionAvailability();
+      return;
+    }
+    refreshSensorUi();
+    updateActionAvailability();
+    if (automaticStart && shouldAutoStartSensorCapture() && isSocketOpen()) {
+      void startSensorCapture({ automatic: true });
+    }
+  }
+
   async function fetchMemberSession() {
     try {
       return await fetchJson(bootstrap.paths.member_session, { method: "GET" });
@@ -575,6 +973,7 @@
     state.intentionallyLeaving = true;
     clearReconnectTimer();
     stopGpsWatch();
+    await stopSensorCapture({ preservePreference: false, quiet: true });
     if (state.socket && state.socket.readyState < WebSocket.CLOSING) {
       try {
         state.socket.close(1000, "member leaving");
@@ -591,15 +990,15 @@
     window.location.href = bootstrap.paths.join_page;
   }
 
-  function updateActionAvailability() {
-    const socketOpen = isSocketOpen();
-    if (elements.runtimeReportText) {
-      elements.runtimeReportText.disabled = state.endingOperation;
-      elements.runtimeReportText.maxLength = manualReportMaxLength;
+  function handleSensorAck(kind, payload) {
+    if (kind === "audio" && state.sensor.audioCapture) {
+      state.sensor.audioCapture.handleAck(payload);
     }
-    if (elements.runtimeReportSend) {
-      elements.runtimeReportSend.disabled =
-        !socketOpen || state.manualReportPending || state.endingOperation;
+    if (kind === "frame" && state.sensor.frameSampler) {
+      state.sensor.frameSampler.handleAck(payload);
+    }
+    if (payload.accepted === false) {
+      pushFeed(payload.reason || `${kind} capture was rejected by the hub.`, "warning");
     }
   }
 
@@ -612,7 +1011,7 @@
       if (payload.operation_name) {
         updateOperationName(payload.operation_name);
       }
-      updateIdentity(String(payload.role || "observer"), String(payload.member_id || "--"));
+      applyMemberRole(String(payload.role || "observer"));
       setSessionState(payload.resumed ? "Resumed" : "Joined");
       setConnectionState("live", payload.resumed ? "Resumed" : "Connected");
       pushFeed(
@@ -630,7 +1029,7 @@
     }
 
     if (payload.type === "role_change") {
-      updateIdentity(String(payload.role || "--"), sessionStorage.getItem(storageKeys.memberId));
+      applyMemberRole(String(payload.role || "observer"));
       pushFeed(`Role updated to ${payload.role}.`);
       return;
     }
@@ -660,6 +1059,16 @@
       return;
     }
 
+    if (payload.type === "audio_ack") {
+      handleSensorAck("audio", payload);
+      return;
+    }
+
+    if (payload.type === "frame_ack") {
+      handleSensorAck("frame", payload);
+      return;
+    }
+
     if (payload.type === "status") {
       setSessionState("Live");
       pushFeed("Operation status updated.");
@@ -673,6 +1082,8 @@
 
     if (payload.type === "wipe" || payload.type === "op_ended") {
       state.endingOperation = true;
+      stopGpsWatch();
+      void stopSensorCapture({ preservePreference: false, quiet: true });
       pushFeed("Operation ended. Clearing local member session.", "critical");
       setSessionState("Ended");
       setConnectionState("error", "Ended");
@@ -733,6 +1144,7 @@
 
     socket.addEventListener("close", () => {
       state.authenticated = false;
+      void stopSensorCapture({ preservePreference: true, quiet: true });
       updateActionAvailability();
       if (state.intentionallyLeaving || state.endingOperation) {
         return;
@@ -807,6 +1219,7 @@
     renderFeed();
     renderAlerts();
     renderAlertSummary();
+    refreshSensorUi();
     updateActionAvailability();
     refreshGpsState();
     setReportState("Reports send over the live member connection.");
@@ -847,6 +1260,18 @@
     if (elements.runtimeGpsToggle) {
       elements.runtimeGpsToggle.addEventListener("click", () => {
         toggleGpsWatch();
+      });
+    }
+
+    if (elements.runtimeSensorToggle) {
+      elements.runtimeSensorToggle.addEventListener("click", () => {
+        toggleSensorCapture();
+      });
+    }
+
+    if (elements.runtimeAudioToggle) {
+      elements.runtimeAudioToggle.addEventListener("click", () => {
+        toggleAudioMute();
       });
     }
 

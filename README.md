@@ -21,10 +21,11 @@ situations where shared awareness matters.
 > health and ingest context, and a local tile-backed map that falls back to a
 > relative-position view when cached tiles are unavailable. The repo now also
 > has an early cookie-backed member runtime shell with reconnect-aware
-> WebSocket state, live alerts, opt-in GPS sharing, and manual field reports
-> without keeping the shared join token in the post-QR browser URL or browser
-> JavaScript storage. The fuller dashboard surface and broader mobile product
-> work are still planned.
+> WebSocket state, live alerts, opt-in GPS sharing, manual field reports, and
+> early sensor-side live audio plus key-frame sampling without keeping the
+> shared join token in the post-QR browser URL or browser JavaScript storage.
+> The fuller dashboard surface and broader mobile product work are still
+> planned.
 
 ## At a Glance
 
@@ -106,6 +107,9 @@ What exists today:
   throttled browser updates, manual report submission over the member
   WebSocket, and reconnect-aware runtime state for reloads and transport
   breaks
+- Early sensor capture in the member runtime: browser mic capture via
+  MediaRecorder, key-frame camera sampling via a worker-backed diff loop, and
+  live audio/frame submission on the existing member WebSocket ingest path
 - Hub-owned Phase 2 intelligence service: shared ingest/result models,
   config-selectable fake or real transcript/vision adapters, bounded
   audio/frame ingest queues, location processing, background audio/vision
@@ -141,9 +145,9 @@ What is still missing:
   including richer map controls, broader review workflows, and more complete
   operator surfaces
 - Mobile PWA user experience
-  The current join/member shell covers bootstrap, alerts, GPS, and manual
-  reports, but not the fuller media-capture and offline PWA client described
-  in Phase 5
+  The current join/member shell covers bootstrap, alerts, GPS, manual
+  reports, and early sensor streaming, but not the fuller resilient offline
+  PWA client described in Phase 5
 - Validated wipe timing and production-grade evidence/export tooling
 
 ## Planned Operating Model
@@ -223,7 +227,7 @@ The initial implementation is split into six phases:
 | [2. Intelligence Pipeline](docs/plans/2026-03-21-plan-2-intelligence-pipeline.md) | Whisper, vision, ingest queues, location engine | Live ingest + persistence bridge in repo |
 | [3. Synthesis Layer](docs/plans/2026-03-21-plan-3-synthesis-layer.md) | Events, alerts, SitReps | Planned |
 | [4. Coordinator Dashboard](docs/plans/2026-03-21-plan-4-coordinator-dashboard.md) | Map, timeline, sensor management | Live review shell in repo |
-| [5. Mobile PWA](docs/plans/2026-03-21-plan-5-mobile-pwa.md) | Join flow, alert feed, edge sampling | Join/runtime shell with alerts, GPS, and manual reports in repo |
+| [5. Mobile PWA](docs/plans/2026-03-21-plan-5-mobile-pwa.md) | Join flow, alert feed, edge sampling | Join/runtime shell with alerts, GPS, manual reports, and early sensor capture in repo |
 | [6. Operations Tooling](docs/plans/2026-03-21-plan-6-operations-tooling.md) | Hotspot, evidence, tile caching | Planned |
 
 See the [design specification](docs/specs/2026-03-21-osk-design.md) for the

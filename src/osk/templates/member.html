@@ -39,6 +39,11 @@
           <strong id="runtime-alert-count">0</strong>
           <small id="runtime-alert-summary">Waiting for live alerts.</small>
         </article>
+        <article class="member-signal" id="runtime-sensor-signal" hidden>
+          <span class="member-label">Sensor Stream</span>
+          <strong id="runtime-sensor-state">Observer</strong>
+          <small id="runtime-sensor-detail">Promote this member to sensor to start live capture.</small>
+        </article>
       </section>
 
       <section class="member-panel">
@@ -74,6 +79,56 @@
         </div>
 
         <div class="member-control-stack">
+          <section class="member-control member-control--sensor" id="runtime-sensor-panel" hidden>
+            <div class="member-control-copy">
+              <p class="member-eyebrow">Sensor Stream</p>
+              <h3>Live Audio + Key Frames</h3>
+              <p class="member-subtle" id="runtime-sensor-summary">
+                Observer mode. Promote this member to sensor before starting live capture.
+              </p>
+            </div>
+
+            <div class="member-sensor-grid">
+              <div class="member-grid-item">
+                <span class="member-label">Audio</span>
+                <strong id="runtime-audio-state">Idle</strong>
+                <small id="runtime-audio-detail">No microphone capture yet.</small>
+              </div>
+              <div class="member-grid-item">
+                <span class="member-label">Frames</span>
+                <strong id="runtime-frame-state">Idle</strong>
+                <small id="runtime-frame-detail">No camera sampling yet.</small>
+              </div>
+            </div>
+
+            <div class="member-sensor-preview">
+              <video
+                id="runtime-sensor-preview"
+                class="member-sensor-video"
+                autoplay
+                muted
+                playsinline
+                hidden
+              ></video>
+              <div class="member-sensor-preview-copy" id="runtime-sensor-preview-copy">
+                <p>Camera preview appears here when live sampling is active.</p>
+              </div>
+            </div>
+
+            <div class="member-control-actions member-control-actions--sensor">
+              <button class="member-button" id="runtime-sensor-toggle" type="button">
+                Start sensor stream
+              </button>
+              <button
+                class="member-button member-button--ghost"
+                id="runtime-audio-toggle"
+                type="button"
+              >
+                Mute mic
+              </button>
+            </div>
+          </section>
+
           <section class="member-control">
             <div class="member-control-copy">
               <p class="member-eyebrow">Location</p>
@@ -149,13 +204,17 @@
         <h2>Current scope</h2>
         <p class="member-subtle">
           The current member runtime supports cookie-backed join bootstrap, reconnect-aware
-          WebSocket state, live alerts, opt-in GPS sharing, and manual field notes.
-          Media capture and richer sensor controls still belong to the next Phase 5 slices.
+          WebSocket state, live alerts, opt-in GPS sharing, manual field notes, and
+          early sensor-side microphone plus key-frame capture. Richer sensor controls,
+          clip/photo workflows, and fuller offline PWA behavior still belong to the next
+          Phase 5 slices.
         </p>
       </section>
     </main>
 
     <script id="osk-member-bootstrap" type="application/json">__OSK_MEMBER_BOOTSTRAP__</script>
+    <script src="/static/audio-capture.js" defer></script>
+    <script src="/static/frame-sampler.js" defer></script>
     <script src="/static/member.js" defer></script>
   </body>
 </html>

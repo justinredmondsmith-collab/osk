@@ -39,7 +39,8 @@ The repository now includes:
   a clean cookie-backed join flow so the shared operation token is not kept in
   the post-QR URL or browser JavaScript storage, and the current runtime shell
   already includes reconnect-aware WebSocket state, live alerts, opt-in GPS
-  sharing, and manual report submission
+  sharing, manual report submission, and early sensor-side audio/key-frame
+  capture on the member WebSocket path
 
 The repository does **not** yet contain the full intelligence pipeline,
 synthesis layer, full coordinator dashboard, or mobile client described in the
@@ -154,6 +155,9 @@ Code contributions should:
   browser can do something directly, prefer the member cookie/WebSocket flow
   over coordinator-only REST routes unless the auth model is intentionally
   changing
+- Keep browser media capture modular: add mic/camera/client-side analysis work
+  behind dedicated static modules instead of folding codec/capture logic
+  directly into the main member runtime script
 - Keep dashboard map/status surfaces truthful: the current field map is a
   local cached-tile surface driven by member GPS, with an explicit
   relative-position fallback when no cached tiles cover the current area; docs

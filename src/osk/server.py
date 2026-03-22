@@ -498,6 +498,13 @@ def _member_session_bootstrap() -> dict[str, object]:
             "manual_report_max_length": 280,
             "reconnect_base_delay_ms": 1500,
             "reconnect_max_delay_ms": 10000,
+            "audio_chunk_ms": 4000,
+            "frame_sampling_fps": config.frame_sampling_fps,
+            "frame_change_threshold": config.frame_change_threshold,
+            "frame_baseline_interval_seconds": config.frame_baseline_interval_seconds,
+            "frame_jpeg_quality": 0.68,
+            "sensor_video_width": 960,
+            "sensor_video_height": 540,
         },
     }
 

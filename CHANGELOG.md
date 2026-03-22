@@ -86,6 +86,9 @@ changes manually while the project is in its early public setup phase.
 - Early member runtime slice: live alert feed, opt-in GPS sharing with
   throttled browser updates, reconnect-aware member runtime state, and manual
   report acknowledgements over the member WebSocket
+- Early sensor media capture slice: browser-side microphone capture,
+  worker-backed key-frame sampling, dedicated capture modules, and member
+  runtime wiring for live audio/frame ingest
 
 ### Changed
 
@@ -123,3 +126,5 @@ changes manually while the project is in its early public setup phase.
   state instead of forcing an immediate redirect
 - Member/browser docs now distinguish the current member-auth WebSocket report
   path from the coordinator-only REST report/pin routes
+- Member docs now reflect that the current sensor runtime includes early audio
+  and key-frame capture, while fuller media and offline PWA work remain planned

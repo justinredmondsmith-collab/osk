@@ -247,7 +247,7 @@ git clone <repo> && cd osk
 2. Browser opens to the Osk join page bootstrap URL (served from hub)
 3. Hub exchanges the shared operation token into a clean browser session and redirects back to `/join`
 4. Enter a display name
-5. Continue into the current member shell with live alerts, opt-in GPS sharing, and manual report controls
+5. Continue into the current member shell with live alerts, opt-in GPS sharing, manual report controls, and early sensor capture when promoted
 6. Coordinator can promote to Sensor from dashboard
 
 ### Coordinator Dashboard (Desktop)
@@ -290,6 +290,7 @@ Three-panel layout:
 - Stream status panel: audio latency, video frame rate, GPS lock
 - Source attribution on alerts generated from their data
 - Action bar: pause stream, mute audio, "I see something"
+- Current implementation: early live microphone capture and worker-backed key-frame sampling are present in the member shell, but richer sensor controls and offline/PWA behavior are still planned
 
 ### Operation Lifecycle
 

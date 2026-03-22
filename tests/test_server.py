@@ -176,9 +176,13 @@ def test_member_page_without_cookie_renders_runtime_shell(
     assert resp.status_code == 200
     assert "Osk Member" in resp.text
     assert "/static/member.js" in resp.text
+    assert "/static/audio-capture.js" in resp.text
+    assert "/static/frame-sampler.js" in resp.text
     assert "Share GPS" in resp.text
     assert "Send A Field Note" in resp.text
+    assert "Live Audio + Key Frames" in resp.text
     assert '"gps_interval_moving_seconds": 10' in resp.text
+    assert '"audio_chunk_ms": 4000' in resp.text
     assert "osk_member_join" not in resp.text
     assert "content-security-policy" in resp.headers
 
@@ -195,6 +199,7 @@ def test_member_page_renders_runtime_shell(
     assert "/static/member.js" in resp.text
     assert "Live Alerts" in resp.text
     assert "Field Controls" in resp.text
+    assert "Mute mic" in resp.text
     assert "osk_member_join" not in resp.text
     assert "content-security-policy" in resp.headers
 
@@ -410,6 +415,19 @@ def test_member_static_asset_serves(client: TestClient) -> None:
 
     assert resp.status_code == 200
     assert "--member-bg" in resp.text
+
+
+def test_member_sensor_assets_serve(client: TestClient) -> None:
+    audio_resp = client.get("/static/audio-capture.js")
+    frame_resp = client.get("/static/frame-sampler.js")
+    worker_resp = client.get("/static/sampling-worker.js")
+
+    assert audio_resp.status_code == 200
+    assert "createAudioCapture" in audio_resp.text
+    assert frame_resp.status_code == 200
+    assert "createFrameSampler" in frame_resp.text
+    assert worker_resp.status_code == 200
+    assert 'type: "frame_score"' in worker_resp.text
 
 
 @patch("osk.server.load_config")
