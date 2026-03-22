@@ -49,7 +49,7 @@ This is intentionally a reality check, not a wipe trigger. The report shows:
 
 - whether a running hub is present for live member wipe broadcast
 - which host paths are involved in runtime/evidence/session cleanup
-- what the current member/browser wipe path does
+- what the current member/browser wipe path does for connected browsers
 - the current gaps in Osk's wipe story
 - the safe operator sequence for export, wipe, shutdown, and evidence destroy
 
@@ -63,6 +63,13 @@ Today this drill is expected to report `partial`, because Osk does not yet have
 a fully validated one-shot wipe across disconnected members and preserved
 evidence destruction.
 
+Today the connected-browser member path is stronger than it was earlier in the
+repo history: a live wipe now clears queued browser data, member cookies,
+service-worker caches, and the current installed member-shell registration on
+the device that receives the broadcast. That is still not a full browser wipe.
+Browser history, OS-level caches, disconnected devices, and preserved evidence
+destruction remain outside that one live message.
+
 ## Current Safe Sequence
 
 For now, the safe operator sequence is:
@@ -73,6 +80,10 @@ For now, the safe operator sequence is:
    connected members and stops the hub.
 4. Run `osk evidence destroy --yes` only if permanent removal of preserved
    evidence storage is intended.
+
+If you know member devices were offline or disconnected during step 3, treat
+their local cleanup as unresolved until those browsers are manually checked or
+rejoined.
 
 That sequence is the current truth. Do not describe Osk as having a fully
 validated one-shot emergency wipe until the code and drills actually support

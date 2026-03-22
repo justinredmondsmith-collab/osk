@@ -132,6 +132,10 @@ changes manually while the project is in its early public setup phase.
 - Explicit coordinator `osk wipe` flow that broadcasts wipe to connected
   members, stops the local hub, and keeps preserved evidence unless the
   operator also opts into `--destroy-evidence`
+- Stronger connected-member wipe teardown: the member shell now clears queued
+  browser data, waits on service-worker cache clear where possible, and
+  unregisters the cached member-shell registration before falling back to a
+  local cleared screen
 
 ### Changed
 
@@ -202,3 +206,6 @@ changes manually while the project is in its early public setup phase.
   runbook rather than leaving those paths implicit
 - Operations docs now distinguish the integrated `osk wipe` flow from the
   still-separate preserved-evidence destruction step
+- Wipe docs and drills now distinguish the stronger connected-browser cleanup
+  path from the still-partial disconnected-client and browser-history cleanup
+  boundary

@@ -104,6 +104,14 @@ async function clearOfflineCaches() {
   );
 }
 
+async function clearMemberOfflineState() {
+  await clearOfflineCaches();
+  return {
+    cleared: true,
+    unregistered: (await self.registration.unregister()) === true,
+  };
+}
+
 self.addEventListener("install", (event) => {
   event.waitUntil(
     caches
@@ -129,7 +137,25 @@ self.addEventListener("activate", (event) => {
 
 self.addEventListener("message", (event) => {
   if (event.data?.type === "clear_member_offline_state") {
-    event.waitUntil(clearOfflineCaches());
+    const replyPort = event.ports?.[0] || null;
+    event.waitUntil(
+      (async () => {
+        let payload = {
+          cleared: false,
+          unregistered: false,
+        };
+        try {
+          payload = await clearMemberOfflineState();
+        } catch (error) {
+          payload = {
+            cleared: false,
+            unregistered: false,
+            error: "offline-clear-failed",
+          };
+        }
+        replyPort?.postMessage(payload);
+      })(),
+    );
   }
 });
 

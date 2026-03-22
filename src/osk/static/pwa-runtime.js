@@ -2,6 +2,7 @@
   const CACHE_PREFIX = "osk-member-";
   const PWA_STATE_EVENT = "osk:pwa-state";
   const NETWORK_STATE_EVENT = "osk:pwa-network";
+  const CLEAR_OFFLINE_TIMEOUT_MS = 1500;
 
   let registrationPromise = null;
   let listenersBound = false;
@@ -108,10 +109,60 @@
     return registrationPromise;
   }
 
+  async function existingMemberPwaRegistration() {
+    if (!("serviceWorker" in navigator)) {
+      return null;
+    }
+    if (!window.isSecureContext) {
+      return null;
+    }
+    try {
+      return (await navigator.serviceWorker.getRegistration()) || null;
+    } catch (error) {
+      return null;
+    }
+  }
+
+  async function requestServiceWorkerOfflineClear(target) {
+    if (!target || typeof target.postMessage !== "function") {
+      return { acknowledged: false, unregistered: false };
+    }
+    return new Promise((resolve) => {
+      const channel = new MessageChannel();
+      let settled = false;
+      function finish(result) {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        window.clearTimeout(timeoutId);
+        resolve(result);
+      }
+      const timeoutId = window.setTimeout(() => {
+        finish({ acknowledged: false, timed_out: true, unregistered: false });
+      }, CLEAR_OFFLINE_TIMEOUT_MS);
+      channel.port1.onmessage = (event) => {
+        const payload = event.data && typeof event.data === "object" ? event.data : {};
+        finish({
+          acknowledged: true,
+          cleared: payload.cleared === true,
+          unregistered: payload.unregistered === true,
+        });
+      };
+      try {
+        target.postMessage({ type: "clear_member_offline_state" }, [channel.port2]);
+      } catch (error) {
+        finish({ acknowledged: false, error: true, unregistered: false });
+      }
+    });
+  }
+
   async function clearMemberOfflineState() {
     bindNetworkListeners();
+    let deletedCaches = 0;
     if ("caches" in globalThis) {
       const keys = await caches.keys();
+      deletedCaches = keys.filter((cacheName) => cacheName.startsWith(CACHE_PREFIX)).length;
       await Promise.all(
         keys
           .filter((cacheName) => cacheName.startsWith(CACHE_PREFIX))
@@ -119,14 +170,30 @@
       );
     }
 
-    const registration = await registerMemberPwa();
-    if (registration?.active) {
-      registration.active.postMessage({ type: "clear_member_offline_state" });
-      return;
+    const registration = await existingMemberPwaRegistration();
+    const target =
+      registration?.active ||
+      navigator.serviceWorker?.controller ||
+      registration?.waiting ||
+      registration?.installing ||
+      null;
+    const workerResult = await requestServiceWorkerOfflineClear(target);
+    let unregistered = workerResult.unregistered === true;
+    if (registration && !unregistered) {
+      try {
+        unregistered = (await registration.unregister()) || unregistered;
+      } catch (error) {
+        unregistered = false;
+      }
     }
-    if (navigator.serviceWorker?.controller) {
-      navigator.serviceWorker.controller.postMessage({ type: "clear_member_offline_state" });
-    }
+    registrationPromise = null;
+    publishInstallState();
+    return {
+      caches_cleared: true,
+      deleted_cache_count: deletedCaches,
+      service_worker_acknowledged: workerResult.acknowledged === true,
+      service_worker_unregistered: unregistered,
+    };
   }
 
   async function requestInstall() {

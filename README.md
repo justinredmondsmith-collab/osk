@@ -25,9 +25,10 @@ situations where shared awareness matters.
 > observer-side snap-photo plus short audio clip actions, early sensor-side
 > live audio plus key-frame sampling, reconnect-safe browser outbox retries for
 > manual notes/photos/clips, and a first installable PWA layer with manifest,
-> service worker, and offline shell fallback, all without keeping the shared
-> join token or member reconnect secret in the post-QR browser URL or browser
-> JavaScript storage.
+> service worker, offline shell fallback, and connected-browser wipe teardown
+> that clears queued member state plus the cached shell registration, all
+> without keeping the shared join token or member reconnect secret in the
+> post-QR browser URL or browser JavaScript storage.
 > The fuller dashboard surface and broader mobile product work are still
 > planned.
 
@@ -139,7 +140,9 @@ What exists today:
 - First member PWA layer: `manifest.webmanifest`, root-scoped service worker
   registration, cached shell/static assets, an IndexedDB-backed outbox for
   manual notes/media, install prompt wiring on supported browsers, and
-  offline fallback behavior for previously loaded join/member pages
+  offline fallback behavior for previously loaded join/member pages, plus a
+  connected-browser leave/wipe teardown that clears the current member session,
+  local outbox data, cached shell assets, and the installed service worker
 - Hub-owned Phase 2 intelligence service: shared ingest/result models,
   config-selectable fake or real transcript/vision adapters, bounded
   audio/frame ingest queues, location processing, background audio/vision
@@ -181,7 +184,8 @@ What is still missing:
   reports, queued manual observer media, early sensor streaming, and a first
   installable/offline shell layer, but not the fuller resilient mobile client
   described in Phase 5
-- Validated wipe timing and production-grade evidence/export tooling
+- Validated wipe timing, disconnected-client cleanup, and field-tested
+  evidence/export operations
 
 ## Planned Operating Model
 
@@ -239,7 +243,7 @@ In the current design:
 | **Location awareness** | Member GPS updates support clustering, proximity alerts, and map-based coordination |
 | **Situation reports** | The coordinator receives periodic summaries and trend signals |
 | **Selective preservation** | Important events can be pinned for encrypted preservation while the rest remains ephemeral |
-| **Emergency controls** | The design includes a fast wipe path, but it is not implemented or validated in this repo yet |
+| **Emergency controls** | An explicit coordinator `osk wipe` flow and connected-member browser wipe teardown exist in repo, but one-shot emergency wipe is not yet fully validated across disconnected clients or preserved evidence destruction |
 
 ## Intended Use Cases
 
@@ -261,7 +265,7 @@ The initial implementation is split into six phases:
 | [3. Synthesis Layer](docs/plans/2026-03-21-plan-3-synthesis-layer.md) | Events, alerts, SitReps | Heuristic synthesis + review surfaces in repo |
 | [4. Coordinator Dashboard](docs/plans/2026-03-21-plan-4-coordinator-dashboard.md) | Map, timeline, sensor management | Live review shell in repo |
 | [5. Mobile PWA](docs/plans/2026-03-21-plan-5-mobile-pwa.md) | Join flow, alert feed, edge sampling | Join/runtime shell with alerts, GPS, queued manual reports/media, early sensor capture, and first installable/offline behavior in repo |
-| [6. Operations Tooling](docs/plans/2026-03-21-plan-6-operations-tooling.md) | Hotspot, evidence, tile caching | Tile cache CLI + standalone hotspot/evidence tools, hotspot-aware doctor/start guidance, and read-only install/wipe drills in repo |
+| [6. Operations Tooling](docs/plans/2026-03-21-plan-6-operations-tooling.md) | Hotspot, evidence, tile caching | Tile cache CLI + standalone hotspot/evidence tools, hotspot-aware doctor/start guidance, install/wipe drills, and explicit coordinator wipe flow in repo |
 
 See the [design specification](docs/specs/2026-03-21-osk-design.md) for the
 full architecture, API contract, and threat-model assumptions.
@@ -322,6 +326,10 @@ full architecture, API contract, and threat-model assumptions.
   you need to broadcast wipe to connected members and stop the local hub
 - Add `--destroy-evidence` to `osk wipe` only when you also want permanent
   removal of preserved evidence after the hub stops
+- Connected member browsers now clear queued notes/media, current member
+  cookies, IndexedDB outbox state, and the cached member-shell registration
+  when they receive a live wipe or `op_ended` message, but disconnected
+  browsers remain outside that live broadcast path
 - Use `osk drill install` for a read-only operations-focused install/start
   report that includes Compose/runtime readiness and hotspot/join-host guidance
 - Use `osk drill wipe` for a read-only report of the current wipe boundary,

@@ -21,7 +21,10 @@ deeper hub orchestration, validated wipe/install operations, and field
 validation. The repo now also has read-only `osk drill install|wipe` reports
 to make the current install and wipe boundaries explicit, plus an explicit
 coordinator-side `osk wipe` flow that broadcasts wipe and stops the hub
-without destroying preserved evidence unless the operator opts in.
+without destroying preserved evidence unless the operator opts in. Connected
+member browsers now also clear queued browser state and unregister the cached
+member shell on live wipe, but disconnected browsers and preserved evidence
+destruction remain separate cleanup concerns.
 
 **Tech Stack:** Python, nmcli, cryptsetup, keyctl, zipfile, subprocess
 

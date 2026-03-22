@@ -11,7 +11,7 @@
 **Spec:** `docs/specs/2026-03-21-osk-design.md` — "Edge Components" and "Member Mobile UI" sections
 **Depends on:** Plan 1 (server, connection_manager), Plan 3 (alerts)
 
-**Current state:** A cookie-backed member join/runtime shell now exists at `/join` and `/member`. The QR token is exchanged into a clean `HttpOnly` join cookie before the shell loads, the browser authenticates the member WebSocket from that cookie, and the server then upgrades the browser into a short-lived `HttpOnly` member runtime cookie so reload/reconnect do not depend on a reconnect secret in browser JavaScript storage. The runtime already includes live alerts, opt-in GPS sharing, manual report submission, observer-side photo/short-audio-clip capture, early sensor-side audio plus key-frame capture, an IndexedDB-backed browser outbox for reconnect-safe manual note/media replay with per-item review controls, bounded sensor-side reconnect buffering for recent audio/key-frame capture, and the first manifest/service-worker/installable offline PWA layer. Coordinator-facing surfaces now expose member browser buffer pressure with a rolling trend window, and for real browser/device validation outside this sandbox the repo includes both `scripts/member_shell_smoke.py` for manual smoke testing and `scripts/member_shell_playwright_smoke.sh` for localhost-capable automated browser smoke runs. The tasks below describe the fuller mobile client beyond that current slice.
+**Current state:** A cookie-backed member join/runtime shell now exists at `/join` and `/member`. The QR token is exchanged into a clean `HttpOnly` join cookie before the shell loads, the browser authenticates the member WebSocket from that cookie, and the server then upgrades the browser into a short-lived `HttpOnly` member runtime cookie so reload/reconnect do not depend on a reconnect secret in browser JavaScript storage. The runtime already includes live alerts, opt-in GPS sharing, manual report submission, observer-side photo/short-audio-clip capture, early sensor-side audio plus key-frame capture, an IndexedDB-backed browser outbox for reconnect-safe manual note/media replay with per-item review controls, bounded sensor-side reconnect buffering for recent audio/key-frame capture, and the first manifest/service-worker/installable offline PWA layer. The current live `wipe` / `op_ended` path now clears queued browser state, current member cookies, cached shell assets, and unregisters the current member-shell service worker on connected devices, but disconnected browsers still remain outside the live wipe path. Coordinator-facing surfaces now expose member browser buffer pressure with a rolling trend window, and for real browser/device validation outside this sandbox the repo includes both `scripts/member_shell_smoke.py` for manual smoke testing and `scripts/member_shell_playwright_smoke.sh` for localhost-capable automated browser smoke runs. The tasks below describe the fuller mobile client beyond that current slice.
 
 ---
 
@@ -97,7 +97,7 @@ WebSocket connection:
 - Handle `alert` → prepend to alert feed, color-coded by severity
 - Handle `status` → update group status bar
 - Handle `ping` → respond with `pong`
-- Handle `wipe` → clear sessionStorage, runtime cookies, indexedDB, show "Operation ended"
+- Handle `wipe` → clear sessionStorage, runtime cookies, indexedDB, cached shell assets, unregister the member service worker, and show a local "Operation ended" screen
 - Handle `op_ended` → show "Operation ended" message
 
 GPS tracking:

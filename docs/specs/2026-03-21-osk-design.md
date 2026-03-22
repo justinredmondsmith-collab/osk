@@ -181,7 +181,7 @@ Users may face real consequences if their data is accessed by adversaries (law e
 
 - **Triggers:** keyboard shortcut (Ctrl+Alt+W), hardware button (if configured), or dashboard button.
 - **Action sequence:**
-  1. Hub broadcasts `{"type": "wipe"}` to all connected members. The PWA client responds by clearing browser-managed member state, including `sessionStorage`, member auth cookies, service worker cache, and any `IndexedDB` data. (Browser history and OS-level caches are outside the app's control — documented as accepted risk.)
+  1. Hub broadcasts `{"type": "wipe"}` to all connected members. The PWA client responds by clearing browser-managed member state, including `sessionStorage`, member auth cookies, service-worker cache, any `IndexedDB` data, and the installed member-shell service-worker registration on the current device, then falls back to a local cleared screen. (Browser history, disconnected clients, and OS-level caches are outside the app's control — documented as accepted risk.)
   2. Kernel keyring passphrase entry revoked (`keyctl revoke`).
   3. LUKS volume closed (`cryptsetup luksClose`) — the design assumes that once
      the key is no longer available through the keyring, the encrypted data is

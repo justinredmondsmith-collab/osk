@@ -296,6 +296,45 @@
     state.outbox.lastPublishedSignature = "";
   }
 
+  function renderSessionClearedShell(reason, operationName) {
+    const clearedOperationName = normalizeWhitespace(operationName) || "Osk";
+    const wipeTriggered = reason === "wipe";
+    const title = wipeTriggered ? "Local session cleared" : "Operation ended";
+    const message = wipeTriggered
+      ? "The coordinator requested a wipe. This browser cleared queued member data, browser session state, and the cached offline shell for this operation."
+      : "This operation ended. This browser cleared queued member data, browser session state, and the cached offline shell for this operation.";
+    const nextStep = "Reconnect to the coordinator network and rescan the QR code to join again.";
+    if (window.history?.replaceState) {
+      window.history.replaceState(null, "", bootstrap.paths.join_page);
+    }
+    document.title = `${title} · Osk`;
+    document.body.className = "member-app";
+    document.body.innerHTML = `
+      <main class="member-shell member-shell--runtime">
+        <header class="member-hero">
+          <div class="member-hero-head">
+            <p class="member-eyebrow">Osk Member</p>
+            <div class="member-status-pill">
+              <span class="member-status-dot is-error"></span>
+              <span>${escapeHtml(title)}</span>
+            </div>
+          </div>
+          <h1>${escapeHtml(clearedOperationName)}</h1>
+          <p class="member-subtle member-hero-copy">${escapeHtml(message)}</p>
+        </header>
+        <section class="member-panel">
+          <div class="member-grid">
+            <div class="member-grid-item">
+              <span class="member-label">Status</span>
+              <strong>${escapeHtml(title)}</strong>
+              <small>${escapeHtml(nextStep)}</small>
+            </div>
+          </div>
+        </section>
+      </main>
+    `;
+  }
+
   function formatTime(timestamp) {
     try {
       return new Date(timestamp).toLocaleTimeString([], {
@@ -1840,14 +1879,28 @@
 
   async function clearOfflineState() {
     try {
-      await globalThis.OskPwaRuntime?.clearMemberOfflineState?.();
+      return (
+        (await globalThis.OskPwaRuntime?.clearMemberOfflineState?.()) || {
+          caches_cleared: false,
+          service_worker_acknowledged: false,
+          service_worker_unregistered: false,
+        }
+      );
     } catch (error) {
-      // Ignore offline-cache cleanup failures during member teardown.
+      return {
+        caches_cleared: false,
+        service_worker_acknowledged: false,
+        service_worker_unregistered: false,
+      };
     }
   }
 
-  async function clearMemberSession() {
+  async function clearMemberSession(options = {}) {
+    const redirect = options.redirect !== false;
+    const reason = String(options.reason || "leave");
+    const operationName = readStoredOperationName() || state.session?.operation_name || "Osk";
     state.intentionallyLeaving = true;
+    state.authenticated = false;
     clearReconnectTimer();
     stopGpsWatch();
     await stopSensorCapture({ preservePreference: false, quiet: true });
@@ -1867,7 +1920,11 @@
     }
     await clearOfflineState();
     clearLocalMemberState();
-    window.location.href = bootstrap.paths.join_page;
+    if (redirect) {
+      window.location.replace(bootstrap.paths.join_page);
+      return;
+    }
+    renderSessionClearedShell(reason, operationName);
   }
 
   async function handleMediaAck(kind, payload) {
@@ -2015,7 +2072,7 @@
       setConnectionState("error", "Ended");
       updateActionAvailability();
       window.setTimeout(() => {
-        void clearMemberSession();
+        void clearMemberSession({ redirect: false, reason: payload.type });
       }, 250);
       return;
     }

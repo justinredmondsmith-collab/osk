@@ -139,6 +139,7 @@ def test_wipe_drill_report_surfaces_current_partial_state(tmp_path: Path) -> Non
     assert report["hub_running"] is False
     assert report["operator_session_active"] is False
     assert any("No running hub state was found" in gap for gap in report["gaps"])
+    assert any("Browser history and OS-level caches" in gap for gap in report["gaps"])
     assert any(
         capability["name"] == "coordinator_wipe_command" for capability in report["capabilities"]
     )

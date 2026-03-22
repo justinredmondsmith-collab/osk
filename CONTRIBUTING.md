@@ -60,7 +60,8 @@ The repository now includes:
   path, a browser outbox for reconnect-safe manual report/media retries with
   per-item review controls, bounded sensor-side reconnect buffering for recent
   audio/key-frame capture, and a first manifest/service-worker/installable
-  offline PWA layer
+  offline PWA layer whose current leave/wipe path clears queued browser state
+  and unregisters the cached member shell on the connected device
 - A manual browser/device smoke helper at `scripts/member_shell_smoke.py` for
   testing the member shell against a disposable mocked hub outside CI/sandboxed
   environments
@@ -267,8 +268,9 @@ Code contributions should:
   behind dedicated static modules instead of folding codec/capture logic
   directly into the main member runtime script
 - Keep PWA/offline behavior honest: cache only what the current member flow can
-  really resume, and make sure wipe/logout flows clear service-worker caches
-  and other browser-managed offline state when the docs say they do
+  really resume, and make sure wipe/logout flows clear service-worker caches,
+  registrations, and other browser-managed offline state when the docs say
+  they do
 - Keep queued member actions durable and replay-safe: if notes or manual media
   are stored locally for reconnect, scope them to the current operation/member,
   keep their stable IDs across replay, and clear them on logout/wipe when the

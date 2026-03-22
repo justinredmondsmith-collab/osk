@@ -192,8 +192,9 @@ def wipe_drill_report(config: OskConfig | None = None) -> dict[str, object]:
             "name": "member_browser_clear",
             "available": True,
             "details": (
-                "The current member shell clears local browser-managed member state after a live "
-                "`wipe` or `op_ended` message."
+                "The current member shell clears queued local browser state, current member "
+                "cookies, service-worker caches, and the installed member-shell registration "
+                "after a live `wipe` or `op_ended` message."
             ),
         },
         {
@@ -215,6 +216,7 @@ def wipe_drill_report(config: OskConfig | None = None) -> dict[str, object]:
 
     gaps = [
         "Disconnected member browsers will not receive a live wipe broadcast until they reconnect.",
+        "Browser history and OS-level caches remain outside the app-controlled wipe boundary.",
         "The preserved evidence image is not removed by the runtime wipe primitive.",
     ]
     if not hub_running:
