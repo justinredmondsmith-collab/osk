@@ -56,6 +56,8 @@
     const onError = options.onError || (() => {});
     const sendJson = options.sendJson || (() => false);
     const sendBinary = options.sendBinary || (() => false);
+    const submitPhoto = options.submitPhoto || null;
+    const submitClip = options.submitClip || null;
     const getContext = options.getContext || (() => ({}));
     const clipDurationSeconds = Math.max(4, Number(options.clipDurationSeconds || 10));
     const clipCooldownSeconds = Math.max(0, Number(options.clipCooldownSeconds || 20));
@@ -217,23 +219,35 @@
         const ingestKey = context.memberId
           ? `${context.memberId}:observer-photo:${captureId}`
           : `observer-photo:${captureId}`;
-        const payload = {
-          type: "frame_meta",
-          frame_id: captureId,
-          ingest_key: ingestKey,
-          sequence_no: 0,
-          content_type: blob.type || DEFAULT_FRAME_CONTENT_TYPE,
-          width,
-          height,
-          change_score: 1.0,
-          captured_at: capturedAt,
-          manual_capture: true,
-        };
-        if (!sendJson(payload)) {
-          throw new Error("Photo metadata could not be sent.");
-        }
-        if (!sendBinary(blob)) {
-          throw new Error("Photo payload could not be sent.");
+        if (typeof submitPhoto === "function") {
+          await submitPhoto({
+            captureId,
+            ingestKey,
+            capturedAt,
+            width,
+            height,
+            blob,
+            contentType: blob.type || DEFAULT_FRAME_CONTENT_TYPE,
+          });
+        } else {
+          const payload = {
+            type: "frame_meta",
+            frame_id: captureId,
+            ingest_key: ingestKey,
+            sequence_no: 0,
+            content_type: blob.type || DEFAULT_FRAME_CONTENT_TYPE,
+            width,
+            height,
+            change_score: 1.0,
+            captured_at: capturedAt,
+            manual_capture: true,
+          };
+          if (!sendJson(payload)) {
+            throw new Error("Photo metadata could not be sent.");
+          }
+          if (!sendBinary(blob)) {
+            throw new Error("Photo payload could not be sent.");
+          }
         }
         lastPhotoId = captureId;
         lastPhotoAt = capturedAt;
@@ -270,22 +284,34 @@
       const ingestKey = context.memberId
         ? `${context.memberId}:observer-clip:${captureId}`
         : `observer-clip:${captureId}`;
-      const payload = {
-        type: "audio_meta",
-        chunk_id: captureId,
-        ingest_key: ingestKey,
-        sequence_no: 0,
-        duration_ms: lastClipDurationMs,
-        sample_rate_hz: Number(options.sampleRateHz || 16000),
-        codec: blob.type || clipMimeType || "audio/webm",
-        captured_at: capturedAt,
-        manual_capture: true,
-      };
-      if (!sendJson(payload)) {
-        throw new Error("Audio clip metadata could not be sent.");
-      }
-      if (!sendBinary(blob)) {
-        throw new Error("Audio clip payload could not be sent.");
+      if (typeof submitClip === "function") {
+        await submitClip({
+          captureId,
+          ingestKey,
+          capturedAt,
+          durationMs: lastClipDurationMs,
+          sampleRateHz: Number(options.sampleRateHz || 16000),
+          codec: blob.type || clipMimeType || "audio/webm",
+          blob,
+        });
+      } else {
+        const payload = {
+          type: "audio_meta",
+          chunk_id: captureId,
+          ingest_key: ingestKey,
+          sequence_no: 0,
+          duration_ms: lastClipDurationMs,
+          sample_rate_hz: Number(options.sampleRateHz || 16000),
+          codec: blob.type || clipMimeType || "audio/webm",
+          captured_at: capturedAt,
+          manual_capture: true,
+        };
+        if (!sendJson(payload)) {
+          throw new Error("Audio clip metadata could not be sent.");
+        }
+        if (!sendBinary(blob)) {
+          throw new Error("Audio clip payload could not be sent.");
+        }
       }
       lastClipId = captureId;
       lastClipAt = capturedAt;

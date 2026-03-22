@@ -183,10 +183,13 @@ def test_member_page_without_cookie_renders_runtime_shell(
     assert "/static/audio-capture.js" in resp.text
     assert "/static/frame-sampler.js" in resp.text
     assert "/static/observer-media.js" in resp.text
+    assert "/static/member-outbox.js" in resp.text
     assert "Share GPS" in resp.text
     assert "Send A Field Note" in resp.text
     assert "Snap Photo + Record Audio Clip" in resp.text
     assert "Live Audio + Key Frames" in resp.text
+    assert "Keep moving through reconnects" in resp.text
+    assert "Install app" in resp.text
     assert '"gps_interval_moving_seconds": 10' in resp.text
     assert '"audio_chunk_ms": 4000' in resp.text
     assert '"observer_clip_duration_seconds": 10' in resp.text
@@ -519,6 +522,7 @@ def test_member_sensor_assets_serve(client: TestClient) -> None:
     frame_resp = client.get("/static/frame-sampler.js")
     worker_resp = client.get("/static/sampling-worker.js")
     observer_resp = client.get("/static/observer-media.js")
+    outbox_resp = client.get("/static/member-outbox.js")
     pwa_resp = client.get("/static/pwa-runtime.js")
 
     assert audio_resp.status_code == 200
@@ -529,8 +533,10 @@ def test_member_sensor_assets_serve(client: TestClient) -> None:
     assert 'type: "frame_score"' in worker_resp.text
     assert observer_resp.status_code == 200
     assert "createObserverMediaCapture" in observer_resp.text
+    assert outbox_resp.status_code == 200
+    assert "createMemberOutbox" in outbox_resp.text
     assert pwa_resp.status_code == 200
-    assert "registerMemberPwa" in pwa_resp.text
+    assert "requestInstall" in pwa_resp.text
 
 
 def test_member_manifest_serves(client: TestClient) -> None:
@@ -548,7 +554,8 @@ def test_member_service_worker_serves(client: TestClient) -> None:
     assert resp.status_code == 200
     assert "application/javascript" in resp.headers["content-type"]
     assert resp.headers["service-worker-allowed"] == "/"
-    assert "osk-member-v1" in resp.text
+    assert "osk-member-v2" in resp.text
+    assert "/static/member-outbox.js" in resp.text
 
 
 @patch("osk.server.load_config")
@@ -1135,11 +1142,18 @@ def test_websocket_manual_report_ack(
     with client.websocket_connect("/ws") as websocket:
         websocket.send_json({"type": "auth", "token": "valid-token", "name": "Jay"})
         websocket.receive_json()
-        websocket.send_json({"type": "report", "text": "Need medics at the west gate"})
+        websocket.send_json(
+            {
+                "type": "report",
+                "report_id": "report-1",
+                "text": "Need medics at the west gate",
+            }
+        )
         ack = websocket.receive_json()
 
     assert ack["type"] == "report_ack"
     assert ack["accepted"] is True
+    assert ack["report_id"] == "report-1"
     assert ack["event_id"]
     assert ack["text"] == "Need medics at the west gate"
     mock_db.insert_event.assert_awaited_once()
@@ -1153,12 +1167,13 @@ def test_websocket_manual_report_requires_text(
     with client.websocket_connect("/ws") as websocket:
         websocket.send_json({"type": "auth", "token": "valid-token", "name": "Jay"})
         websocket.receive_json()
-        websocket.send_json({"type": "report", "text": "   "})
+        websocket.send_json({"type": "report", "report_id": "report-2", "text": "   "})
         ack = websocket.receive_json()
 
     assert ack == {
         "type": "report_ack",
         "accepted": False,
         "error": "Report text is required.",
+        "report_id": "report-2",
     }
     mock_db.insert_event.assert_not_awaited()

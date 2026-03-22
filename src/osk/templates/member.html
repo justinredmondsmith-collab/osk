@@ -46,6 +46,11 @@
           <strong id="runtime-sensor-state">Observer</strong>
           <small id="runtime-sensor-detail">Promote this member to sensor to start live capture.</small>
         </article>
+        <article class="member-signal">
+          <span class="member-label">Outbox</span>
+          <strong id="runtime-outbox-count">0</strong>
+          <small id="runtime-outbox-state">No queued notes or media.</small>
+        </article>
       </section>
 
       <section class="member-panel">
@@ -66,6 +71,58 @@
             <span class="member-label">Connection</span>
             <strong id="runtime-connection-state">Joining</strong>
           </div>
+        </div>
+      </section>
+
+      <section class="member-panel member-panel--offline">
+        <div class="member-panel-head">
+          <div>
+            <p class="member-eyebrow">Offline Readiness</p>
+            <h2>Keep moving through reconnects</h2>
+          </div>
+          <button
+            class="member-button member-button--ghost"
+            id="runtime-install-button"
+            type="button"
+            hidden
+          >
+            Install app
+          </button>
+        </div>
+
+        <div class="member-grid member-grid--triple">
+          <div class="member-grid-item">
+            <span class="member-label">Network</span>
+            <strong id="runtime-network-state">Online</strong>
+            <small>Live member traffic resumes automatically when the hub returns.</small>
+          </div>
+          <div class="member-grid-item">
+            <span class="member-label">Install</span>
+            <strong id="runtime-install-state">Browser only</strong>
+            <small id="runtime-install-detail">Waiting for the browser install path.</small>
+          </div>
+          <div class="member-grid-item">
+            <span class="member-label">Last queued</span>
+            <strong id="runtime-outbox-last">None</strong>
+            <small id="runtime-outbox-detail">Notes, photos, and short clips can queue locally until reconnect.</small>
+          </div>
+        </div>
+
+        <div class="member-control-actions member-control-actions--observer">
+          <button
+            class="member-button member-button--ghost"
+            id="runtime-outbox-flush"
+            type="button"
+          >
+            Retry queued
+          </button>
+          <button
+            class="member-button member-button--ghost"
+            id="runtime-outbox-clear"
+            type="button"
+          >
+            Clear queued
+          </button>
         </div>
       </section>
 
@@ -245,15 +302,16 @@
           The current member runtime supports clean-URL join bootstrap,
           short-lived `HttpOnly` member runtime sessions, reconnect-aware
           WebSocket state, live alerts, opt-in GPS sharing, manual field notes,
-          and early sensor-side microphone plus key-frame capture. Richer
-          sensor controls, clip/photo workflows, and fuller offline PWA
-          behavior still belong to the next Phase 5 slices.
+          manual observer photo/clip capture, and a first offline/PWA shell
+          with local queueing for reconnect. Fuller sensor controls and richer
+          mobile install behavior still belong to the next Phase 5 slices.
         </p>
       </section>
     </main>
 
     <script id="osk-member-bootstrap" type="application/json">__OSK_MEMBER_BOOTSTRAP__</script>
     <script src="/static/pwa-runtime.js" defer></script>
+    <script src="/static/member-outbox.js" defer></script>
     <script src="/static/audio-capture.js" defer></script>
     <script src="/static/frame-sampler.js" defer></script>
     <script src="/static/observer-media.js" defer></script>

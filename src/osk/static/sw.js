@@ -1,5 +1,5 @@
 const CACHE_PREFIX = "osk-member-";
-const CACHE_VERSION = "osk-member-v1";
+const CACHE_VERSION = "osk-member-v2";
 const SHELL_CACHE = `${CACHE_VERSION}-shell`;
 const NAV_CACHE = `${CACHE_VERSION}-nav`;
 const STATIC_ASSETS = [
@@ -10,6 +10,7 @@ const STATIC_ASSETS = [
   "/static/frame-sampler.js",
   "/static/sampling-worker.js",
   "/static/observer-media.js",
+  "/static/member-outbox.js",
   "/static/pwa-runtime.js",
   "/static/icon.svg",
 ];
@@ -89,7 +90,7 @@ const OFFLINE_HTML = `<!doctype html>
       <p class="eyebrow">Osk Offline</p>
       <h1>Waiting for the hub</h1>
       <p>The cached member shell is available, but the live hub connection is currently offline. Reconnect to the local coordinator network to resume alerts, reports, and media upload.</p>
-      <p class="muted">If this is a fresh browser with no prior Osk shell cached, reopen the QR join link once the hub is reachable again.</p>
+      <p class="muted">Queued field notes and manual media stay in the browser outbox until the local hub comes back. If this is a fresh browser with no cached shell yet, reopen the QR join link once the hub is reachable again.</p>
     </main>
   </body>
 </html>`;

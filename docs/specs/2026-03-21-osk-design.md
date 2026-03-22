@@ -24,7 +24,7 @@ Unless stated otherwise in the repository root, all code added to Osk is intende
 | Output model | Alert-driven for members, full picture for coordinator | Members get actionable alerts only. Coordinator sees full event timeline, map, and situation reports. |
 | Storage | Ephemeral by default, selective pinning | PostgreSQL on tmpfs (RAM). Pinned evidence goes to LUKS-encrypted volume. Emergency wipe capability. |
 | Cloud dependency | None — fully local | Ollama only, no cloud LLM APIs. No internet required. Data never leaves the hub. Security feature. |
-| Mobile client | PWA in mobile browser | No app store, no install. Scan QR → open browser → join. Vanilla JS, no framework build step. |
+| Mobile client | PWA in mobile browser | No app store dependency. Scan QR → open browser → join, with optional add-to-home-screen/install on supported browsers. Vanilla JS, no framework build step. |
 | Codebase approach | New project, transplant engines | Clean data model and security posture. Proven engines (Whisper, CV, summarizer) copied and adapted. |
 | Name | Osk | Three letters, one syllable, sounds like a command. Not an existing product. |
 
@@ -200,6 +200,7 @@ Users may face real consequences if their data is accessed by adversaries (law e
 - The QR code encodes a URL: `http://<hub-ip>:<port>/join?token=<operation-token>`
 - When a member opens this URL, the hub now exchanges the token into a clean browser session by setting an `HttpOnly` cookie and redirecting back to `/join` without the token in the visible URL.
 - The current thin member shell can bootstrap initial WebSocket auth from that join cookie. After `auth_ok`, the browser exchanges a short-lived `member_session_code` into a short-lived `HttpOnly` member runtime cookie, so reload/reconnect no longer depend on a reconnect secret in browser JavaScript storage.
+- The current browser shell also keeps a scoped IndexedDB outbox for manual reports and observer photo/audio-clip submissions. Queued items keep their stable IDs across replay so reconnect-driven resubmission stays duplicate-safe against the hub.
 - On WebSocket upgrade, the first JSON message is still `{"type": "auth", "name": "<display-name>"}` for the normal browser flow, or `{"type": "auth", "token": "<token>", "name": "<display-name>"}` when a non-browser client is used. The hub currently accepts browser reconnects from the member runtime cookie, while legacy explicit `resume_member_id` + `resume_token` support remains available for non-browser/compatibility use. Invalid auth gets an immediate close frame.
 - Tokens are planned to be per-operation shared secrets, with all members in an
   operation using the same token.
@@ -283,14 +284,14 @@ Three-panel layout:
 - Alert feed (color-coded by severity, relative timestamps)
 - Group status bar (member count, nearby count, trend indicator)
 - Action bar: snap photo, record audio clip, "I see something" report button
-- Current implementation: live alert feed, opt-in GPS sharing, manual report submission, observer-side snap photo, and short audio clip capture are present; alert pinning UI and richer review affordances are still planned
+- Current implementation: live alert feed, opt-in GPS sharing, manual report submission, observer-side snap photo, short audio clip capture, and reconnect-safe browser queueing for those manual actions are present; alert pinning UI and richer review affordances are still planned
 
 **Sensor view:**
 - Same alert feed as observer
 - Stream status panel: audio latency, video frame rate, GPS lock
 - Source attribution on alerts generated from their data
 - Action bar: pause stream, mute audio, "I see something"
-- Current implementation: early live microphone capture and worker-backed key-frame sampling are present in the member shell, and the first manifest/service-worker/offline-shell PWA layer exists, but richer sensor controls and fuller resilient offline behavior are still planned
+- Current implementation: early live microphone capture and worker-backed key-frame sampling are present in the member shell, and the first manifest/service-worker/offline-shell PWA layer now includes install prompting plus a browser outbox for reconnect-safe manual actions, but richer sensor controls and fuller resilient offline behavior are still planned
 
 ### Operation Lifecycle
 

@@ -23,7 +23,8 @@ situations where shared awareness matters.
 > has an early cookie-backed member runtime shell with reconnect-aware
 > WebSocket state, live alerts, opt-in GPS sharing, manual field reports,
 > observer-side snap-photo plus short audio clip actions, early sensor-side
-> live audio plus key-frame sampling, and a first PWA layer with manifest,
+> live audio plus key-frame sampling, reconnect-safe browser outbox retries for
+> manual notes/photos/clips, and a first installable PWA layer with manifest,
 > service worker, and offline shell fallback, all without keeping the shared
 > join token or member reconnect secret in the post-QR browser URL or browser
 > JavaScript storage.
@@ -109,17 +110,19 @@ What exists today:
   JS-stored reconnect secret
 - Early member runtime shell: live alert feed, opt-in GPS sharing with
   throttled browser updates, manual report submission over the member
-  WebSocket, and reconnect-aware runtime state for reloads and transport
-  breaks through that member runtime cookie
+  WebSocket, reconnect-aware runtime state for reloads and transport
+  breaks through that member runtime cookie, and local browser queueing for
+  notes that are created while the live hub link is unavailable
 - Observer-side manual media in the member runtime: snap-photo capture and
   short audio clips on the existing member ingest path, using stable ingest
-  keys so duplicate-safe acks still work across reconnects
+  keys so duplicate-safe acks still work across reconnects and queued replay
 - Early sensor capture in the member runtime: browser mic capture via
   MediaRecorder, key-frame camera sampling via a worker-backed diff loop, and
   live audio/frame submission on the existing member WebSocket ingest path
 - First member PWA layer: `manifest.webmanifest`, root-scoped service worker
-  registration, cached shell/static assets, and offline fallback behavior for
-  previously loaded join/member pages
+  registration, cached shell/static assets, an IndexedDB-backed outbox for
+  manual notes/media, install prompt wiring on supported browsers, and
+  offline fallback behavior for previously loaded join/member pages
 - Hub-owned Phase 2 intelligence service: shared ingest/result models,
   config-selectable fake or real transcript/vision adapters, bounded
   audio/frame ingest queues, location processing, background audio/vision
@@ -156,7 +159,7 @@ What is still missing:
   operator surfaces
 - Mobile PWA user experience
   The current join/member shell covers bootstrap, alerts, GPS, manual
-  reports, observer manual media, early sensor streaming, and a first
+  reports, queued manual observer media, early sensor streaming, and a first
   installable/offline shell layer, but not the fuller resilient mobile client
   described in Phase 5
 - Validated wipe timing and production-grade evidence/export tooling
@@ -238,7 +241,7 @@ The initial implementation is split into six phases:
 | [2. Intelligence Pipeline](docs/plans/2026-03-21-plan-2-intelligence-pipeline.md) | Whisper, vision, ingest queues, location engine | Live ingest + persistence bridge in repo |
 | [3. Synthesis Layer](docs/plans/2026-03-21-plan-3-synthesis-layer.md) | Events, alerts, SitReps | Planned |
 | [4. Coordinator Dashboard](docs/plans/2026-03-21-plan-4-coordinator-dashboard.md) | Map, timeline, sensor management | Live review shell in repo |
-| [5. Mobile PWA](docs/plans/2026-03-21-plan-5-mobile-pwa.md) | Join flow, alert feed, edge sampling | Join/runtime shell with alerts, GPS, manual reports, and early sensor capture in repo |
+| [5. Mobile PWA](docs/plans/2026-03-21-plan-5-mobile-pwa.md) | Join flow, alert feed, edge sampling | Join/runtime shell with alerts, GPS, queued manual reports/media, early sensor capture, and first installable/offline behavior in repo |
 | [6. Operations Tooling](docs/plans/2026-03-21-plan-6-operations-tooling.md) | Hotspot, evidence, tile caching | Planned |
 
 See the [design specification](docs/specs/2026-03-21-osk-design.md) for the
@@ -277,8 +280,8 @@ full architecture, API contract, and threat-model assumptions.
   cookie-backed member bootstrap, runtime-session exchange, and WebSocket auth
   path
 - On supported secure/local browser setups, the member shell now also exposes
-  a manifest and service worker so you can exercise the first installable
-  offline-capable PWA layer
+  a manifest, service worker, install prompt, and local browser outbox so you
+  can exercise the first installable offline-capable PWA layer
 - Use `/api/intelligence/status`, `/api/intelligence/observations`,
   `/api/intelligence/findings`, `/api/intelligence/review-feed`, `/api/events`,
   `/api/sitreps`, `/api/coordinator/dashboard-state`, and

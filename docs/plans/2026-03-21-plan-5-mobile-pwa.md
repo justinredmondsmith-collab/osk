@@ -11,7 +11,7 @@
 **Spec:** `docs/specs/2026-03-21-osk-design.md` — "Edge Components" and "Member Mobile UI" sections
 **Depends on:** Plan 1 (server, connection_manager), Plan 3 (alerts)
 
-**Current state:** A cookie-backed member join/runtime shell now exists at `/join` and `/member`. The QR token is exchanged into a clean `HttpOnly` join cookie before the shell loads, the browser authenticates the member WebSocket from that cookie, and the server then upgrades the browser into a short-lived `HttpOnly` member runtime cookie so reload/reconnect do not depend on a reconnect secret in browser JavaScript storage. The runtime already includes live alerts, opt-in GPS sharing, manual report submission, observer-side photo/short-audio-clip capture, early sensor-side audio plus key-frame capture, and the first manifest/service-worker/offline-shell PWA layer. The tasks below describe the fuller mobile client beyond that current slice.
+**Current state:** A cookie-backed member join/runtime shell now exists at `/join` and `/member`. The QR token is exchanged into a clean `HttpOnly` join cookie before the shell loads, the browser authenticates the member WebSocket from that cookie, and the server then upgrades the browser into a short-lived `HttpOnly` member runtime cookie so reload/reconnect do not depend on a reconnect secret in browser JavaScript storage. The runtime already includes live alerts, opt-in GPS sharing, manual report submission, observer-side photo/short-audio-clip capture, early sensor-side audio plus key-frame capture, an IndexedDB-backed browser outbox for reconnect-safe manual note/media replay, and the first manifest/service-worker/installable offline PWA layer. The tasks below describe the fuller mobile client beyond that current slice.
 
 ---
 
@@ -26,10 +26,11 @@
 | `src/osk/static/audio-capture.js` | MediaRecorder audio capture and streaming |
 | `src/osk/static/frame-sampler.js` | Web Worker for edge-side key frame sampling |
 | `src/osk/static/sampling-worker.js` | Web Worker script for pixel difference computation |
+| `src/osk/static/member-outbox.js` | Browser outbox for reconnect-safe manual note/media replay |
 | `src/osk/static/sw.js` | Service worker for PWA offline resilience |
-| `src/osk/static/manifest.json` | PWA manifest for "add to home screen" |
+| `src/osk/static/manifest.webmanifest` | PWA manifest for install/add-to-home-screen |
 | Modify: `src/osk/server.py` | Add join and member page routes |
-| `tests/test_member_routes.py` | Route tests for join/member pages |
+| `tests/test_server.py` | Route and member-shell tests for join/member pages |
 
 ---
 
@@ -232,7 +233,7 @@ git commit -m "feat: observer manual photo snap and audio clip recording"
 
 **Files:**
 - Create: `src/osk/static/sw.js`
-- Create: `src/osk/static/manifest.json`
+- Create: `src/osk/static/manifest.webmanifest`
 
 - [ ] **Step 1: Create service worker**
 
@@ -267,7 +268,7 @@ self.addEventListener('message', (event) => {
 });
 ```
 
-- [ ] **Step 2: Create manifest.json**
+- [ ] **Step 2: Create manifest.webmanifest**
 
 ```json
 {
@@ -285,7 +286,7 @@ self.addEventListener('message', (event) => {
 - [ ] **Step 4: Commit**
 
 ```bash
-git add src/osk/static/sw.js src/osk/static/manifest.json src/osk/templates/member.html
+git add src/osk/static/sw.js src/osk/static/manifest.webmanifest src/osk/templates/member.html
 git commit -m "feat: PWA service worker and manifest for offline resilience"
 ```
 

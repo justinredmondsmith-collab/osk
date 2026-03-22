@@ -42,7 +42,8 @@ The repository now includes:
   shell already includes reconnect-aware WebSocket state, live alerts, opt-in
   GPS sharing, manual report submission, observer-side photo/audio clip
   capture, early sensor-side audio/key-frame capture on the member WebSocket
-  path, and a first manifest/service-worker/offline-shell PWA layer
+  path, a browser outbox for reconnect-safe manual report/media retries, and a
+  first manifest/service-worker/installable offline PWA layer
 
 The repository does **not** yet contain the full intelligence pipeline,
 synthesis layer, full coordinator dashboard, or mobile client described in the
@@ -164,6 +165,10 @@ Code contributions should:
 - Keep PWA/offline behavior honest: cache only what the current member flow can
   really resume, and make sure wipe/logout flows clear service-worker caches
   and other browser-managed offline state when the docs say they do
+- Keep queued member actions durable and replay-safe: if notes or manual media
+  are stored locally for reconnect, scope them to the current operation/member,
+  keep their stable IDs across replay, and clear them on logout/wipe when the
+  docs say local state is cleared
 - Keep dashboard map/status surfaces truthful: the current field map is a
   local cached-tile surface driven by member GPS, with an explicit
   relative-position fallback when no cached tiles cover the current area; docs

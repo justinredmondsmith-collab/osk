@@ -1881,14 +1881,16 @@ def create_app(
                             )
                     elif msg_type == "report":
                         report_text = _normalize_manual_report_text(data.get("text"))
+                        report_id = str(data.get("report_id") or "").strip() or None
                         if not report_text:
-                            await ws.send_json(
-                                {
-                                    "type": "report_ack",
-                                    "accepted": False,
-                                    "error": "Report text is required.",
-                                }
-                            )
+                            payload = {
+                                "type": "report_ack",
+                                "accepted": False,
+                                "error": "Report text is required.",
+                            }
+                            if report_id is not None:
+                                payload["report_id"] = report_id
+                            await ws.send_json(payload)
                             continue
                         event = Event(
                             severity=EventSeverity.INFO,
@@ -1913,17 +1915,18 @@ def create_app(
                             actor_member_id=member_id,
                             details={"event_id": str(event.id)},
                         )
-                        await ws.send_json(
-                            {
-                                "type": "report_ack",
-                                "accepted": True,
-                                "event_id": str(event.id),
-                                "text": report_text,
-                                "timestamp": event.timestamp.astimezone(dt.timezone.utc)
-                                .isoformat()
-                                .replace("+00:00", "Z"),
-                            }
-                        )
+                        payload = {
+                            "type": "report_ack",
+                            "accepted": True,
+                            "event_id": str(event.id),
+                            "text": report_text,
+                            "timestamp": event.timestamp.astimezone(dt.timezone.utc)
+                            .isoformat()
+                            .replace("+00:00", "Z"),
+                        }
+                        if report_id is not None:
+                            payload["report_id"] = report_id
+                        await ws.send_json(payload)
                     elif msg_type == "audio_meta":
                         pending_audio_meta = data
                         pending_frame_meta = None

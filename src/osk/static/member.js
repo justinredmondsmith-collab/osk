@@ -58,6 +58,7 @@
   const storageKeys = {
     memberId: "osk_member_id",
     memberName: "osk_member_name",
+    operationId: "osk_operation_id",
     operationName: "osk_operation_name",
     gpsEnabled: "osk_member_gps_enabled",
     sensorEnabled: "osk_member_sensor_enabled",
@@ -74,7 +75,6 @@
     reconnectTimer: null,
     intentionallyLeaving: false,
     endingOperation: false,
-    manualReportPending: false,
     gps: {
       active: false,
       watchId: null,
@@ -95,6 +95,13 @@
     observer: {
       mediaCapture: null,
       snapshot: null,
+    },
+    outbox: {
+      client: null,
+      snapshot: null,
+    },
+    pwa: {
+      installState: null,
     },
   };
 
@@ -147,6 +154,16 @@
     runtimeClipDetail: document.getElementById("runtime-clip-detail"),
     runtimePhotoCapture: document.getElementById("runtime-photo-capture"),
     runtimeClipToggle: document.getElementById("runtime-clip-toggle"),
+    runtimeOutboxCount: document.getElementById("runtime-outbox-count"),
+    runtimeOutboxState: document.getElementById("runtime-outbox-state"),
+    runtimeOutboxLast: document.getElementById("runtime-outbox-last"),
+    runtimeOutboxDetail: document.getElementById("runtime-outbox-detail"),
+    runtimeOutboxFlush: document.getElementById("runtime-outbox-flush"),
+    runtimeOutboxClear: document.getElementById("runtime-outbox-clear"),
+    runtimeNetworkState: document.getElementById("runtime-network-state"),
+    runtimeInstallState: document.getElementById("runtime-install-state"),
+    runtimeInstallDetail: document.getElementById("runtime-install-detail"),
+    runtimeInstallButton: document.getElementById("runtime-install-button"),
   };
 
   function escapeHtml(value) {
@@ -198,12 +215,24 @@
     return String(sessionStorage.getItem(storageKeys.operationName) || "").trim();
   }
 
+  function readStoredOperationId() {
+    return String(sessionStorage.getItem(storageKeys.operationId) || "").trim();
+  }
+
   function rememberOperationName(value) {
     const operationName = normalizeWhitespace(value);
     if (!operationName) {
       return;
     }
     sessionStorage.setItem(storageKeys.operationName, operationName);
+  }
+
+  function rememberOperationId(value) {
+    const operationId = String(value || "").trim();
+    if (!operationId) {
+      return;
+    }
+    sessionStorage.setItem(storageKeys.operationId, operationId);
   }
 
   function shouldAutoRestartGps() {
@@ -246,6 +275,7 @@
   function clearLocalMemberState() {
     sessionStorage.removeItem(storageKeys.memberId);
     sessionStorage.removeItem(storageKeys.memberName);
+    sessionStorage.removeItem(storageKeys.operationId);
     sessionStorage.removeItem(storageKeys.operationName);
     sessionStorage.removeItem(storageKeys.gpsEnabled);
     sessionStorage.removeItem(storageKeys.sensorEnabled);
@@ -512,6 +542,267 @@
     }
     state.socket.send(payload);
     return true;
+  }
+
+  function currentOutboxScope() {
+    const operationId = readStoredOperationId();
+    const memberId = String(sessionStorage.getItem(storageKeys.memberId) || "").trim();
+    if (!operationId || !memberId) {
+      return "";
+    }
+    return `${operationId}:${memberId}`;
+  }
+
+  function memberOutboxReady() {
+    return Boolean(currentOutboxScope());
+  }
+
+  function updateOutboxSnapshot(snapshot) {
+    state.outbox.snapshot = snapshot || null;
+    refreshOutboxUi();
+    updateActionAvailability();
+  }
+
+  function refreshOutboxUi() {
+    const snapshot = state.outbox.snapshot || {};
+    const pendingCount = Number(snapshot.pendingCount || 0);
+    const pendingKinds = snapshot.pendingKinds || {};
+    const online = navigator.onLine !== false;
+
+    if (elements.runtimeOutboxCount) {
+      elements.runtimeOutboxCount.textContent = String(pendingCount);
+    }
+    if (elements.runtimeOutboxState) {
+      let summary = "No queued notes or media.";
+      if (!snapshot.available) {
+        summary = "Browser outbox unavailable on this device.";
+      } else if (snapshot.inFlight) {
+        summary = "Delivering the next queued item now.";
+      } else if (pendingCount === 1) {
+        summary = "1 queued note or media item waiting for delivery.";
+      } else if (pendingCount > 1) {
+        summary = `${pendingCount} queued notes or media items waiting for delivery.`;
+      } else if (!online) {
+        summary = "Offline. New notes and manual media will queue locally.";
+      }
+      elements.runtimeOutboxState.textContent = summary;
+      elements.runtimeOutboxState.classList.toggle("is-warning", !online || pendingCount > 0);
+    }
+    if (elements.runtimeOutboxLast) {
+      elements.runtimeOutboxLast.textContent = snapshot.oldestPendingAt
+        ? formatRelativeTime(snapshot.oldestPendingAt)
+        : "None";
+    }
+    if (elements.runtimeOutboxDetail) {
+      const parts = [];
+      if (pendingKinds.report) {
+        parts.push(`${pendingKinds.report} note${pendingKinds.report === 1 ? "" : "s"}`);
+      }
+      if (pendingKinds.frame) {
+        parts.push(`${pendingKinds.frame} photo${pendingKinds.frame === 1 ? "" : "s"}`);
+      }
+      if (pendingKinds.audio) {
+        parts.push(`${pendingKinds.audio} clip${pendingKinds.audio === 1 ? "" : "s"}`);
+      }
+      let detail = "Notes, photos, and short clips can queue locally until reconnect.";
+      if (parts.length) {
+        detail = `${parts.join(" · ")} pending in the local browser outbox.`;
+      } else if (!online) {
+        detail = "Offline now. New field notes and manual media will queue until the hub returns.";
+      }
+      elements.runtimeOutboxDetail.textContent = detail;
+      elements.runtimeOutboxDetail.classList.toggle("is-warning", !online || pendingCount > 0);
+    }
+    if (elements.runtimeOutboxFlush) {
+      elements.runtimeOutboxFlush.disabled =
+        pendingCount === 0 || !isSocketOpen() || !state.authenticated || state.endingOperation;
+    }
+    if (elements.runtimeOutboxClear) {
+      elements.runtimeOutboxClear.disabled = pendingCount === 0 || state.endingOperation;
+    }
+    if (elements.runtimeNetworkState) {
+      elements.runtimeNetworkState.textContent = online ? "Online" : "Offline";
+      elements.runtimeNetworkState.classList.toggle("is-live", online);
+      elements.runtimeNetworkState.classList.toggle("is-warning", !online);
+    }
+  }
+
+  function updatePwaInstallState(installState) {
+    state.pwa.installState = installState || null;
+    const snapshot =
+      installState || globalThis.OskPwaRuntime?.getInstallState?.() || state.pwa.installState || {};
+    const installed = Boolean(snapshot.installed);
+    const installAvailable = Boolean(snapshot.installPromptAvailable);
+    let label = "Browser only";
+    let detail = snapshot.manualInstallHint || "Install this shell for quicker field access.";
+
+    if (installed) {
+      label = "Installed";
+      detail = "Running as an installed shell or standalone browser surface.";
+    } else if (installAvailable) {
+      label = "Ready";
+      detail = "This browser can install the member shell for offline launch.";
+    } else if (!snapshot.secureContext || !snapshot.serviceWorkerSupported) {
+      label = "Unsupported";
+      detail = "This browser cannot install the member shell as an app.";
+    }
+
+    if (elements.runtimeInstallState) {
+      elements.runtimeInstallState.textContent = label;
+      elements.runtimeInstallState.classList.toggle("is-live", installed || installAvailable);
+      elements.runtimeInstallState.classList.toggle(
+        "is-warning",
+        !installed && !installAvailable,
+      );
+    }
+    if (elements.runtimeInstallDetail) {
+      elements.runtimeInstallDetail.textContent = detail;
+      elements.runtimeInstallDetail.classList.toggle(
+        "is-warning",
+        !installed && !installAvailable,
+      );
+    }
+    if (elements.runtimeInstallButton) {
+      elements.runtimeInstallButton.hidden = installed || !installAvailable;
+      elements.runtimeInstallButton.disabled = state.endingOperation || !installAvailable;
+    }
+  }
+
+  function ensureOutboxModule() {
+    if (state.outbox.client) {
+      return;
+    }
+    const outboxFactory = globalThis.OskMemberOutbox?.createMemberOutbox;
+    if (typeof outboxFactory !== "function") {
+      throw new Error("Member outbox module is unavailable.");
+    }
+    state.outbox.client = outboxFactory({
+      getScope: currentOutboxScope,
+      canSend: () => isSocketOpen() && state.authenticated && !state.endingOperation,
+      sendJson: sendSocketJson,
+      sendBinary: sendSocketBinary,
+      onStateChange: (snapshot) => updateOutboxSnapshot(snapshot),
+    });
+  }
+
+  async function refreshOutboxState() {
+    try {
+      ensureOutboxModule();
+      await state.outbox.client.refresh();
+    } catch (error) {
+      updateOutboxSnapshot({
+        available: false,
+        pendingCount: 0,
+        pendingKinds: { report: 0, audio: 0, frame: 0 },
+        inFlight: false,
+        oldestPendingAt: null,
+        lastError:
+          error instanceof Error ? error.message : "Member outbox is unavailable in this browser.",
+      });
+    }
+  }
+
+  async function flushOutbox({ quiet = false } = {}) {
+    if (!state.outbox.client) {
+      return;
+    }
+    await state.outbox.client.flush();
+    if (!quiet && Number(state.outbox.snapshot?.pendingCount || 0) > 0 && !isSocketOpen()) {
+      pushFeed("Queued items are waiting for the live member connection.", "warning");
+    }
+  }
+
+  async function clearQueuedOutbox({ quiet = false } = {}) {
+    if (!state.outbox.client) {
+      try {
+        ensureOutboxModule();
+      } catch (error) {
+        return;
+      }
+    }
+    await state.outbox.client.clearPending();
+    if (!quiet) {
+      pushFeed("Queued notes and manual media were cleared from this browser.", "note");
+    }
+  }
+
+  async function queueManualReport(text) {
+    ensureOutboxModule();
+    const operationId = readStoredOperationId();
+    const operationName = readStoredOperationName();
+    const memberId = String(sessionStorage.getItem(storageKeys.memberId) || "").trim();
+    const memberName = readStoredName();
+    if (!memberOutboxReady()) {
+      throw new Error("Secure member session is not ready yet.");
+    }
+    const reportId =
+      globalThis.crypto && typeof globalThis.crypto.randomUUID === "function"
+        ? `report-${globalThis.crypto.randomUUID()}`
+        : `report-${Date.now()}-${Math.round(Math.random() * 1e9)}`;
+    await state.outbox.client.enqueueReport({
+      reportId,
+      text: text.slice(0, manualReportMaxLength),
+      operationId,
+      operationName,
+      memberId,
+      memberName,
+    });
+    return reportId;
+  }
+
+  async function queueObserverMedia(kind, payload) {
+    ensureOutboxModule();
+    const operationId = readStoredOperationId();
+    const operationName = readStoredOperationName();
+    const memberId = String(sessionStorage.getItem(storageKeys.memberId) || "").trim();
+    const memberName = readStoredName();
+    if (!memberOutboxReady()) {
+      throw new Error("Secure member session is not ready yet.");
+    }
+    if (kind === "frame") {
+      await state.outbox.client.enqueueMedia({
+        kind: "frame",
+        itemId: payload.captureId,
+        operationId,
+        operationName,
+        memberId,
+        memberName,
+        metadata: {
+          type: "frame_meta",
+          frame_id: payload.captureId,
+          ingest_key: payload.ingestKey,
+          sequence_no: 0,
+          content_type: payload.contentType,
+          width: payload.width,
+          height: payload.height,
+          change_score: 1.0,
+          captured_at: payload.capturedAt,
+          manual_capture: true,
+        },
+        blob: payload.blob,
+      });
+      return;
+    }
+    await state.outbox.client.enqueueMedia({
+      kind: "audio",
+      itemId: payload.captureId,
+      operationId,
+      operationName,
+      memberId,
+      memberName,
+      metadata: {
+        type: "audio_meta",
+        chunk_id: payload.captureId,
+        ingest_key: payload.ingestKey,
+        sequence_no: 0,
+        duration_ms: payload.durationMs,
+        sample_rate_hz: payload.sampleRateHz,
+        codec: payload.codec,
+        captured_at: payload.capturedAt,
+        manual_capture: true,
+      },
+      blob: payload.blob,
+    });
   }
 
   function refreshGpsState() {
@@ -885,13 +1176,15 @@
 
   function updateActionAvailability() {
     const socketOpen = isSocketOpen();
+    const outboxReady = memberOutboxReady();
     if (elements.runtimeReportText) {
       elements.runtimeReportText.disabled = state.endingOperation;
       elements.runtimeReportText.maxLength = manualReportMaxLength;
     }
     if (elements.runtimeReportSend) {
-      elements.runtimeReportSend.disabled =
-        !socketOpen || state.manualReportPending || state.endingOperation;
+      elements.runtimeReportSend.disabled = !outboxReady || state.endingOperation;
+      elements.runtimeReportSend.textContent =
+        socketOpen && state.authenticated ? "Send report" : "Queue report";
     }
     if (elements.runtimeSensorToggle) {
       elements.runtimeSensorToggle.disabled =
@@ -914,13 +1207,13 @@
     if (elements.runtimePhotoCapture) {
       const photoBusy = Boolean(state.observer.snapshot?.photo?.capturing);
       elements.runtimePhotoCapture.disabled =
-        isSensorRole(state.sensor.role) || !socketOpen || photoBusy || state.endingOperation;
+        isSensorRole(state.sensor.role) || !outboxReady || photoBusy || state.endingOperation;
       elements.runtimePhotoCapture.textContent = photoBusy ? "Capturing photo" : "Snap photo";
     }
     if (elements.runtimeClipToggle) {
       elements.runtimeClipToggle.disabled =
         isSensorRole(state.sensor.role) ||
-        !socketOpen ||
+        !outboxReady ||
         observerClipCoolingDown() ||
         state.endingOperation;
       elements.runtimeClipToggle.textContent = observerClipRecording()
@@ -930,6 +1223,12 @@
               Number(state.observer.snapshot?.clip?.cooldownRemainingMs || 0) / 1000,
             )}s`
           : "Record clip";
+    }
+    if (elements.runtimeInstallButton) {
+      const installAvailable = Boolean(state.pwa.installState?.installPromptAvailable);
+      const installed = Boolean(state.pwa.installState?.installed);
+      elements.runtimeInstallButton.hidden = installed || !installAvailable;
+      elements.runtimeInstallButton.disabled = state.endingOperation || !installAvailable;
     }
   }
 
@@ -994,11 +1293,15 @@
       photoQuality: observerConfig.photoQuality,
       targetWidth: sensorConfig.videoWidth,
       targetHeight: sensorConfig.videoHeight,
-      sendJson: sendSocketJson,
-      sendBinary: sendSocketBinary,
       getContext: () => ({
         memberId: sessionStorage.getItem(storageKeys.memberId) || "",
       }),
+      submitPhoto: async (payload) => {
+        await queueObserverMedia("frame", payload);
+      },
+      submitClip: async (payload) => {
+        await queueObserverMedia("audio", payload);
+      },
       onStateChange: (snapshot) => updateObserverSnapshot(snapshot),
       onError: (message) => {
         pushFeed(message, "warning");
@@ -1086,14 +1389,20 @@
   }
 
   async function captureObserverPhoto() {
-    if (isSensorRole(state.sensor.role) || !isSocketOpen()) {
-      pushFeed("Connection must be live before a manual photo can be sent.", "warning");
+    if (isSensorRole(state.sensor.role) || !memberOutboxReady()) {
+      pushFeed("Secure member session is not ready for manual photo capture yet.", "warning");
       return;
     }
     try {
       ensureObserverMediaModule();
       await state.observer.mediaCapture.capturePhoto();
-      pushFeed("Manual photo captured. Waiting for hub acknowledgement.", "note");
+      pushFeed(
+        isSocketOpen()
+          ? "Manual photo captured. Sending through the live member connection."
+          : "Manual photo captured and queued for reconnect.",
+        isSocketOpen() ? "note" : "warning",
+      );
+      await flushOutbox({ quiet: true });
     } catch (error) {
       if (error instanceof Error) {
         pushFeed(error.message, "warning");
@@ -1114,15 +1423,21 @@
   }
 
   async function toggleObserverClip() {
-    if (isSensorRole(state.sensor.role) || !isSocketOpen()) {
-      pushFeed("Connection must be live before a short clip can be sent.", "warning");
+    if (isSensorRole(state.sensor.role) || !memberOutboxReady()) {
+      pushFeed("Secure member session is not ready for short audio clips yet.", "warning");
       return;
     }
     try {
       ensureObserverMediaModule();
       if (observerClipRecording()) {
         await state.observer.mediaCapture.stopClip();
-        pushFeed("Short audio clip stopped. Waiting for hub acknowledgement.", "note");
+        pushFeed(
+          isSocketOpen()
+            ? "Short audio clip stopped. Sending through the live member connection."
+            : "Short audio clip stopped and queued for reconnect.",
+          isSocketOpen() ? "note" : "warning",
+        );
+        await flushOutbox({ quiet: true });
         return;
       }
       await state.observer.mediaCapture.startClip();
@@ -1196,6 +1511,9 @@
     if (!session) {
       return;
     }
+    if (session.operation_id) {
+      rememberOperationId(session.operation_id);
+    }
     if (session.member_id) {
       sessionStorage.setItem(storageKeys.memberId, String(session.member_id));
     }
@@ -1208,6 +1526,7 @@
     if (session.operation_name) {
       updateOperationName(session.operation_name);
     }
+    void refreshOutboxState();
   }
 
   async function exchangeMemberRuntimeSession(memberSessionCode) {
@@ -1246,6 +1565,7 @@
     stopGpsWatch();
     await stopSensorCapture({ preservePreference: false, quiet: true });
     await stopObserverMedia({ quiet: true });
+    await clearQueuedOutbox({ quiet: true });
     if (state.socket && state.socket.readyState < WebSocket.CLOSING) {
       try {
         state.socket.close(1000, "member leaving");
@@ -1263,7 +1583,10 @@
     window.location.href = bootstrap.paths.join_page;
   }
 
-  function handleMediaAck(kind, payload) {
+  async function handleMediaAck(kind, payload) {
+    const outboxAck = state.outbox.client
+      ? await state.outbox.client.handleAck(payload)
+      : { handled: false, retryable: false };
     if (kind === "audio" && state.sensor.audioCapture) {
       state.sensor.audioCapture.handleAck(payload);
     }
@@ -1279,6 +1602,8 @@
             : "Manual audio clip delivered to the hub.",
           payload.duplicate ? "note" : "success",
         );
+      } else if (payload.accepted === false && outboxAck.retryable) {
+        pushFeed("Manual audio clip is still queued and will retry on reconnect.", "warning");
       }
     }
     if (kind === "frame" && state.observer.mediaCapture && !isSensorRole(state.sensor.role)) {
@@ -1290,11 +1615,36 @@
             : "Manual photo delivered to the hub.",
           payload.duplicate ? "note" : "success",
         );
+      } else if (payload.accepted === false && outboxAck.retryable) {
+        pushFeed("Manual photo is still queued and will retry on reconnect.", "warning");
       }
     }
-    if (payload.accepted === false) {
+    if (payload.accepted === false && !outboxAck.retryable) {
       pushFeed(payload.reason || `${kind} capture was rejected by the hub.`, "warning");
     }
+  }
+
+  async function handleReportAck(payload) {
+    const outboxAck = state.outbox.client
+      ? await state.outbox.client.handleAck(payload)
+      : { handled: false, retryable: false };
+    if (payload.accepted) {
+      if (elements.runtimeLastReport) {
+        elements.runtimeLastReport.textContent = formatTime(payload.timestamp);
+      }
+      if (elements.runtimeReportText) {
+        elements.runtimeReportText.value = "";
+      }
+      setReportState("Field note delivered to the hub.");
+      pushFeed("Field note delivered to the hub.", "success");
+    } else if (outboxAck.retryable) {
+      setReportState("Field note is queued locally and will retry when the hub is ready.");
+      pushFeed("Field note remains queued locally for retry.", "warning");
+    } else {
+      setReportState(payload.error || "Report was rejected.", { error: true });
+      pushFeed(payload.error || "Report was rejected.", "warning");
+    }
+    updateActionAvailability();
   }
 
   function handleSocketMessage(payload) {
@@ -1302,6 +1652,9 @@
       state.authenticated = true;
       state.reconnectAttempt = 0;
       sessionStorage.setItem(storageKeys.memberId, String(payload.member_id || ""));
+      if (payload.operation_id) {
+        rememberOperationId(payload.operation_id);
+      }
       if (payload.operation_name) {
         updateOperationName(payload.operation_name);
       }
@@ -1321,6 +1674,7 @@
       if (payload.member_session_code) {
         void exchangeMemberRuntimeSession(payload.member_session_code);
       }
+      void flushOutbox({ quiet: true });
       updateActionAvailability();
       return;
     }
@@ -1338,31 +1692,17 @@
     }
 
     if (payload.type === "report_ack") {
-      state.manualReportPending = false;
-      if (payload.accepted) {
-        if (elements.runtimeLastReport) {
-          elements.runtimeLastReport.textContent = formatTime(payload.timestamp);
-        }
-        if (elements.runtimeReportText) {
-          elements.runtimeReportText.value = "";
-        }
-        setReportState("Field note sent.");
-        pushFeed("Field note delivered to the hub.", "success");
-      } else {
-        setReportState(payload.error || "Report was rejected.", { error: true });
-        pushFeed(payload.error || "Report was rejected.", "warning");
-      }
-      updateActionAvailability();
+      void handleReportAck(payload);
       return;
     }
 
     if (payload.type === "audio_ack") {
-      handleMediaAck("audio", payload);
+      void handleMediaAck("audio", payload);
       return;
     }
 
     if (payload.type === "frame_ack") {
-      handleMediaAck("frame", payload);
+      void handleMediaAck("frame", payload);
       return;
     }
 
@@ -1458,13 +1798,18 @@
         return;
       }
       setSessionState("Disconnected");
+      setReportState("Live connection lost. Notes and manual media will queue until reconnect.", {
+        error: true,
+      });
       scheduleReconnect("Connection closed. Trying to resume.");
       refreshGpsState();
     });
 
     socket.addEventListener("error", () => {
       setConnectionState("error", "Connection error");
-      setReportState("Connection error. Waiting for reconnect.", { error: true });
+      setReportState("Connection error. Notes and manual media will queue until reconnect.", {
+        error: true,
+      });
     });
   }
 
@@ -1541,9 +1886,16 @@
     renderAlertSummary();
     refreshSensorUi();
     refreshObserverUi();
+    await refreshOutboxState();
+    refreshOutboxUi();
+    updatePwaInstallState();
     updateActionAvailability();
     refreshGpsState();
-    setReportState("Reports send over the live member connection.");
+    setReportState(
+      isSocketOpen()
+        ? "Reports send over the live member connection."
+        : "Reports and manual media can queue locally until reconnect.",
+    );
     setSessionState(session.runtime_authenticated ? "Resuming" : "Connecting");
     if (session.runtime_authenticated) {
       pushFeed("Secure member session restored from the local browser session.", "note");
@@ -1603,6 +1955,63 @@
       });
     }
 
+    if (elements.runtimeOutboxFlush) {
+      elements.runtimeOutboxFlush.addEventListener("click", () => {
+        void flushOutbox()
+          .then(() => {
+            if (Number(state.outbox.snapshot?.pendingCount || 0) === 0) {
+              pushFeed("Queued notes and media are fully delivered.", "success");
+            }
+          })
+          .catch((error) => {
+            pushFeed(
+              error instanceof Error ? error.message : "Queued items could not be retried yet.",
+              "warning",
+            );
+          });
+      });
+    }
+
+    if (elements.runtimeOutboxClear) {
+      elements.runtimeOutboxClear.addEventListener("click", () => {
+        void clearQueuedOutbox();
+      });
+    }
+
+    if (elements.runtimeInstallButton) {
+      elements.runtimeInstallButton.addEventListener("click", () => {
+        void globalThis.OskPwaRuntime?.requestInstall?.()
+          .then((result) => {
+            const outcome = String(result?.outcome || "unavailable");
+            if (outcome === "accepted") {
+              pushFeed("Install prompt accepted. Finish the browser install flow.", "success");
+            } else if (outcome === "dismissed") {
+              pushFeed("Install prompt dismissed.", "note");
+            } else if (outcome === "unavailable") {
+              pushFeed(result?.hint || "Install prompt is unavailable on this browser.", "warning");
+            }
+            updatePwaInstallState();
+          })
+          .catch((error) => {
+            pushFeed(
+              error instanceof Error ? error.message : "Install prompt could not be opened.",
+              "warning",
+            );
+          });
+      });
+    }
+
+    window.addEventListener("osk:pwa-state", (event) => {
+      updatePwaInstallState(event.detail || null);
+    });
+
+    window.addEventListener("osk:pwa-network", () => {
+      refreshOutboxUi();
+      if (isSocketOpen() && state.authenticated) {
+        void flushOutbox({ quiet: true });
+      }
+    });
+
     if (elements.runtimeReportForm) {
       elements.runtimeReportForm.addEventListener("submit", (event) => {
         event.preventDefault();
@@ -1611,33 +2020,45 @@
           setReportState("Enter a short field note before sending.", { error: true });
           return;
         }
-        if (!isSocketOpen()) {
-          setReportState("Connection is down. Wait for reconnect, then resend.", {
+        if (!memberOutboxReady()) {
+          setReportState("Secure member session is still coming online.", {
             error: true,
           });
           return;
         }
-        state.manualReportPending = true;
-        setReportState("Sending field note...");
-        updateActionAvailability();
-        if (
-          !sendSocketJson({
-            type: "report",
-            text: text.slice(0, manualReportMaxLength),
+        setReportState(
+          isSocketOpen()
+            ? "Queueing field note for immediate delivery..."
+            : "Field note queued locally for reconnect.",
+        );
+        void queueManualReport(text)
+          .then(() => {
+            pushFeed(
+              isSocketOpen()
+                ? "Field note queued and sending through the live member connection."
+                : "Field note queued locally for reconnect.",
+              isSocketOpen() ? "note" : "warning",
+            );
+            if (!isSocketOpen()) {
+              setReportState("Field note queued locally for reconnect.");
+            }
+            return flushOutbox({ quiet: true });
           })
-        ) {
-          state.manualReportPending = false;
-          setReportState("Connection dropped before the report could be sent.", {
-            error: true,
+          .catch((error) => {
+            setReportState(
+              error instanceof Error ? error.message : "Field note could not be queued.",
+              {
+                error: true,
+              },
+            );
           });
-          updateActionAvailability();
-        }
       });
     }
   }
 
   async function init() {
     bindEvents();
+    updatePwaInstallState(globalThis.OskPwaRuntime?.getInstallState?.() || null);
     if (bootstrap.page === "join") {
       await initializeJoinPage();
       return;

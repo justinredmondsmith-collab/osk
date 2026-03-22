@@ -97,6 +97,10 @@ changes manually while the project is in its early public setup phase.
   capture module, duplicate-safe ingest keys for manual media, root manifest
   and service worker routes, cached member shell/static assets, and offline
   fallback behavior for previously loaded join/member pages
+- Member offline resilience slice: IndexedDB-backed browser outbox for manual
+  reports/photos/clips, replay-safe `report_id` acknowledgements, install
+  prompt wiring for the member shell, and offline/install status controls in
+  the runtime UI
 
 ### Changed
 
@@ -141,3 +145,5 @@ changes manually while the project is in its early public setup phase.
   JS-stored reconnect secret
 - Member/browser docs now reflect observer manual photo/audio clip support and
   the first real manifest/service-worker/offline-shell PWA slice
+- Member/browser docs now reflect reconnect-safe queued manual actions and the
+  current installable/offline member shell behavior more precisely
