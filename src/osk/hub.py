@@ -1537,12 +1537,15 @@ def show_members(*, json_output: bool = False) -> int:
         _member_snapshot(row, heartbeat_timeout_seconds=cfg.member_heartbeat_timeout_seconds)
         for row in rows
     ]
+    wipe_readiness = summarize_wipe_readiness(members)
     if json_output:
         print(json.dumps(members, indent=2, sort_keys=True))
         return 0
 
     if not members:
         print("No members recorded.")
+        print(f"wipe_readiness = {wipe_readiness['status']}")
+        print(f"wipe_summary = {wipe_readiness['summary']}")
         return 0
 
     for member in members:
@@ -1554,7 +1557,6 @@ def show_members(*, json_output: bool = False) -> int:
             f"heartbeat={member['heartbeat_state']} last_seen={member['last_seen_at']}"
             f"{coords} id={member['id']}"
         )
-    wipe_readiness = summarize_wipe_readiness(members)
     print(f"wipe_readiness = {wipe_readiness['status']}")
     print(f"wipe_summary = {wipe_readiness['summary']}")
     if wipe_readiness["at_risk"]:

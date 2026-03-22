@@ -853,6 +853,37 @@ def test_show_members_formats_rows(mock_asyncio_run: MagicMock, tmp_path: Path, 
 
 
 @patch("osk.hub.asyncio.run")
+def test_show_members_idle_still_reports_wipe_readiness(
+    mock_asyncio_run: MagicMock,
+    tmp_path: Path,
+    capsys,
+) -> None:
+    def return_member_rows(coro):
+        coro.close()
+        return []
+
+    mock_asyncio_run.side_effect = return_member_rows
+
+    with (
+        patch("osk.hub._config_root", return_value=tmp_path),
+        patch("osk.hub.load_config", return_value=OskConfig(member_heartbeat_timeout_seconds=45)),
+    ):
+        (tmp_path / "hub-state.json").write_text(
+            '{"operation_id":"11111111-1111-1111-1111-111111111111"}\n'
+        )
+
+        from osk.hub import show_members
+
+        code = show_members()
+
+    out = capsys.readouterr().out
+    assert code == 0
+    assert "No members recorded." in out
+    assert "wipe_readiness = idle" in out
+    assert "No member browsers are currently joined." in out
+
+
+@patch("osk.hub.asyncio.run")
 def test_status_hub_reports_wipe_readiness(
     mock_asyncio_run: MagicMock,
     tmp_path: Path,
