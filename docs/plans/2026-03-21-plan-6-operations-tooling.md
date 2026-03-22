@@ -14,8 +14,11 @@ tile-cache CLI slice via `osk tiles status` and `osk tiles cache`, a
 standalone `osk hotspot status|up|down|instructions` slice for
 NetworkManager-based field setup, and a standalone
 `osk evidence unlock|export|destroy` slice for preserved-evidence access. The
-missing work in this phase is hub-start integration and validated wipe/install
-operations.
+repo now also has conservative hotspot-aware guidance in `osk doctor` and
+`osk start`, so field-network and `join_host` mismatches are surfaced without
+automatically changing host networking. The missing work in this phase is
+deeper hub orchestration, validated wipe/install operations, and field
+validation.
 
 **Tech Stack:** Python, nmcli, cryptsetup, keyctl, zipfile, subprocess
 
@@ -33,7 +36,7 @@ operations.
 | `src/osk/tiles.py` | Offline map tile download and caching |
 | `scripts/setup-sudoers.sh` | Configure sudoers.d for cryptsetup/mount commands |
 | Modify: `src/osk/cli.py` | Wire new commands (tiles, evidence subcommands) |
-| Modify: `src/osk/hub.py` | Wire hotspot into startup flow |
+| Modify: `src/osk/hub.py` | Surface hotspot/startup guidance and later runtime orchestration |
 | `tests/test_hotspot.py` | Hotspot management tests (mocked nmcli) |
 | `tests/test_evidence.py` | Evidence export/destroy tests |
 | `tests/test_tiles.py` | Tile caching tests (mocked HTTP) |
@@ -385,12 +388,14 @@ cache_p.add_argument("--area", required=True, help="Bounding box: south,west,nor
 cache_p.add_argument("--zoom", default="13-17", help="Zoom range (default: 13-17)")
 ```
 
-- [ ] **Step 2: Wire hotspot into hub.py startup**
+- [ ] **Step 2: Wire hotspot awareness into hub.py startup**
 
 In `run_hub()`, after storage setup:
 - Create HotspotManager with config SSID and band
-- If `hotspot.is_available()`: start hotspot, use returned IP for QR code URL
-- If not available: print manual instructions, use `0.0.0.0` as fallback
+- Surface hotspot availability, current hotspot IP, and `join_host` guidance in
+  the startup banner
+- Do not silently start or stop host networking by default
+- If future automatic hotspot startup is added, make it explicit and opt-in
 
 - [ ] **Step 3: Wire evidence commands in CLI**
 

@@ -18,6 +18,7 @@ from osk.hub import (
     default_storage_manager,
     ensure_hub_not_running,
     ensure_local_services,
+    hotspot_preflight_status,
     hub_status_snapshot,
     installation_issues,
     local_database_port,
@@ -61,6 +62,83 @@ def test_installation_issues_skip_luks_requirement_for_directory_backend(tmp_pat
     storage = default_storage_manager(config)
     issues = installation_issues(config, storage)
     assert issues == []
+
+
+@patch("osk.hub.HotspotManager.status")
+def test_hotspot_preflight_status_marks_active_hotspot(
+    mock_status: MagicMock,
+) -> None:
+    mock_status.return_value = {
+        "available": True,
+        "ssid": "osk-local",
+        "band": "5GHz",
+        "connection_name": "osk-local",
+        "ip_address": "10.42.0.1",
+        "manual_instructions": None,
+    }
+
+    payload = hotspot_preflight_status(
+        OskConfig(hotspot_ssid="osk-local", hotspot_band="5GHz", join_host="10.42.0.1")
+    )
+
+    assert payload["status"] == "active"
+    assert payload["join_host_scope"] == "hotspot_ip"
+    assert payload["warnings"] == []
+    assert payload["actions"] == []
+
+
+@patch("osk.hub.HotspotManager.status")
+def test_hotspot_preflight_status_warns_for_loopback_join_host(
+    mock_status: MagicMock,
+) -> None:
+    mock_status.return_value = {
+        "available": True,
+        "ssid": "osk-local",
+        "band": "5GHz",
+        "connection_name": "osk-local",
+        "ip_address": None,
+        "manual_instructions": None,
+    }
+
+    payload = hotspot_preflight_status(
+        OskConfig(hotspot_ssid="osk-local", hotspot_band="5GHz", join_host="127.0.0.1")
+    )
+
+    assert payload["status"] == "available_inactive"
+    assert payload["join_host_scope"] == "loopback"
+    assert any(
+        "member QR codes will only work on the coordinator device" in w for w in payload["warnings"]
+    )
+    assert any("osk hotspot up --password <passphrase>" in action for action in payload["actions"])
+    assert any(
+        "set `join_host` to a reachable LAN or hotspot IP" in action
+        for action in payload["actions"]
+    )
+
+
+@patch("osk.hub.HotspotManager.status")
+def test_hotspot_preflight_status_warns_when_join_host_mismatches_hotspot_ip(
+    mock_status: MagicMock,
+) -> None:
+    mock_status.return_value = {
+        "available": True,
+        "ssid": "osk-local",
+        "band": "5GHz",
+        "connection_name": "osk-local",
+        "ip_address": "10.42.0.1",
+        "manual_instructions": None,
+    }
+
+    payload = hotspot_preflight_status(
+        OskConfig(hotspot_ssid="osk-local", hotspot_band="5GHz", join_host="field.local")
+    )
+
+    assert payload["status"] == "active"
+    assert payload["join_host_scope"] == "custom"
+    assert any(
+        "Verify member devices can reach the configured join host" in w for w in payload["warnings"]
+    )
+    assert any("osk config --set join_host=10.42.0.1" in action for action in payload["actions"])
 
 
 @patch("osk.hub.shutil.which", return_value=None)

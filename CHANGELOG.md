@@ -125,6 +125,8 @@ changes manually while the project is in its early public setup phase.
 - Standalone preserved-evidence slice: `osk evidence unlock|export|destroy`
   and a host-side evidence manager for read-only unlock, zip export, and
   destructive cleanup flows
+- Hotspot-aware preflight/startup guidance in `osk doctor` and `osk start`,
+  including `join_host` mismatch warnings and field-network next-step hints
 
 ### Changed
 
@@ -188,3 +190,6 @@ changes manually while the project is in its early public setup phase.
   the first real manifest/service-worker/offline-shell PWA slice
 - Member/browser docs now reflect reconnect-safe queued manual actions and the
   current installable/offline member shell behavior more precisely
+- Operations-tooling docs now describe the conservative hotspot-aware
+  doctor/start path instead of implying that the hub silently brings host
+  networking up for the operator

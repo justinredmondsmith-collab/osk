@@ -74,9 +74,10 @@ For the next implementation stage, follow this order:
 
 1. Real browser/device validation for `/join` -> `/member`, offline/outbox
    replay, installability, and reconnect behavior
-2. Operations tooling: hotspot control, tile caching, evidence/export, wipe
-   drills, and the host-side install path that makes the current runtime more
-   field-usable
+2. Operations tooling: finish the host-side field tooling around the slices
+   already in repo, including conservative hotspot/startup guidance,
+   tile-caching workflows, evidence/export, wipe drills, and the install path
+   that makes the current runtime more field-usable
 3. Broader resend/session hardening across hub restarts so member/mobile
    capture survives more than transient reconnects
 4. Higher-quality synthesis and review ergonomics beyond the current heuristic

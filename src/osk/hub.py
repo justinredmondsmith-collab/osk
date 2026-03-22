@@ -22,6 +22,7 @@ import uvicorn
 from osk.config import OskConfig, load_config, save_config
 from osk.connection_manager import ConnectionManager
 from osk.db import Database
+from osk.hotspot import HotspotManager
 from osk.intelligence_service import IntelligenceService
 from osk.local_operator import (
     bootstrap_session_path,
@@ -59,6 +60,7 @@ logger = logging.getLogger(__name__)
 LOCAL_DEV_DATABASE_URL = "postgresql://osk:osk@localhost:5432/osk"
 LOCAL_DEV_OLLAMA_URL = "http://localhost:11434"
 DEFAULT_LOCAL_SERVICE_NAMES = ("db",)
+LOOPBACK_JOIN_HOSTS = {"127.0.0.1", "localhost", "::1", "0.0.0.0"}
 
 
 def _repo_root() -> Path:
@@ -109,6 +111,71 @@ def installation_issues(config: OskConfig, storage: StorageManager) -> list[str]
         )
 
     return issues
+
+
+def hotspot_preflight_status(config: OskConfig) -> dict[str, object]:
+    ssid = config.hotspot_ssid or "osk-local"
+    manager = HotspotManager(ssid=ssid, band=config.hotspot_band)
+    status = manager.status()
+    hotspot_ip = status.get("ip_address")
+    join_host = str(config.join_host).strip()
+
+    if join_host in LOOPBACK_JOIN_HOSTS:
+        join_host_scope = "loopback"
+    elif hotspot_ip and join_host == hotspot_ip:
+        join_host_scope = "hotspot_ip"
+    else:
+        join_host_scope = "custom"
+
+    warnings: list[str] = []
+    actions: list[str] = []
+
+    available = bool(status.get("available"))
+    if available and hotspot_ip:
+        hotspot_status = "active"
+    elif available:
+        hotspot_status = "available_inactive"
+        actions.append(
+            "Use `osk hotspot up --password <passphrase>` if you want a local hotspot "
+            "before field deployment."
+        )
+    else:
+        hotspot_status = "manual_only"
+        actions.append(
+            "Use `osk hotspot instructions` or your distro network UI for manual hotspot setup."
+        )
+
+    if join_host_scope == "loopback":
+        warnings.append(
+            f"join_host is set to {join_host}, so member QR codes will only work on the "
+            "coordinator device."
+        )
+        if hotspot_ip:
+            actions.append(
+                "If you want QR joins to target the active hotspot, run "
+                f"`osk config --set join_host={hotspot_ip}`."
+            )
+        else:
+            actions.append("Before field use, set `join_host` to a reachable LAN or hotspot IP.")
+    elif hotspot_ip and join_host != hotspot_ip:
+        warnings.append(
+            f"Hotspot IP is {hotspot_ip}, but join_host is {join_host}. Verify member "
+            "devices can reach the configured join host."
+        )
+        actions.append(
+            "If you want QR joins to target the active hotspot, run "
+            f"`osk config --set join_host={hotspot_ip}`."
+        )
+
+    return {
+        **status,
+        "actions": actions,
+        "join_host": join_host,
+        "join_host_scope": join_host_scope,
+        "recommended_join_host": hotspot_ip,
+        "status": hotspot_status,
+        "warnings": warnings,
+    }
 
 
 def uses_local_dev_services(config: OskConfig) -> bool:
@@ -690,6 +757,7 @@ async def run_hub(name: str) -> None:
         )
         await intelligence_service.start()
 
+        hotspot = hotspot_preflight_status(config)
         join_url = build_join_url(config.join_host, config.hub_port, operation.token)
         qr_path = _config_root() / "join-qr.png"
         generate_qr_png(join_url, qr_path)
@@ -721,6 +789,18 @@ async def run_hub(name: str) -> None:
         print(f"Runtime log file: {_runtime_log_path()}")
         print(f"Service mode: {local_service_mode(config)}")
         print(f"Storage backend: {storage.backend}")
+        print(
+            "Hotspot readiness: "
+            f"{hotspot['status']} (ssid={hotspot['ssid']}, "
+            f"ip={hotspot['ip_address'] or 'unknown'})"
+        )
+        print(f"Join host: {hotspot['join_host']}")
+        if hotspot["warnings"]:
+            print("Field network guidance:")
+            for warning in hotspot["warnings"]:
+                print(f"- {warning}")
+        for action in hotspot["actions"]:
+            print(f"- {action}")
         print(generate_qr_ascii(join_url))
         print(f"PNG QR: {qr_path}\n")
 

@@ -43,6 +43,7 @@ def _doctor_snapshot() -> tuple[int, dict[str, object]]:
 
     from .hub import (
         default_storage_manager,
+        hotspot_preflight_status,
         hub_status_snapshot,
         installation_issues,
         local_service_mode,
@@ -62,6 +63,7 @@ def _doctor_snapshot() -> tuple[int, dict[str, object]]:
             "ready": not issues,
             "service_mode": local_service_mode(cfg),
         },
+        "hotspot": hotspot_preflight_status(cfg),
         "hub": hub_status,
     }
     code = 0 if scaffold_ok and not issues else 1
@@ -90,10 +92,25 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
         for issue in payload["install"]["issues"]:
             print(f"- {issue}")
         print("Run `osk install` before starting the hub.")
-        return 1
+    else:
+        print("Install readiness: ok")
 
-    print("Install readiness: ok")
-    return 0
+    hotspot = payload["hotspot"]
+    print(
+        "Hotspot readiness: "
+        f"{hotspot['status']} (ssid={hotspot['ssid']}, "
+        f"ip={hotspot['ip_address'] or 'unknown'})"
+    )
+    print(f"Join host: {hotspot['join_host']}")
+    if hotspot["warnings"]:
+        print("Field network guidance:")
+        for warning in hotspot["warnings"]:
+            print(f"- {warning}")
+    else:
+        print("Field network guidance: no blocking hotspot warnings.")
+    for action in hotspot["actions"]:
+        print(f"- {action}")
+    return code
 
 
 def _cmd_placeholder(args: argparse.Namespace) -> int:

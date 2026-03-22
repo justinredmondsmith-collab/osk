@@ -316,6 +316,23 @@ def test_evidence_export_prints_summary(mock_manager_factory: MagicMock, capsys)
 
 
 @patch("osk.cli._repo_root")
+@patch(
+    "osk.hub.hotspot_preflight_status",
+    return_value={
+        "actions": [],
+        "available": True,
+        "band": "5GHz",
+        "connection_name": "osk-local",
+        "ip_address": "10.42.0.1",
+        "join_host": "10.42.0.1",
+        "join_host_scope": "hotspot_ip",
+        "manual_instructions": None,
+        "recommended_join_host": "10.42.0.1",
+        "ssid": "osk-local",
+        "status": "active",
+        "warnings": [],
+    },
+)
 @patch("osk.hub.default_storage_manager")
 @patch("osk.hub.installation_issues", return_value=[])
 @patch("osk.hub.local_service_mode", return_value="compose-managed local services")
@@ -323,6 +340,7 @@ def test_doctor_reports_scaffold_ready(
     _: MagicMock,
     __: MagicMock,
     ___: MagicMock,
+    ____: MagicMock,
     mock_repo_root: MagicMock,
     tmp_path,
     capsys,
@@ -350,6 +368,23 @@ def test_doctor_reports_scaffold_ready(
         {"message": "Osk hub is not running.", "status": "stopped", "stopping": False},
     ),
 )
+@patch(
+    "osk.hub.hotspot_preflight_status",
+    return_value={
+        "actions": [],
+        "available": True,
+        "band": "5GHz",
+        "connection_name": "osk-local",
+        "ip_address": "10.42.0.1",
+        "join_host": "10.42.0.1",
+        "join_host_scope": "hotspot_ip",
+        "manual_instructions": None,
+        "recommended_join_host": "10.42.0.1",
+        "ssid": "osk-local",
+        "status": "active",
+        "warnings": [],
+    },
+)
 @patch("osk.hub.default_storage_manager")
 @patch("osk.hub.installation_issues", return_value=[])
 @patch("osk.hub.local_service_mode", return_value="compose-managed local services")
@@ -358,6 +393,7 @@ def test_doctor_json_output(
     __: MagicMock,
     ___: MagicMock,
     ____: MagicMock,
+    _____: MagicMock,
     mock_repo_root: MagicMock,
     tmp_path,
     capsys,
@@ -373,11 +409,36 @@ def test_doctor_json_output(
     code = main(["doctor", "--json"])
     out = capsys.readouterr().out
     assert code == 0
+    assert '"hotspot"' in out
     assert '"ready": true' in out
     assert '"service_mode": "compose-managed local services"' in out
 
 
 @patch("osk.cli._repo_root")
+@patch(
+    "osk.hub.hotspot_preflight_status",
+    return_value={
+        "actions": [
+            "Use `osk hotspot up --password <passphrase>` if you want a local "
+            "hotspot before field deployment.",
+            "Before field use, set `join_host` to a reachable LAN or hotspot IP.",
+        ],
+        "available": True,
+        "band": "5GHz",
+        "connection_name": "osk-local",
+        "ip_address": None,
+        "join_host": "127.0.0.1",
+        "join_host_scope": "loopback",
+        "manual_instructions": None,
+        "recommended_join_host": None,
+        "ssid": "osk-local",
+        "status": "available_inactive",
+        "warnings": [
+            "join_host is set to 127.0.0.1, so member QR codes will only work "
+            "on the coordinator device."
+        ],
+    },
+)
 @patch("osk.hub.default_storage_manager")
 @patch("osk.hub.installation_issues", return_value=["missing TLS certificate"])
 @patch("osk.hub.local_service_mode", return_value="compose-managed local services")
@@ -385,6 +446,7 @@ def test_doctor_reports_missing_install_assets(
     _: MagicMock,
     __: MagicMock,
     ___: MagicMock,
+    ____: MagicMock,
     mock_repo_root: MagicMock,
     tmp_path,
     capsys,
@@ -402,6 +464,9 @@ def test_doctor_reports_missing_install_assets(
     assert code == 1
     assert "Install readiness: missing" in out
     assert "missing TLS certificate" in out
+    assert "Hotspot readiness: available_inactive" in out
+    assert "member QR codes will only work on the coordinator device" in out
+    assert "osk hotspot up --password <passphrase>" in out
 
 
 @patch("osk.hub.stop_hub", return_value=0)

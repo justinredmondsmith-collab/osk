@@ -41,6 +41,9 @@ The repository now includes:
   `osk tiles status` and `osk tiles cache --bbox ... --zoom ...`
 - A standalone hotspot-management slice for NetworkManager environments:
   `osk hotspot status|up|down|instructions`
+- Hotspot-aware runtime guidance in `osk doctor` and `osk start`, so field
+  operators can see `join_host`/hotspot readiness without the hub silently
+  mutating host networking
 - A standalone preserved-evidence slice:
   `osk evidence unlock|export|destroy`
 - A thin member join/runtime shell under `src/osk/templates/join.html`,
@@ -122,6 +125,10 @@ Check the local scaffold:
 python -m osk doctor --json
 ```
 
+The doctor output now includes hotspot readiness and `join_host` guidance in
+addition to install-readiness checks. Those hotspot warnings are advisory; they
+should not be turned into hard install failures unless the design changes.
+
 Start the disposable member-shell smoke helper on a real machine if you want to
 exercise `/join` -> `/member`, offline queueing, replay, and installability in
 an actual browser or phone:
@@ -154,6 +161,10 @@ Inspect hotspot availability and the current hotspot IP:
 ```bash
 osk hotspot status
 ```
+
+The runtime path now surfaces the same hotspot/join-host guidance during
+`osk start`, but startup remains conservative: it does not automatically bring
+up a hotspot or rewrite `join_host`.
 
 Export the currently visible preserved-evidence mount into a zip:
 
@@ -218,6 +229,9 @@ Code contributions should:
   browser can do something directly, prefer the member cookie/WebSocket flow
   over coordinator-only REST routes unless the auth model is intentionally
   changing
+- Keep host-network changes explicit: if you extend hotspot/startup behavior,
+  prefer operator-visible guidance and opt-in actions over silent network
+  mutation unless the design/spec is explicitly updated to make that automatic
 - Keep browser media capture modular: add mic/camera/client-side analysis work
   behind dedicated static modules instead of folding codec/capture logic
   directly into the main member runtime script
