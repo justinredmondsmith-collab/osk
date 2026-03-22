@@ -32,8 +32,9 @@ The repository now includes:
   a one-time dashboard code to mint a short-lived local `HttpOnly` cookie
   instead of keeping a steady-state token in the request URL or JS storage, and
   it now consumes a same-origin live dashboard stream plus current member
-  health/ingest context and a local tile-backed map surface with an explicit
-  relative fallback when the tile cache is empty
+  health/ingest context, a rolling member-buffer trend view, and a local
+  tile-backed map surface with an explicit relative fallback when the tile
+  cache is empty
 - A thin member join/runtime shell under `src/osk/templates/join.html`,
   `src/osk/templates/member.html`, and `src/osk/static/member.*`; it now uses
   a clean cookie-backed join flow so the shared operation token is not kept in
@@ -196,6 +197,9 @@ Code contributions should:
   local cached-tile surface driven by member GPS, with an explicit
   relative-position fallback when no cached tiles cover the current area; docs
   and UI copy should not imply broader map capabilities than that
+- Keep transient coordinator telemetry in the right place: member-side browser
+  buffer pressure and similar fast-changing dashboard context should come from
+  live in-memory operation state, not only the persisted database snapshot
 
 ## How to Contribute
 

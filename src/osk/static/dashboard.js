@@ -20,6 +20,7 @@
     latestSitrep: null,
     members: [],
     memberSummary: null,
+    bufferHistory: null,
     mapStatus: null,
     operationStatus: null,
     intelligenceStatus: null,
@@ -64,6 +65,8 @@
     memberMapStatus: document.getElementById("member-map-status"),
     memberMapViewport: document.getElementById("member-map-viewport"),
     memberSummary: document.getElementById("member-summary"),
+    bufferTrendSummary: document.getElementById("buffer-trend-summary"),
+    bufferTrendChart: document.getElementById("buffer-trend-chart"),
     ingestPressure: document.getElementById("ingest-pressure"),
     latestSitrep: document.getElementById("latest-sitrep"),
     pipelineStatus: document.getElementById("pipeline-status"),
@@ -129,6 +132,11 @@
     }
     parts.push(`${seconds}s`);
     return parts.join(" ");
+  }
+
+  function formatCountLabel(value, singular, plural) {
+    const count = Number(value || 0);
+    return `${count} ${count === 1 ? singular : plural}`;
   }
 
   function clamp(value, minimum, maximum) {
@@ -347,6 +355,7 @@
     state.intelligenceStatus = snapshot.intelligence_status || null;
     state.members = snapshot.members || [];
     state.memberSummary = snapshot.member_summary || null;
+    state.bufferHistory = snapshot.buffer_history || null;
     state.mapStatus = snapshot.map || null;
     state.lastSyncAt = snapshot.generated_at || new Date().toISOString();
     state.freshKeys = new Set(
@@ -804,6 +813,8 @@
       )
       .join("");
 
+    renderBufferTrend();
+
     elements.memberHealth.innerHTML = state.members.length
       ? state.members
           .slice()
@@ -877,6 +888,82 @@
         )
         .join("");
     }
+  }
+
+  function renderBufferTrend() {
+    const history = state.bufferHistory || {};
+    const points = Array.isArray(history.points) ? history.points : [];
+    if (!points.length) {
+      elements.bufferTrendSummary.innerHTML =
+        '<div class="stack-row"><span>Trend</span><strong>--</strong></div>';
+      elements.bufferTrendChart.innerHTML =
+        '<div class="empty-state empty-state--compact"><p>Waiting for buffer history.</p></div>';
+      return;
+    }
+
+    const trendLabels = {
+      rising: "Rising",
+      falling: "Clearing",
+      steady: "Steady",
+    };
+    const trend = trendLabels[history.trend] || "Steady";
+    const changeItems = Number(history.change_items || 0);
+    const maxBuffered = Math.max(
+      1,
+      ...points.map((point) => Number(point.buffered_items || 0)),
+    );
+    const currentPoint = points[points.length - 1] || {};
+    const bars = points
+      .map((point, index) => {
+        const bufferedItems = Number(point.buffered_items || 0);
+        const audioQueueSize = Number(point.audio_queue_size || 0);
+        const frameQueueSize = Number(point.frame_queue_size || 0);
+        const height = `${Math.max(12, Math.round((bufferedItems / maxBuffered) * 100))}%`;
+        const isLatest = index === points.length - 1;
+        const tooltip =
+          `${formatTimestamp(point.generated_at)} • ` +
+          `${formatCountLabel(bufferedItems, "buffered item", "buffered items")} • ` +
+          `${formatCountLabel(point.buffered_members, "member", "members")} • ` +
+          `audio ${audioQueueSize} • frame ${frameQueueSize}`;
+        return `
+          <span
+            class="buffer-trend__bar${bufferedItems > 0 ? " is-buffered" : ""}${isLatest ? " is-latest" : ""}"
+            style="height: ${height}"
+            title="${escapeHtml(tooltip)}"
+          ></span>
+        `;
+      })
+      .join("");
+
+    elements.bufferTrendSummary.innerHTML = [
+      ["Trend", trend],
+      ["Current", formatCountLabel(history.current_buffered_items, "item", "items")],
+      [
+        "Peak",
+        `${formatCountLabel(history.peak_buffered_items, "item", "items")} / ${formatCountLabel(history.peak_buffered_members, "member", "members")}`,
+      ],
+      [
+        "Window",
+        `${formatCountLabel(history.window_points, "sample", "samples")} (${changeItems >= 0 ? "+" : ""}${changeItems})`,
+      ],
+    ]
+      .map(
+        ([label, value]) =>
+          `<div class="stack-row"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`,
+      )
+      .join("");
+
+    elements.bufferTrendChart.innerHTML = `
+      <div class="buffer-trend">
+        <div class="buffer-trend__bars" aria-label="Member buffer trend over recent dashboard samples">
+          ${bars}
+        </div>
+        <div class="buffer-trend__meta">
+          <span>${escapeHtml(formatTimestamp(history.window_started_at))}</span>
+          <span>${escapeHtml(formatTimestamp(history.window_ended_at))}</span>
+        </div>
+      </div>
+    `;
   }
 
   function renderFieldMap() {

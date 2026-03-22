@@ -510,6 +510,9 @@ def test_coordinator_dashboard_state_returns_snapshot(
     assert payload["members"][0]["buffer_status"]["pending_count"] == 3
     assert payload["members"][0]["buffer_status"]["network"] == "offline"
     assert payload["members"][0]["buffer_pressure"] == "buffered"
+    assert payload["buffer_history"]["trend"] == "steady"
+    assert payload["buffer_history"]["window_points"] == 1
+    assert payload["buffer_history"]["points"][0]["buffered_items"] == 3
     assert payload["latest_sitrep"]["text"] == "Situation steady."
     assert payload["map"]["available"] is True
     assert payload["map"]["available_zooms"] == [14]
@@ -517,6 +520,102 @@ def test_coordinator_dashboard_state_returns_snapshot(
     _, kwargs = mock_db.get_review_feed.await_args
     assert kwargs["include_types"] == {"finding"}
     assert kwargs["limit"] == 10
+
+
+def test_coordinator_dashboard_state_tracks_buffer_history_window(
+    client: TestClient,
+    mock_db: MagicMock,
+    mock_op_manager: MagicMock,
+    mock_intelligence_service: MagicMock,
+) -> None:
+    member_id = uuid.uuid4()
+    timestamp = dt.datetime.now(dt.timezone.utc)
+    mock_db.get_latest_sitrep.return_value = None
+    mock_db.get_review_feed.return_value = []
+    mock_intelligence_service.snapshot.return_value = {
+        "running": True,
+        "audio_ingest": {"queue_size": 1},
+        "frame_ingest": {"queue_size": 0},
+    }
+    mock_op_manager.get_member_list.return_value = [
+        {
+            "id": str(member_id),
+            "name": "Observer One",
+            "role": "observer",
+            "connected_at": timestamp,
+            "last_seen_at": timestamp,
+            "status": "connected",
+            "last_gps_at": None,
+            "latitude": None,
+            "longitude": None,
+            "buffer_status": {
+                "pending_count": 1,
+                "manual_pending_count": 1,
+                "sensor_pending_count": 0,
+                "report_pending_count": 1,
+                "audio_pending_count": 0,
+                "frame_pending_count": 0,
+                "in_flight": False,
+                "network": "offline",
+                "last_error": None,
+                "oldest_pending_at": timestamp.isoformat(),
+                "updated_at": timestamp.isoformat(),
+            },
+        }
+    ]
+
+    first = client.get("/api/coordinator/dashboard-state")
+    assert first.status_code == 200
+    first_payload = first.json()
+    assert first_payload["buffer_history"]["window_points"] == 1
+    assert first_payload["buffer_history"]["points"][0]["audio_queue_size"] == 1
+
+    mock_intelligence_service.snapshot.return_value = {
+        "running": True,
+        "audio_ingest": {"queue_size": 2},
+        "frame_ingest": {"queue_size": 1},
+    }
+    mock_op_manager.get_member_list.return_value = [
+        {
+            "id": str(member_id),
+            "name": "Observer One",
+            "role": "observer",
+            "connected_at": timestamp,
+            "last_seen_at": timestamp,
+            "status": "connected",
+            "last_gps_at": None,
+            "latitude": None,
+            "longitude": None,
+            "buffer_status": {
+                "pending_count": 4,
+                "manual_pending_count": 3,
+                "sensor_pending_count": 1,
+                "report_pending_count": 2,
+                "audio_pending_count": 1,
+                "frame_pending_count": 0,
+                "in_flight": True,
+                "network": "offline",
+                "last_error": "Upload retry pending.",
+                "oldest_pending_at": timestamp.isoformat(),
+                "updated_at": timestamp.isoformat(),
+            },
+        }
+    ]
+
+    second = client.get("/api/coordinator/dashboard-state")
+    assert second.status_code == 200
+    second_payload = second.json()
+    assert second_payload["buffer_history"]["window_points"] == 2
+    assert second_payload["buffer_history"]["trend"] == "rising"
+    assert second_payload["buffer_history"]["current_buffered_items"] == 4
+    assert second_payload["buffer_history"]["peak_buffered_items"] == 4
+    assert second_payload["buffer_history"]["change_items"] == 3
+    assert [point["buffered_items"] for point in second_payload["buffer_history"]["points"]] == [
+        1,
+        4,
+    ]
+    assert second_payload["buffer_history"]["points"][-1]["audio_queue_size"] == 2
+    assert second_payload["buffer_history"]["points"][-1]["frame_queue_size"] == 1
 
 
 def test_coordinator_dashboard_state_rejects_unknown_include(

@@ -10,7 +10,7 @@ import ipaddress
 import json
 import logging
 import uuid
-from collections import Counter
+from collections import Counter, deque
 from http.cookies import SimpleCookie
 from pathlib import Path
 
@@ -81,6 +81,7 @@ PWA_MANIFEST_PATH = STATIC_ROOT / "manifest.webmanifest"
 SERVICE_WORKER_PATH = STATIC_ROOT / "sw.js"
 DASHBOARD_STREAM_INTERVAL_SECONDS = 2.0
 DASHBOARD_STREAM_KEEPALIVE_SECONDS = 15.0
+DASHBOARD_BUFFER_HISTORY_MAX_POINTS = 30
 TRANSPARENT_TILE_PNG = base64.b64decode(
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9WnRnk4AAAAASUVORK5CYII="
 )
@@ -568,6 +569,66 @@ def _member_summary(members: list[dict[str, object]]) -> dict[str, int]:
     }
 
 
+def _build_buffer_history_point(
+    *,
+    generated_at: str,
+    member_summary: dict[str, int],
+    intelligence_status: dict[str, object],
+) -> dict[str, object]:
+    audio_ingest = intelligence_status.get("audio_ingest") or {}
+    frame_ingest = intelligence_status.get("frame_ingest") or {}
+    return {
+        "generated_at": generated_at,
+        "buffered_members": int(member_summary.get("buffered_members") or 0),
+        "buffered_items": int(member_summary.get("buffered_items") or 0),
+        "manual_buffered_items": int(member_summary.get("manual_buffered_items") or 0),
+        "sensor_buffered_items": int(member_summary.get("sensor_buffered_items") or 0),
+        "audio_queue_size": max(0, int(audio_ingest.get("queue_size") or 0)),
+        "frame_queue_size": max(0, int(frame_ingest.get("queue_size") or 0)),
+    }
+
+
+def _record_buffer_history(
+    history_store: deque[dict[str, object]] | None,
+    *,
+    generated_at: str,
+    member_summary: dict[str, int],
+    intelligence_status: dict[str, object],
+) -> dict[str, object]:
+    point = _build_buffer_history_point(
+        generated_at=generated_at,
+        member_summary=member_summary,
+        intelligence_status=intelligence_status,
+    )
+    if history_store is not None:
+        history_store.append(point)
+        points = list(history_store)
+    else:
+        points = [point]
+
+    earliest = points[0]
+    latest = points[-1]
+    delta_items = int(latest["buffered_items"]) - int(earliest["buffered_items"])
+    if delta_items > 0:
+        trend = "rising"
+    elif delta_items < 0:
+        trend = "falling"
+    else:
+        trend = "steady"
+
+    return {
+        "points": points,
+        "trend": trend,
+        "current_buffered_items": int(latest["buffered_items"]),
+        "peak_buffered_items": max(int(item["buffered_items"]) for item in points),
+        "peak_buffered_members": max(int(item["buffered_members"]) for item in points),
+        "window_points": len(points),
+        "window_started_at": earliest["generated_at"],
+        "window_ended_at": latest["generated_at"],
+        "change_items": delta_items,
+    }
+
+
 def _parse_review_feed_types(include: list[str] | None) -> tuple[set[str] | None, list[str]]:
     include_types = (
         {item.strip().lower() for item in include if item and item.strip()} if include else None
@@ -808,6 +869,7 @@ async def _build_dashboard_state(
     finding_status: FindingStatus | None = None,
     severity: EventSeverity | None = None,
     category: EventCategory | None = None,
+    buffer_history_store: deque[dict[str, object]] | None = None,
 ) -> dict[str, object]:
     operation = op_manager.operation
     if operation is None:
@@ -837,8 +899,16 @@ async def _build_dashboard_state(
         if intelligence_service is not None
         else {"running": False, "error": "Intelligence service is not configured"}
     )
+    generated_at = _utcnow().isoformat().replace("+00:00", "Z")
+    member_summary = _member_summary(members)
+    buffer_history = _record_buffer_history(
+        buffer_history_store,
+        generated_at=generated_at,
+        member_summary=member_summary,
+        intelligence_status=intelligence_status,
+    )
     return {
-        "generated_at": _utcnow().isoformat().replace("+00:00", "Z"),
+        "generated_at": generated_at,
         "operation_status": {
             "id": str(operation.id),
             "name": operation.name,
@@ -851,7 +921,8 @@ async def _build_dashboard_state(
         "latest_sitrep": latest_sitrep,
         "review_feed": review_feed,
         "members": members,
-        "member_summary": _member_summary(members),
+        "member_summary": member_summary,
+        "buffer_history": buffer_history,
         "map": _map_tile_cache_status(config),
     }
 
@@ -917,6 +988,7 @@ def create_app(
 ) -> FastAPI:
     app = FastAPI(title="Osk Hub", docs_url=None, redoc_url=None)
     app.state.intelligence_service = intelligence_service
+    app.state.dashboard_buffer_history = deque(maxlen=DASHBOARD_BUFFER_HISTORY_MAX_POINTS)
     app.mount("/static", StaticFiles(directory=str(STATIC_ROOT)), name="static")
 
     @app.get("/manifest.webmanifest")
@@ -1194,6 +1266,7 @@ def create_app(
             finding_status=finding_status,
             severity=severity,
             category=category,
+            buffer_history_store=app.state.dashboard_buffer_history,
         )
 
     @app.get("/api/coordinator/dashboard-stream")
@@ -1248,6 +1321,7 @@ def create_app(
                     finding_status=finding_status,
                     severity=severity,
                     category=category,
+                    buffer_history_store=app.state.dashboard_buffer_history,
                 )
                 payload = json.dumps(snapshot, sort_keys=True, default=str)
                 if payload != last_payload:
