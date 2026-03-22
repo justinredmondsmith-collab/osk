@@ -16,9 +16,10 @@ The repository now includes:
 - A lightweight GitHub Actions CI workflow
 - Local hub runtime commands (`install`, `start`, `status`, `stop`)
 - Local operator and observability commands (`operator`, `audit`, `logs`,
-  `members`, `findings`)
+  `members`, `findings`, `review`)
 - Local finding review commands (`finding show`, `finding acknowledge`,
-  `finding resolve`, `finding escalate`, `finding note`)
+  `finding resolve`, `finding reopen`, `finding escalate`,
+  `finding correlations`, `finding note`)
 - A hub-owned Phase 2 intelligence service with config-selectable fake or real
   transcript/vision adapters, live GPS/audio/frame ingest wiring, persisted
   intelligence observations, persisted reviewable findings, `ffmpeg`-backed
@@ -126,6 +127,9 @@ Code contributions should:
   instead of generating a fresh key for the retry
 - Preserve review-state semantics: do not let new synth output silently erase a
   coordinator’s acknowledged or resolved finding state
+- Keep coordinator review surfaces aligned: if you change finding/event/sitrep
+  retrieval or review semantics, update both the local CLI flow and the admin
+  API/query surfaces used by future dashboard work
 
 ## How to Contribute
 

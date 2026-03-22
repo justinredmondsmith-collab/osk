@@ -68,6 +68,10 @@ changes manually while the project is in its early public setup phase.
 - Phase 2 coordinator review actions: per-finding detail, acknowledge/resolve/
   escalate/note flows, local `osk finding ...` commands, and durable ingest
   receipts so duplicate detection survives hub restarts
+- Dashboard-readiness review surfaces: filtered finding retrieval, mixed
+  review-feed queries across findings/events/sitreps, finding reopen and
+  correlation flows, and local `osk review` / `osk finding reopen|correlations`
+  commands
 
 ### Changed
 
@@ -86,3 +90,5 @@ changes manually while the project is in its early public setup phase.
   reconnecting clients preserve media ingest keys when resubmitting uploads
 - Docs now reflect that findings have a real coordinator review lifecycle and
   that restart-safe ingest dedupe is persisted rather than memory-only
+- Docs now call out the stable coordinator review/query surfaces intended to
+  support the next dashboard phase

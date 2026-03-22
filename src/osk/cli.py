@@ -8,6 +8,7 @@ from typing import Sequence
 
 from . import __version__
 from .config import OskConfig, load_config, save_config
+from .models import EventCategory, EventSeverity, FindingStatus
 
 
 def _repo_root() -> Path:
@@ -207,6 +208,23 @@ def _cmd_findings(args: argparse.Namespace) -> int:
     return show_findings(limit=args.limit, json_output=args.json_output)
 
 
+def _cmd_review(args: argparse.Namespace) -> int:
+    from .hub import show_review_feed
+
+    finding_status = FindingStatus(args.status) if args.status else None
+    severity = EventSeverity(args.severity) if args.severity else None
+    category = EventCategory(args.category) if args.category else None
+    include_types = set(args.include) if args.include else None
+    return show_review_feed(
+        limit=args.limit,
+        include_types=include_types,
+        finding_status=finding_status,
+        severity=severity,
+        category=category,
+        json_output=args.json_output,
+    )
+
+
 def _cmd_finding_show(args: argparse.Namespace) -> int:
     from .hub import show_finding
 
@@ -225,10 +243,27 @@ def _cmd_finding_resolve(args: argparse.Namespace) -> int:
     return resolve_finding(args.finding_id)
 
 
+def _cmd_finding_reopen(args: argparse.Namespace) -> int:
+    from .hub import reopen_finding
+
+    return reopen_finding(args.finding_id)
+
+
 def _cmd_finding_escalate(args: argparse.Namespace) -> int:
     from .hub import escalate_finding
 
     return escalate_finding(args.finding_id)
+
+
+def _cmd_finding_correlations(args: argparse.Namespace) -> int:
+    from .hub import show_finding_correlations
+
+    return show_finding_correlations(
+        args.finding_id,
+        limit=args.limit,
+        window_minutes=args.window_minutes,
+        json_output=args.json_output,
+    )
 
 
 def _cmd_finding_note(args: argparse.Namespace) -> int:
@@ -401,6 +436,45 @@ def build_parser() -> argparse.ArgumentParser:
     )
     findings_parser.set_defaults(func=_cmd_findings)
 
+    review_parser = subparsers.add_parser(
+        "review",
+        help="Show the mixed coordinator review feed.",
+    )
+    review_parser.add_argument(
+        "--limit",
+        type=int,
+        default=25,
+        help="Maximum number of review items to display.",
+    )
+    review_parser.add_argument(
+        "--include",
+        action="append",
+        choices=("finding", "event", "sitrep"),
+        help="Review item type to include. Repeat to include multiple types.",
+    )
+    review_parser.add_argument(
+        "--status",
+        choices=tuple(status.value for status in FindingStatus),
+        help="Filter findings in the review feed by status.",
+    )
+    review_parser.add_argument(
+        "--severity",
+        choices=tuple(severity.value for severity in EventSeverity),
+        help="Filter findings and events in the review feed by severity.",
+    )
+    review_parser.add_argument(
+        "--category",
+        choices=tuple(category.value for category in EventCategory),
+        help="Filter findings and events in the review feed by category.",
+    )
+    review_parser.add_argument(
+        "--json",
+        dest="json_output",
+        action="store_true",
+        help="Emit machine-readable JSON output.",
+    )
+    review_parser.set_defaults(func=_cmd_review)
+
     finding_parser = subparsers.add_parser("finding", help="Review or triage one finding.")
     finding_sub = finding_parser.add_subparsers(dest="finding_command")
 
@@ -422,9 +496,38 @@ def build_parser() -> argparse.ArgumentParser:
     finding_resolve.add_argument("finding_id", help="Finding identifier")
     finding_resolve.set_defaults(func=_cmd_finding_resolve)
 
+    finding_reopen = finding_sub.add_parser("reopen", help="Reopen one finding.")
+    finding_reopen.add_argument("finding_id", help="Finding identifier")
+    finding_reopen.set_defaults(func=_cmd_finding_reopen)
+
     finding_escalate = finding_sub.add_parser("escalate", help="Escalate one finding.")
     finding_escalate.add_argument("finding_id", help="Finding identifier")
     finding_escalate.set_defaults(func=_cmd_finding_escalate)
+
+    finding_correlations = finding_sub.add_parser(
+        "correlations",
+        help="Show events and findings correlated to one finding.",
+    )
+    finding_correlations.add_argument("finding_id", help="Finding identifier")
+    finding_correlations.add_argument(
+        "--limit",
+        type=int,
+        default=10,
+        help="Maximum number of related findings/events to display.",
+    )
+    finding_correlations.add_argument(
+        "--window-minutes",
+        type=int,
+        default=30,
+        help="Correlation window around the finding lifecycle.",
+    )
+    finding_correlations.add_argument(
+        "--json",
+        dest="json_output",
+        action="store_true",
+        help="Emit machine-readable JSON output.",
+    )
+    finding_correlations.set_defaults(func=_cmd_finding_correlations)
 
     finding_note = finding_sub.add_parser("note", help="Attach a note to one finding.")
     finding_note.add_argument("finding_id", help="Finding identifier")

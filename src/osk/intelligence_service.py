@@ -275,9 +275,7 @@ class IntelligenceService:
                 "evicted_chunks": self.audio_ingest.evicted_chunks,
                 "rejected_chunks": self.audio_ingest.rejected_chunks,
                 "receipt_cache_entries": sum(
-                    1
-                    for receipt_key in self._ingest_receipts
-                    if receipt_key[0] == "audio"
+                    1 for receipt_key in self._ingest_receipts if receipt_key[0] == "audio"
                 ),
                 "queue_size": self.audio_ingest.qsize(),
                 "running": self.audio_ingest.is_running,
@@ -290,9 +288,7 @@ class IntelligenceService:
                 "rate_limited_frames": self.frame_ingest.rate_limited_frames,
                 "rejected_frames": self.frame_ingest.rejected_frames,
                 "receipt_cache_entries": sum(
-                    1
-                    for receipt_key in self._ingest_receipts
-                    if receipt_key[0] == "frame"
+                    1 for receipt_key in self._ingest_receipts if receipt_key[0] == "frame"
                 ),
                 "queue_size": self.frame_ingest.qsize(),
                 "running": self.frame_ingest.is_running,

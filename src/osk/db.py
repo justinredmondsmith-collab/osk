@@ -282,6 +282,39 @@ class Database:
         )
         return [dict(row) for row in rows]
 
+    async def get_events(
+        self,
+        operation_id: uuid.UUID,
+        *,
+        since: datetime | None = None,
+        limit: int = 25,
+        severity: EventSeverity | None = None,
+        category: EventCategory | None = None,
+    ) -> list[dict]:
+        pool = self._require_pool()
+        conditions = ["operation_id = $1"]
+        args: list[object] = [operation_id]
+
+        if since is not None:
+            args.append(since)
+            conditions.append(f"timestamp >= ${len(args)}")
+        if severity is not None:
+            args.append(severity.value)
+            conditions.append(f"severity = ${len(args)}")
+        if category is not None:
+            args.append(category.value)
+            conditions.append(f"category = ${len(args)}")
+
+        args.append(max(1, limit))
+        query = f"""
+            SELECT * FROM events
+            WHERE {" AND ".join(conditions)}
+            ORDER BY timestamp DESC
+            LIMIT ${len(args)}
+        """
+        rows = await pool.fetch(query, *args)
+        return [dict(row) for row in rows]
+
     async def insert_alert(
         self,
         alert_id: uuid.UUID,
@@ -337,6 +370,29 @@ class Database:
             operation_id,
         )
         return dict(row) if row else None
+
+    async def get_recent_sitreps(
+        self,
+        operation_id: uuid.UUID,
+        *,
+        since: datetime | None = None,
+        limit: int = 10,
+    ) -> list[dict]:
+        pool = self._require_pool()
+        args: list[object] = [operation_id]
+        conditions = ["operation_id = $1"]
+        if since is not None:
+            args.append(since)
+            conditions.append(f"timestamp >= ${len(args)}")
+        args.append(max(1, limit))
+        query = f"""
+            SELECT * FROM sitreps
+            WHERE {" AND ".join(conditions)}
+            ORDER BY timestamp DESC
+            LIMIT ${len(args)}
+        """
+        rows = await pool.fetch(query, *args)
+        return [dict(row) for row in rows]
 
     async def insert_transcript_segment(
         self,
@@ -509,6 +565,43 @@ class Database:
         )
         return [dict(row) for row in rows]
 
+    async def get_synthesis_findings(
+        self,
+        operation_id: uuid.UUID,
+        *,
+        limit: int = 25,
+        since: datetime | None = None,
+        status: FindingStatus | None = None,
+        severity: EventSeverity | None = None,
+        category: EventCategory | None = None,
+    ) -> list[dict]:
+        pool = self._require_pool()
+        conditions = ["operation_id = $1"]
+        args: list[object] = [operation_id]
+
+        if since is not None:
+            args.append(since)
+            conditions.append(f"updated_at >= ${len(args)}")
+        if status is not None:
+            args.append(status.value)
+            conditions.append(f"status = ${len(args)}")
+        if severity is not None:
+            args.append(severity.value)
+            conditions.append(f"severity = ${len(args)}")
+        if category is not None:
+            args.append(category.value)
+            conditions.append(f"category = ${len(args)}")
+
+        args.append(max(1, limit))
+        query = f"""
+            SELECT * FROM synthesis_findings
+            WHERE {" AND ".join(conditions)}
+            ORDER BY updated_at DESC, last_seen_at DESC
+            LIMIT ${len(args)}
+        """
+        rows = await pool.fetch(query, *args)
+        return [dict(row) for row in rows]
+
     async def get_synthesis_finding(
         self,
         operation_id: uuid.UUID,
@@ -598,6 +691,98 @@ class Database:
             "notes": notes,
         }
 
+    async def get_synthesis_finding_correlations(
+        self,
+        operation_id: uuid.UUID,
+        finding_id: uuid.UUID,
+        *,
+        limit: int = 10,
+        window_minutes: int = 30,
+    ) -> dict | None:
+        finding = await self.get_synthesis_finding(operation_id, finding_id)
+        if finding is None:
+            return None
+
+        window = timedelta(minutes=max(int(window_minutes), 1))
+        from_ts = finding["first_seen_at"] - window
+        to_ts = finding["last_seen_at"] + window
+        finding_details = finding.get("details") or {}
+        member_ids = {str(member_id) for member_id in finding_details.get("member_ids", [])}
+
+        pool = self._require_pool()
+        candidate_finding_rows = await pool.fetch(
+            """SELECT * FROM synthesis_findings
+               WHERE operation_id = $1
+                 AND id <> $2
+                 AND last_seen_at BETWEEN $3 AND $4
+               ORDER BY last_seen_at DESC
+               LIMIT $5""",
+            operation_id,
+            finding_id,
+            from_ts,
+            to_ts,
+            max(1, limit * 3),
+        )
+        candidate_event_rows = await pool.fetch(
+            """SELECT * FROM events
+               WHERE operation_id = $1
+                 AND timestamp BETWEEN $2 AND $3
+               ORDER BY timestamp DESC
+               LIMIT $4""",
+            operation_id,
+            from_ts,
+            to_ts,
+            max(1, limit * 3),
+        )
+
+        related_findings: list[dict] = []
+        for row in candidate_finding_rows:
+            candidate = dict(row)
+            candidate_details = candidate.get("details") or {}
+            candidate_member_ids = {
+                str(member_id) for member_id in candidate_details.get("member_ids", [])
+            }
+            reasons: list[str] = []
+            if candidate.get("category") == finding.get("category"):
+                reasons.append("shared_category")
+            if member_ids and candidate_member_ids.intersection(member_ids):
+                reasons.append("shared_member_context")
+            if candidate.get("latest_event_id") and (
+                candidate.get("latest_event_id") == finding.get("latest_event_id")
+            ):
+                reasons.append("shared_event")
+            if not reasons:
+                continue
+            candidate["correlation_reasons"] = reasons
+            related_findings.append(candidate)
+            if len(related_findings) >= max(1, limit):
+                break
+
+        related_events: list[dict] = []
+        for row in candidate_event_rows:
+            candidate = dict(row)
+            reasons = []
+            if candidate.get("category") == finding.get("category"):
+                reasons.append("shared_category")
+            source_member_id = candidate.get("source_member_id")
+            if source_member_id and str(source_member_id) in member_ids:
+                reasons.append("shared_member_context")
+            if candidate.get("id") == finding.get("latest_event_id"):
+                reasons.append("linked_event")
+            if not reasons:
+                continue
+            candidate["correlation_reasons"] = reasons
+            related_events.append(candidate)
+            if len(related_events) >= max(1, limit):
+                break
+
+        return {
+            "finding": finding,
+            "related_findings": related_findings,
+            "related_events": related_events,
+            "window_minutes": max(int(window_minutes), 1),
+        }
+
     async def update_synthesis_finding_status(
         self,
         operation_id: uuid.UUID,
@@ -613,6 +798,7 @@ class Database:
                    status_updated_at = $4,
                    acknowledged_at = CASE
                      WHEN $3 = 'acknowledged' THEN COALESCE(acknowledged_at, $4)
+                     WHEN $3 = 'open' THEN NULL
                      ELSE acknowledged_at
                    END,
                    resolved_at = CASE
@@ -629,6 +815,93 @@ class Database:
             changed_at,
         )
         return dict(row) if row else None
+
+    async def get_review_feed(
+        self,
+        operation_id: uuid.UUID,
+        *,
+        since: datetime | None = None,
+        limit: int = 50,
+        finding_status: FindingStatus | None = None,
+        severity: EventSeverity | None = None,
+        category: EventCategory | None = None,
+        include_types: set[str] | None = None,
+    ) -> list[dict]:
+        include = include_types or {"finding", "event", "sitrep"}
+        per_type_limit = max(int(limit), 1) * 2
+        items: list[dict] = []
+
+        if "finding" in include:
+            findings = await self.get_synthesis_findings(
+                operation_id,
+                since=since,
+                limit=per_type_limit,
+                status=finding_status,
+                severity=severity,
+                category=category,
+            )
+            items.extend(
+                {
+                    "type": "finding",
+                    "id": row["id"],
+                    "timestamp": row["updated_at"],
+                    "finding_id": row["id"],
+                    "title": row["title"],
+                    "summary": row["summary"],
+                    "severity": row["severity"],
+                    "category": row["category"],
+                    "status": row["status"],
+                    "corroborated": row["corroborated"],
+                    "notes_count": row["notes_count"],
+                    "last_seen_at": row["last_seen_at"],
+                }
+                for row in findings
+            )
+
+        if "event" in include:
+            events = await self.get_events(
+                operation_id,
+                since=since,
+                limit=per_type_limit,
+                severity=severity,
+                category=category,
+            )
+            items.extend(
+                {
+                    "type": "event",
+                    "id": row["id"],
+                    "timestamp": row["timestamp"],
+                    "event_id": row["id"],
+                    "title": row["category"].replace("_", " ").title(),
+                    "summary": row["text"],
+                    "severity": row["severity"],
+                    "category": row["category"],
+                    "source_member_id": row["source_member_id"],
+                }
+                for row in events
+            )
+
+        if "sitrep" in include and severity is None and category is None and finding_status is None:
+            sitreps = await self.get_recent_sitreps(
+                operation_id,
+                since=since,
+                limit=per_type_limit,
+            )
+            items.extend(
+                {
+                    "type": "sitrep",
+                    "id": row["id"],
+                    "timestamp": row["timestamp"],
+                    "sitrep_id": row["id"],
+                    "title": "Situation Report",
+                    "summary": row["text"],
+                    "trend": row["trend"],
+                }
+                for row in sitreps
+            )
+
+        items.sort(key=lambda item: item["timestamp"], reverse=True)
+        return items[: max(int(limit), 1)]
 
     async def escalate_synthesis_finding(
         self,

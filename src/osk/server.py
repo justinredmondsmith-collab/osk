@@ -41,6 +41,9 @@ LOCAL_ADMIN_TEST_HOSTS = {"testclient", "localhost"}
 MAX_AUDIT_LIMIT = 200
 MAX_OBSERVATION_LIMIT = 200
 MAX_FINDING_LIMIT = 100
+MAX_REVIEW_FEED_LIMIT = 200
+MAX_SITREP_LIMIT = 100
+VALID_REVIEW_FEED_TYPES = {"finding", "event", "sitrep"}
 
 
 class ReportRequest(BaseModel):
@@ -336,14 +339,28 @@ def create_app(
         return await db.get_recent_intelligence_observations(operation.id, clamped_limit)
 
     @app.get("/api/intelligence/findings")
-    async def intelligence_findings(request: Request, limit: int = 25):
+    async def intelligence_findings(
+        request: Request,
+        limit: int = 25,
+        since: dt.datetime | None = None,
+        status: FindingStatus | None = None,
+        severity: EventSeverity | None = None,
+        category: EventCategory | None = None,
+    ):
         if response := _require_local_admin(request, op_manager):
             return response
         operation = op_manager.operation
         if operation is None:
             return JSONResponse({"error": "No active operation"}, status_code=503)
         clamped_limit = max(1, min(limit, MAX_FINDING_LIMIT))
-        return await db.get_recent_synthesis_findings(operation.id, clamped_limit)
+        return await db.get_synthesis_findings(
+            operation.id,
+            since=since,
+            limit=clamped_limit,
+            status=status,
+            severity=severity,
+            category=category,
+        )
 
     @app.get("/api/intelligence/findings/{finding_id}")
     async def intelligence_finding_detail(finding_id: uuid.UUID, request: Request):
@@ -356,6 +373,28 @@ def create_app(
         if detail is None:
             return JSONResponse({"error": "Finding not found"}, status_code=404)
         return detail
+
+    @app.get("/api/intelligence/findings/{finding_id}/correlations")
+    async def intelligence_finding_correlations(
+        finding_id: uuid.UUID,
+        request: Request,
+        limit: int = 10,
+        window_minutes: int = 30,
+    ):
+        if response := _require_local_admin(request, op_manager):
+            return response
+        operation = op_manager.operation
+        if operation is None:
+            return JSONResponse({"error": "No active operation"}, status_code=503)
+        correlations = await db.get_synthesis_finding_correlations(
+            operation.id,
+            finding_id,
+            limit=max(1, min(limit, MAX_FINDING_LIMIT)),
+            window_minutes=max(1, window_minutes),
+        )
+        if correlations is None:
+            return JSONResponse({"error": "Finding not found"}, status_code=404)
+        return correlations
 
     @app.post("/api/intelligence/findings/{finding_id}/acknowledge")
     async def acknowledge_intelligence_finding(finding_id: uuid.UUID, request: Request):
@@ -399,6 +438,29 @@ def create_app(
             operation.id,
             "coordinator",
             "finding_resolved",
+            details={"finding_id": str(finding_id)},
+        )
+        return finding
+
+    @app.post("/api/intelligence/findings/{finding_id}/reopen")
+    async def reopen_intelligence_finding(finding_id: uuid.UUID, request: Request):
+        if response := _require_local_admin(request, op_manager):
+            return response
+        operation = op_manager.operation
+        if operation is None:
+            return JSONResponse({"error": "No active operation"}, status_code=503)
+        finding = await db.update_synthesis_finding_status(
+            operation.id,
+            finding_id,
+            FindingStatus.OPEN,
+            changed_at=_utcnow(),
+        )
+        if finding is None:
+            return JSONResponse({"error": "Finding not found"}, status_code=404)
+        await db.insert_audit_event(
+            operation.id,
+            "coordinator",
+            "finding_reopened",
             details={"finding_id": str(finding_id)},
         )
         return finding
@@ -616,13 +678,42 @@ def create_app(
         return {"status": "wipe_initiated"}
 
     @app.get("/api/events")
-    async def get_events(request: Request, since: str = "1970-01-01T00:00:00Z"):
+    async def get_events(
+        request: Request,
+        since: dt.datetime | None = None,
+        limit: int = 50,
+        severity: EventSeverity | None = None,
+        category: EventCategory | None = None,
+    ):
         if response := _require_local_admin(request, op_manager):
             return response
         operation = op_manager.operation
         if operation is None:
             return JSONResponse({"error": "No active operation"}, status_code=503)
-        return await db.get_events_since(operation.id, since)
+        return await db.get_events(
+            operation.id,
+            since=since,
+            limit=max(1, min(limit, MAX_AUDIT_LIMIT)),
+            severity=severity,
+            category=category,
+        )
+
+    @app.get("/api/sitreps")
+    async def list_sitreps(
+        request: Request,
+        since: dt.datetime | None = None,
+        limit: int = 10,
+    ):
+        if response := _require_local_admin(request, op_manager):
+            return response
+        operation = op_manager.operation
+        if operation is None:
+            return JSONResponse({"error": "No active operation"}, status_code=503)
+        return await db.get_recent_sitreps(
+            operation.id,
+            since=since,
+            limit=max(1, min(limit, MAX_SITREP_LIMIT)),
+        )
 
     @app.get("/api/sitrep/latest")
     async def get_latest_sitrep(request: Request):
@@ -633,6 +724,44 @@ def create_app(
             return JSONResponse({"error": "No active operation"}, status_code=503)
         sitrep = await db.get_latest_sitrep(operation.id)
         return sitrep or {"text": "No situation reports yet", "trend": "stable"}
+
+    @app.get("/api/intelligence/review-feed")
+    async def intelligence_review_feed(
+        request: Request,
+        since: dt.datetime | None = None,
+        limit: int = 50,
+        include: list[str] | None = Query(default=None),
+        finding_status: FindingStatus | None = None,
+        severity: EventSeverity | None = None,
+        category: EventCategory | None = None,
+    ):
+        if response := _require_local_admin(request, op_manager):
+            return response
+        operation = op_manager.operation
+        if operation is None:
+            return JSONResponse({"error": "No active operation"}, status_code=503)
+        include_types = (
+            {item.strip().lower() for item in include if item and item.strip()} if include else None
+        )
+        if include_types is not None:
+            invalid_types = sorted(include_types - VALID_REVIEW_FEED_TYPES)
+            if invalid_types:
+                return JSONResponse(
+                    {
+                        "error": "Unsupported review feed types",
+                        "invalid_types": invalid_types,
+                    },
+                    status_code=400,
+                )
+        return await db.get_review_feed(
+            operation.id,
+            since=since,
+            limit=max(1, min(limit, MAX_REVIEW_FEED_LIMIT)),
+            finding_status=finding_status,
+            severity=severity,
+            category=category,
+            include_types=include_types,
+        )
 
     @app.websocket("/ws")
     async def websocket_handler(ws: WebSocket):

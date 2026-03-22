@@ -34,7 +34,14 @@ from osk.local_operator import (
     read_bootstrap_session,
     read_operator_session,
 )
-from osk.models import FindingNote, FindingStatus, Member, MemberStatus
+from osk.models import (
+    EventCategory,
+    EventSeverity,
+    FindingNote,
+    FindingStatus,
+    Member,
+    MemberStatus,
+)
 from osk.operation import OperationManager
 from osk.qr import build_join_url, generate_qr_ascii, generate_qr_png
 from osk.server import create_app
@@ -363,12 +370,58 @@ async def _get_findings(operation_id: uuid.UUID, limit: int) -> list[dict]:
         await db.close()
 
 
+async def _get_review_feed(
+    operation_id: uuid.UUID,
+    *,
+    limit: int,
+    include_types: set[str] | None = None,
+    finding_status: FindingStatus | None = None,
+    severity: EventSeverity | None = None,
+    category: EventCategory | None = None,
+) -> list[dict]:
+    config = load_config()
+    db = Database()
+    await db.connect(config.database_url)
+    try:
+        return await db.get_review_feed(
+            operation_id,
+            limit=limit,
+            include_types=include_types,
+            finding_status=finding_status,
+            severity=severity,
+            category=category,
+        )
+    finally:
+        await db.close()
+
+
 async def _get_finding_detail(operation_id: uuid.UUID, finding_id: uuid.UUID) -> dict | None:
     config = load_config()
     db = Database()
     await db.connect(config.database_url)
     try:
         return await db.get_synthesis_finding_detail(operation_id, finding_id)
+    finally:
+        await db.close()
+
+
+async def _get_finding_correlations(
+    operation_id: uuid.UUID,
+    finding_id: uuid.UUID,
+    *,
+    limit: int,
+    window_minutes: int,
+) -> dict | None:
+    config = load_config()
+    db = Database()
+    await db.connect(config.database_url)
+    try:
+        return await db.get_synthesis_finding_correlations(
+            operation_id,
+            finding_id,
+            limit=limit,
+            window_minutes=window_minutes,
+        )
     finally:
         await db.close()
 
@@ -1199,6 +1252,72 @@ def show_findings(*, limit: int = 20, json_output: bool = False) -> int:
     return 0
 
 
+def show_review_feed(
+    *,
+    limit: int = 25,
+    include_types: set[str] | None = None,
+    finding_status: FindingStatus | None = None,
+    severity: EventSeverity | None = None,
+    category: EventCategory | None = None,
+    json_output: bool = False,
+) -> int:
+    state = read_hub_state()
+    if state is None:
+        print("No running Osk hub state found.")
+        return 1
+
+    operation_uuid = _parse_operation_id(str(state.get("operation_id", "")).strip())
+    if operation_uuid is None:
+        print("Hub state contains an invalid operation id.")
+        return 1
+
+    try:
+        items = asyncio.run(
+            _get_review_feed(
+                operation_uuid,
+                limit=max(1, limit),
+                include_types=include_types,
+                finding_status=finding_status,
+                severity=severity,
+                category=category,
+            )
+        )
+    except Exception as exc:
+        print(f"Failed to load review feed: {exc}")
+        return 1
+
+    if json_output:
+        print(json.dumps(items, indent=2, sort_keys=True, default=str))
+        return 0
+
+    if not items:
+        print("No review items recorded.")
+        return 0
+
+    for item in items:
+        item_type = item.get("type", "item")
+        timestamp = item.get("timestamp", "unknown")
+        title = item.get("title", item_type.title())
+        summary = item.get("summary", "")
+        if item_type == "finding":
+            print(
+                f"[finding] {timestamp} severity={item.get('severity')} "
+                f"status={item.get('status')} title={title} summary={summary}"
+            )
+            continue
+        if item_type == "event":
+            print(
+                f"[event] {timestamp} severity={item.get('severity')} "
+                f"category={item.get('category')} title={title} summary={summary}"
+            )
+            continue
+        if item_type == "sitrep":
+            print(f"[sitrep] {timestamp} trend={item.get('trend', 'stable')} summary={summary}")
+            continue
+        print(f"[{item_type}] {timestamp} title={title} summary={summary}")
+    return 0
+
+
 def show_finding(finding_id: str, *, json_output: bool = False) -> int:
     state = read_hub_state()
     if state is None:
@@ -1258,6 +1377,70 @@ def resolve_finding(finding_id: str) -> int:
     return _apply_finding_status(finding_id, FindingStatus.RESOLVED, "resolved")
 
 
+def reopen_finding(finding_id: str) -> int:
+    return _apply_finding_status(finding_id, FindingStatus.OPEN, "reopened")
+
+
+def show_finding_correlations(
+    finding_id: str,
+    *,
+    limit: int = 10,
+    window_minutes: int = 30,
+    json_output: bool = False,
+) -> int:
+    state = read_hub_state()
+    if state is None:
+        print("No running Osk hub state found.")
+        return 1
+    operation_uuid = _parse_operation_id(str(state.get("operation_id", "")).strip())
+    finding_uuid = _parse_operation_id(finding_id)
+    if operation_uuid is None or finding_uuid is None:
+        print("Invalid operation or finding id.")
+        return 1
+
+    try:
+        correlations = asyncio.run(
+            _get_finding_correlations(
+                operation_uuid,
+                finding_uuid,
+                limit=max(1, limit),
+                window_minutes=max(1, window_minutes),
+            )
+        )
+    except Exception as exc:
+        print(f"Failed to load finding correlations: {exc}")
+        return 1
+    if correlations is None:
+        print("Finding not found.")
+        return 1
+
+    if json_output:
+        print(json.dumps(correlations, indent=2, sort_keys=True, default=str))
+        return 0
+
+    finding = correlations["finding"]
+    print(
+        f"Correlations for {finding.get('title', 'finding')} "
+        f"window={correlations.get('window_minutes')}m"
+    )
+    if not correlations["related_findings"] and not correlations["related_events"]:
+        print("No correlated findings or events.")
+        return 0
+    for related in correlations["related_findings"]:
+        reasons = ",".join(related.get("correlation_reasons", []))
+        print(
+            f"finding severity={related.get('severity')} status={related.get('status')} "
+            f"title={related.get('title')} reasons={reasons}"
+        )
+    for related in correlations["related_events"]:
+        reasons = ",".join(related.get("correlation_reasons", []))
+        print(
+            f"event severity={related.get('severity')} category={related.get('category')} "
+            f"reasons={reasons} text={related.get('text')}"
+        )
+    return 0
+
+
 def escalate_finding(finding_id: str) -> int:
     state = read_hub_state()
     if state is None:
@@ -1277,9 +1460,7 @@ def escalate_finding(finding_id: str) -> int:
     if finding is None:
         print("Finding not found.")
         return 1
-    print(
-        f"Escalated {finding.get('title', 'finding')} to severity={finding.get('severity')}."
-    )
+    print(f"Escalated {finding.get('title', 'finding')} to severity={finding.get('severity')}.")
     return 0
 
 

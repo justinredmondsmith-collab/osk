@@ -206,6 +206,27 @@ async def test_get_recent_synthesis_findings(db: Database, mock_pool: MagicMock)
     assert result == [{"title": "Police Action"}]
 
 
+async def test_get_synthesis_findings(db: Database, mock_pool: MagicMock) -> None:
+    db._pool = mock_pool
+    mock_pool.fetch = AsyncMock(return_value=[{"title": "Police Action"}])
+    since = datetime(2026, 3, 21, 18, 0, tzinfo=timezone.utc)
+
+    result = await db.get_synthesis_findings(
+        uuid.uuid4(),
+        limit=10,
+        since=since,
+        status=FindingStatus.OPEN,
+        severity=EventSeverity.WARNING,
+        category=EventCategory.POLICE_ACTION,
+    )
+
+    assert result == [{"title": "Police Action"}]
+    query = mock_pool.fetch.await_args.args[0]
+    assert "status =" in query
+    assert "severity =" in query
+    assert "category =" in query
+
+
 async def test_get_synthesis_finding_detail(db: Database, mock_pool: MagicMock) -> None:
     db._pool = mock_pool
     finding_id = uuid.uuid4()
@@ -232,6 +253,56 @@ async def test_get_synthesis_finding_detail(db: Database, mock_pool: MagicMock) 
     assert detail["notes"][0]["text"] == "Watching east entrance"
 
 
+async def test_get_synthesis_finding_correlations(db: Database, mock_pool: MagicMock) -> None:
+    db._pool = mock_pool
+    finding_id = uuid.uuid4()
+    source_member_id = uuid.uuid4()
+    mock_pool.fetchrow = AsyncMock(
+        return_value={
+            "id": finding_id,
+            "operation_id": uuid.uuid4(),
+            "category": EventCategory.POLICE_ACTION.value,
+            "latest_event_id": None,
+            "first_seen_at": datetime(2026, 3, 21, 18, 0, tzinfo=timezone.utc),
+            "last_seen_at": datetime(2026, 3, 21, 18, 5, tzinfo=timezone.utc),
+            "details": {"member_ids": [str(source_member_id)]},
+        }
+    )
+    mock_pool.fetch = AsyncMock(
+        side_effect=[
+            [
+                {
+                    "id": uuid.uuid4(),
+                    "category": EventCategory.POLICE_ACTION.value,
+                    "latest_event_id": None,
+                    "details": {"member_ids": [str(source_member_id)]},
+                }
+            ],
+            [
+                {
+                    "id": uuid.uuid4(),
+                    "category": EventCategory.POLICE_ACTION.value,
+                    "severity": EventSeverity.WARNING.value,
+                    "text": "Police pushing east",
+                    "source_member_id": source_member_id,
+                }
+            ],
+        ]
+    )
+
+    result = await db.get_synthesis_finding_correlations(uuid.uuid4(), finding_id, limit=3)
+
+    assert result is not None
+    assert result["related_findings"][0]["correlation_reasons"] == [
+        "shared_category",
+        "shared_member_context",
+    ]
+    assert result["related_events"][0]["correlation_reasons"] == [
+        "shared_category",
+        "shared_member_context",
+    ]
+
+
 async def test_update_synthesis_finding_status(db: Database, mock_pool: MagicMock) -> None:
     db._pool = mock_pool
     updated_row = {"id": uuid.uuid4(), "status": "acknowledged"}
@@ -245,6 +316,54 @@ async def test_update_synthesis_finding_status(db: Database, mock_pool: MagicMoc
     )
 
     assert result == updated_row
+
+
+async def test_get_review_feed_mixes_items(db: Database) -> None:
+    operation_id = uuid.uuid4()
+    db.get_synthesis_findings = AsyncMock(
+        return_value=[
+            {
+                "id": uuid.uuid4(),
+                "title": "Police Action",
+                "summary": "Police advancing north.",
+                "severity": "warning",
+                "category": "police_action",
+                "status": "open",
+                "corroborated": True,
+                "notes_count": 1,
+                "last_seen_at": datetime(2026, 3, 21, 18, 4, tzinfo=timezone.utc),
+                "updated_at": datetime(2026, 3, 21, 18, 5, tzinfo=timezone.utc),
+            }
+        ]
+    )
+    db.get_events = AsyncMock(
+        return_value=[
+            {
+                "id": uuid.uuid4(),
+                "timestamp": datetime(2026, 3, 21, 18, 3, tzinfo=timezone.utc),
+                "category": "police_action",
+                "severity": "warning",
+                "text": "Police advancing",
+                "source_member_id": uuid.uuid4(),
+            }
+        ]
+    )
+    db.get_recent_sitreps = AsyncMock(
+        return_value=[
+            {
+                "id": uuid.uuid4(),
+                "timestamp": datetime(2026, 3, 21, 18, 2, tzinfo=timezone.utc),
+                "text": "Situation remains tense.",
+                "trend": "escalating",
+            }
+        ]
+    )
+
+    result = await db.get_review_feed(operation_id, limit=10)
+
+    assert [item["type"] for item in result] == ["finding", "event", "sitrep"]
+    assert result[0]["title"] == "Police Action"
+    assert result[2]["trend"] == "escalating"
 
 
 async def test_escalate_synthesis_finding(db: Database, mock_pool: MagicMock) -> None:

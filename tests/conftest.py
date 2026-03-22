@@ -89,7 +89,12 @@ def mock_db() -> MagicMock:
     db.get_events_since = AsyncMock(return_value=[])
     db.get_recent_intelligence_observations = AsyncMock(return_value=[])
     db.get_recent_synthesis_findings = AsyncMock(return_value=[])
+    db.get_synthesis_findings = AsyncMock(return_value=[])
+    db.get_synthesis_finding_correlations = AsyncMock(return_value=None)
+    db.get_review_feed = AsyncMock(return_value=[])
+    db.get_events = AsyncMock(return_value=[])
     db.get_latest_sitrep = AsyncMock(return_value=None)
+    db.get_recent_sitreps = AsyncMock(return_value=[])
     db.get_members = AsyncMock(return_value=[])
     db.get_audit_events = AsyncMock(return_value=[])
     return db

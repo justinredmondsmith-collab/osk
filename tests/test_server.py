@@ -206,13 +206,20 @@ def test_intelligence_observations(client: TestClient, mock_db: MagicMock) -> No
 
 
 def test_intelligence_findings(client: TestClient, mock_db: MagicMock) -> None:
-    mock_db.get_recent_synthesis_findings.return_value = [{"title": "Police Action"}]
+    mock_db.get_synthesis_findings.return_value = [{"title": "Police Action"}]
 
-    resp = client.get("/api/intelligence/findings?limit=10")
+    resp = client.get(
+        "/api/intelligence/findings?limit=10&status=open&severity=warning&category=police_action"
+    )
 
     assert resp.status_code == 200
     assert resp.json() == [{"title": "Police Action"}]
-    mock_db.get_recent_synthesis_findings.assert_called_once()
+    mock_db.get_synthesis_findings.assert_called_once()
+    _, kwargs = mock_db.get_synthesis_findings.await_args
+    assert kwargs["limit"] == 10
+    assert kwargs["status"].value == "open"
+    assert kwargs["severity"].value == "warning"
+    assert kwargs["category"].value == "police_action"
 
 
 def test_intelligence_finding_detail(client: TestClient, mock_db: MagicMock) -> None:
@@ -258,6 +265,19 @@ def test_resolve_intelligence_finding(client: TestClient, mock_db: MagicMock) ->
     assert resp.json()["status"] == "resolved"
 
 
+def test_reopen_intelligence_finding(client: TestClient, mock_db: MagicMock) -> None:
+    finding_id = uuid.uuid4()
+    mock_db.update_synthesis_finding_status.return_value = {
+        "id": str(finding_id),
+        "status": "open",
+    }
+
+    resp = client.post(f"/api/intelligence/findings/{finding_id}/reopen")
+
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "open"
+
+
 def test_escalate_intelligence_finding(client: TestClient, mock_db: MagicMock) -> None:
     finding_id = uuid.uuid4()
     mock_db.escalate_synthesis_finding.return_value = {
@@ -269,6 +289,22 @@ def test_escalate_intelligence_finding(client: TestClient, mock_db: MagicMock) -
 
     assert resp.status_code == 200
     assert resp.json()["severity"] == "critical"
+
+
+def test_intelligence_finding_correlations(client: TestClient, mock_db: MagicMock) -> None:
+    finding_id = uuid.uuid4()
+    mock_db.get_synthesis_finding_correlations.return_value = {
+        "finding": {"id": str(finding_id), "title": "Police Action"},
+        "related_findings": [],
+        "related_events": [],
+        "window_minutes": 30,
+    }
+
+    resp = client.get(f"/api/intelligence/findings/{finding_id}/correlations?limit=4")
+
+    assert resp.status_code == 200
+    assert resp.json()["finding"]["title"] == "Police Action"
+    mock_db.get_synthesis_finding_correlations.assert_called_once()
 
 
 def test_note_intelligence_finding(client: TestClient, mock_db: MagicMock) -> None:
@@ -283,6 +319,29 @@ def test_note_intelligence_finding(client: TestClient, mock_db: MagicMock) -> No
     assert resp.status_code == 200
     assert resp.json()["finding_id"] == str(finding_id)
     mock_db.insert_synthesis_finding_note.assert_called_once()
+
+
+def test_intelligence_review_feed(client: TestClient, mock_db: MagicMock) -> None:
+    mock_db.get_review_feed.return_value = [
+        {"type": "finding", "title": "Police Action"},
+        {"type": "sitrep", "summary": "Situation remains tense."},
+    ]
+
+    resp = client.get(
+        "/api/intelligence/review-feed"
+        "?limit=12&include=finding&include=sitrep&finding_status=acknowledged&severity=warning"
+    )
+
+    assert resp.status_code == 200
+    assert resp.json()[0]["type"] == "finding"
+    mock_db.get_review_feed.assert_called_once()
+
+
+def test_intelligence_review_feed_rejects_unknown_include(client: TestClient) -> None:
+    resp = client.get("/api/intelligence/review-feed?include=bogus")
+
+    assert resp.status_code == 400
+    assert resp.json()["invalid_types"] == ["bogus"]
 
 
 def test_intelligence_status_reports_missing_service(

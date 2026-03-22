@@ -666,6 +666,46 @@ def test_show_findings_formats_rows(mock_asyncio_run: MagicMock, tmp_path: Path,
 
 
 @patch("osk.hub.asyncio.run")
+def test_show_review_feed_formats_rows(mock_asyncio_run: MagicMock, tmp_path: Path, capsys) -> None:
+    review_items = [
+        {
+            "type": "finding",
+            "timestamp": "2026-03-21T12:03:00Z",
+            "title": "Police Action",
+            "summary": "Police advancing north.",
+            "severity": "warning",
+            "status": "open",
+        },
+        {
+            "type": "sitrep",
+            "timestamp": "2026-03-21T12:05:00Z",
+            "summary": "Two police-action findings remain active near the east route.",
+            "trend": "escalating",
+        },
+    ]
+
+    def return_review(coro):
+        coro.close()
+        return review_items
+
+    mock_asyncio_run.side_effect = return_review
+
+    with patch("osk.hub._config_root", return_value=tmp_path):
+        (tmp_path / "hub-state.json").write_text(
+            '{"operation_id":"11111111-1111-1111-1111-111111111111"}\n'
+        )
+        from osk.hub import show_review_feed
+
+        code = show_review_feed(limit=5)
+
+    out = capsys.readouterr().out
+    assert code == 0
+    assert "[finding]" in out
+    assert "[sitrep]" in out
+    assert "Police Action" in out
+
+
+@patch("osk.hub.asyncio.run")
 def test_show_finding_formats_detail(mock_asyncio_run: MagicMock, tmp_path: Path, capsys) -> None:
     detail = {
         "finding": {
@@ -709,6 +749,52 @@ def test_show_finding_formats_detail(mock_asyncio_run: MagicMock, tmp_path: Path
 
 
 @patch("osk.hub.asyncio.run")
+def test_show_finding_correlations_formats_rows(
+    mock_asyncio_run: MagicMock, tmp_path: Path, capsys
+) -> None:
+    correlations = {
+        "finding": {"title": "Police Action"},
+        "related_findings": [
+            {
+                "title": "Blocked Route",
+                "severity": "warning",
+                "status": "open",
+                "correlation_reasons": ["shared_member_context"],
+            }
+        ],
+        "related_events": [
+            {
+                "text": "Police advancing north",
+                "severity": "warning",
+                "category": "police_action",
+                "correlation_reasons": ["linked_event"],
+            }
+        ],
+        "window_minutes": 30,
+    }
+
+    def return_correlations(coro):
+        coro.close()
+        return correlations
+
+    mock_asyncio_run.side_effect = return_correlations
+
+    with patch("osk.hub._config_root", return_value=tmp_path):
+        (tmp_path / "hub-state.json").write_text(
+            '{"operation_id":"11111111-1111-1111-1111-111111111111"}\n'
+        )
+        from osk.hub import show_finding_correlations
+
+        code = show_finding_correlations("11111111-1111-1111-1111-111111111111")
+
+    out = capsys.readouterr().out
+    assert code == 0
+    assert "Correlations for Police Action" in out
+    assert "Blocked Route" in out
+    assert "linked_event" in out
+
+
+@patch("osk.hub.asyncio.run")
 def test_acknowledge_finding_updates_state(
     mock_asyncio_run: MagicMock, tmp_path: Path, capsys
 ) -> None:
@@ -729,6 +815,27 @@ def test_acknowledge_finding_updates_state(
     out = capsys.readouterr().out
     assert code == 0
     assert "Acknowledged Police Action." in out
+
+
+@patch("osk.hub.asyncio.run")
+def test_reopen_finding_updates_state(mock_asyncio_run: MagicMock, tmp_path: Path, capsys) -> None:
+    def return_reopen(coro):
+        coro.close()
+        return {"title": "Police Action", "status": "open"}
+
+    mock_asyncio_run.side_effect = return_reopen
+
+    with patch("osk.hub._config_root", return_value=tmp_path):
+        (tmp_path / "hub-state.json").write_text(
+            '{"operation_id":"11111111-1111-1111-1111-111111111111"}\n'
+        )
+        from osk.hub import reopen_finding
+
+        code = reopen_finding("11111111-1111-1111-1111-111111111111")
+
+    out = capsys.readouterr().out
+    assert code == 0
+    assert "Reopened Police Action." in out
 
 
 @patch("osk.hub.asyncio.run")

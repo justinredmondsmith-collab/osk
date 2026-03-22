@@ -80,6 +80,8 @@ What exists today:
   `osk operator logout`
 - Local observability commands: `osk audit`, `osk logs`, `osk members`, and
   `osk findings`
+- Local mixed review feed and correlation commands: `osk review`,
+  `osk finding reopen`, and `osk finding correlations`
 - Local finding triage commands: `osk finding show`, `osk finding acknowledge`,
   `osk finding resolve`, `osk finding escalate`, and `osk finding note`
 - Database migrations, coordinator auth boundary, member reconnect handling,
@@ -100,7 +102,8 @@ What exists today:
 - Heuristic synthesis with cross-source corroboration, alert fan-out, rolling
   sitrep generation, persisted reviewable findings, coordinator
   acknowledge/resolve/escalate/note actions, and local admin retrieval for
-  recent observations and findings
+  recent observations, filtered review feeds, sitreps, events, finding
+  correlations, and findings
 - `ffmpeg`-backed decode path for compressed audio uploads such as WebM/Ogg
   when using the real Whisper backend
 
@@ -202,13 +205,13 @@ full architecture, API contract, and threat-model assumptions.
 - Run `PYTHONPATH=src python -m osk doctor --json` locally, or `osk doctor --json`
   after installing the package
 - Use `osk status`, `osk operator status`, `osk audit`, `osk members`,
-  `osk findings`, and `osk logs` to inspect the local foundation runtime
-- Use `osk finding show|acknowledge|resolve|escalate|note` to triage one
-  reviewable finding locally before any dashboard exists
-- Use `/api/intelligence/status`, `/api/intelligence/observations`, and
-  `/api/intelligence/findings` from the local coordinator surface to inspect
-  live Phase 2 runtime state, and use the per-finding coordinator routes to
-  review or update one finding
+  `osk findings`, `osk review`, and `osk logs` to inspect the local foundation runtime
+- Use `osk finding show|acknowledge|resolve|reopen|escalate|correlations|note`
+  to triage one reviewable finding locally before any dashboard exists
+- Use `/api/intelligence/status`, `/api/intelligence/observations`,
+  `/api/intelligence/findings`, `/api/intelligence/review-feed`, `/api/events`,
+  and `/api/sitreps` from the local coordinator surface to inspect live
+  runtime state and build dashboard review flows against stable query surfaces
 - Reuse the same `chunk_id`, `frame_id`, or `ingest_key` when retransmitting
   media from a reconnecting client if you want duplicate-safe local acks
 - Configure `transcriber_backend` / `vision_backend` in `~/.config/osk/config.toml`

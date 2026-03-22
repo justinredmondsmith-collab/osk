@@ -83,6 +83,34 @@ def test_parse_members() -> None:
     assert args.json_output is True
 
 
+def test_parse_review() -> None:
+    args = parse_args(
+        [
+            "review",
+            "--limit",
+            "15",
+            "--include",
+            "finding",
+            "--include",
+            "event",
+            "--status",
+            "open",
+            "--severity",
+            "warning",
+            "--category",
+            "police_action",
+            "--json",
+        ]
+    )
+    assert args.command == "review"
+    assert args.limit == 15
+    assert args.include == ["finding", "event"]
+    assert args.status == "open"
+    assert args.severity == "warning"
+    assert args.category == "police_action"
+    assert args.json_output is True
+
+
 def test_parse_install() -> None:
     args = parse_args(["install"])
     assert args.command == "install"
@@ -306,6 +334,37 @@ def test_findings_command_invokes_hub_helper(mock_show_findings: MagicMock) -> N
     mock_show_findings.assert_called_once_with(limit=7, json_output=True)
 
 
+@patch("osk.hub.show_review_feed", return_value=0)
+def test_review_command_invokes_hub_helper(mock_show_review_feed: MagicMock) -> None:
+    code = main(
+        [
+            "review",
+            "--limit",
+            "9",
+            "--include",
+            "finding",
+            "--include",
+            "sitrep",
+            "--status",
+            "acknowledged",
+            "--severity",
+            "warning",
+            "--category",
+            "police_action",
+            "--json",
+        ]
+    )
+    assert code == 0
+    mock_show_review_feed.assert_called_once()
+    _, kwargs = mock_show_review_feed.call_args
+    assert kwargs["limit"] == 9
+    assert kwargs["include_types"] == {"finding", "sitrep"}
+    assert kwargs["finding_status"].value == "acknowledged"
+    assert kwargs["severity"].value == "warning"
+    assert kwargs["category"].value == "police_action"
+    assert kwargs["json_output"] is True
+
+
 @patch("osk.hub.show_finding", return_value=0)
 def test_finding_show_command_invokes_hub_helper(mock_show_finding: MagicMock) -> None:
     finding_id = "11111111-1111-1111-1111-111111111111"
@@ -330,12 +389,35 @@ def test_finding_resolve_command_invokes_hub_helper(mock_resolve_finding: MagicM
     mock_resolve_finding.assert_called_once_with(finding_id)
 
 
+@patch("osk.hub.reopen_finding", return_value=0)
+def test_finding_reopen_command_invokes_hub_helper(mock_reopen_finding: MagicMock) -> None:
+    finding_id = "11111111-1111-1111-1111-111111111111"
+    code = main(["finding", "reopen", finding_id])
+    assert code == 0
+    mock_reopen_finding.assert_called_once_with(finding_id)
+
+
 @patch("osk.hub.escalate_finding", return_value=0)
 def test_finding_escalate_command_invokes_hub_helper(mock_escalate_finding: MagicMock) -> None:
     finding_id = "11111111-1111-1111-1111-111111111111"
     code = main(["finding", "escalate", finding_id])
     assert code == 0
     mock_escalate_finding.assert_called_once_with(finding_id)
+
+
+@patch("osk.hub.show_finding_correlations", return_value=0)
+def test_finding_correlations_command_invokes_hub_helper(
+    mock_show_finding_correlations: MagicMock,
+) -> None:
+    finding_id = "11111111-1111-1111-1111-111111111111"
+    code = main(["finding", "correlations", finding_id, "--limit", "4", "--window-minutes", "12"])
+    assert code == 0
+    mock_show_finding_correlations.assert_called_once_with(
+        finding_id,
+        limit=4,
+        window_minutes=12,
+        json_output=False,
+    )
 
 
 @patch("osk.hub.add_finding_note", return_value=0)

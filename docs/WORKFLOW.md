@@ -61,6 +61,9 @@ stage should still stay disciplined:
   assuming lossy mobile transport will behave perfectly
 - Make manual review state explicit and durable before building coordinator UI
   against a new intelligence surface
+- Land stable dashboard query surfaces before frontend-specific state or view
+  logic; the backend should own filtered finding/event/sitrep review feeds and
+  correlation lookups
 
 ## Suggested Order For The Next Stage
 
