@@ -41,6 +41,8 @@ The repository now includes:
   `osk tiles status` and `osk tiles cache --bbox ... --zoom ...`
 - A standalone hotspot-management slice for NetworkManager environments:
   `osk hotspot status|up|down|instructions`
+- A standalone preserved-evidence slice:
+  `osk evidence unlock|export|destroy`
 - A thin member join/runtime shell under `src/osk/templates/join.html`,
   `src/osk/templates/member.html`, and `src/osk/static/member.*`; it now uses
   a clean cookie-backed join flow so the shared operation token is not kept in
@@ -151,6 +153,12 @@ Inspect hotspot availability and the current hotspot IP:
 
 ```bash
 osk hotspot status
+```
+
+Export the currently visible preserved-evidence mount into a zip:
+
+```bash
+osk evidence export --output osk-evidence-export.zip
 ```
 
 ## Contribution Rules

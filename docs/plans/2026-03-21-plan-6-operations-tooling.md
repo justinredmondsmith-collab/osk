@@ -10,10 +10,12 @@
 `osk install`, evidence-volume creation/open/close paths in `src/osk/storage.py`,
 runtime preflight checks in `osk doctor`, a dashboard tile-consumption path
 that reads cached local PNG tiles from `map_tile_cache_path`, the first
-tile-cache CLI slice via `osk tiles status` and `osk tiles cache`, and a
+tile-cache CLI slice via `osk tiles status` and `osk tiles cache`, a
 standalone `osk hotspot status|up|down|instructions` slice for
-NetworkManager-based field setup. The missing work in this phase is hub-start
-integration, evidence export/viewing, and validated wipe/install operations.
+NetworkManager-based field setup, and a standalone
+`osk evidence unlock|export|destroy` slice for preserved-evidence access. The
+missing work in this phase is hub-start integration and validated wipe/install
+operations.
 
 **Tech Stack:** Python, nmcli, cryptsetup, keyctl, zipfile, subprocess
 

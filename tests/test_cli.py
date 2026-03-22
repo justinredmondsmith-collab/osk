@@ -129,19 +129,24 @@ def test_parse_config() -> None:
 
 
 def test_parse_evidence_unlock() -> None:
-    args = parse_args(["evidence", "unlock"])
+    args = parse_args(["evidence", "unlock", "--json"])
     assert args.command == "evidence"
     assert args.evidence_command == "unlock"
+    assert args.json_output is True
 
 
 def test_parse_evidence_export() -> None:
-    args = parse_args(["evidence", "export"])
+    args = parse_args(["evidence", "export", "--output", "bundle.zip", "--json"])
     assert args.evidence_command == "export"
+    assert args.output == "bundle.zip"
+    assert args.json_output is True
 
 
 def test_parse_evidence_destroy() -> None:
-    args = parse_args(["evidence", "destroy"])
+    args = parse_args(["evidence", "destroy", "--yes", "--json"])
     assert args.evidence_command == "destroy"
+    assert args.yes is True
+    assert args.json_output is True
 
 
 def test_parse_tiles_status() -> None:
@@ -266,6 +271,48 @@ def test_hotspot_status_prints_summary(
     assert code == 0
     assert "available = True" in out
     assert "ip_address = 10.42.0.1" in out
+
+
+@patch("osk.cli._evidence_manager")
+@patch("osk.cli.getpass.getpass", return_value="secret")
+def test_evidence_unlock_prints_items(
+    _mock_getpass: MagicMock, mock_manager_factory: MagicMock, capsys
+) -> None:
+    manager = MagicMock()
+    manager.backend = "luks"
+    manager.unlock.return_value = {
+        "ok": True,
+        "mount_path": "/tmp/evidence",
+        "item_count": 1,
+        "items": [{"path": "event_001.json", "size_bytes": 16}],
+    }
+    mock_manager_factory.return_value = manager
+
+    code = main(["evidence", "unlock"])
+    out = capsys.readouterr().out
+
+    assert code == 0
+    assert "mount_path = /tmp/evidence" in out
+    assert "event_001.json" in out
+
+
+@patch("osk.cli._evidence_manager")
+def test_evidence_export_prints_summary(mock_manager_factory: MagicMock, capsys) -> None:
+    manager = MagicMock()
+    manager.export.return_value = {
+        "ok": True,
+        "output_path": "/tmp/export.zip",
+        "file_count": 2,
+        "total_bytes": 2048,
+    }
+    mock_manager_factory.return_value = manager
+
+    code = main(["evidence", "export", "--output", "/tmp/export.zip"])
+    out = capsys.readouterr().out
+
+    assert code == 0
+    assert "output_path = /tmp/export.zip" in out
+    assert "file_count = 2" in out
 
 
 @patch("osk.cli._repo_root")

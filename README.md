@@ -105,6 +105,8 @@ What exists today:
 - Standalone hotspot-management commands for NetworkManager-based field setup:
   `osk hotspot status`, `osk hotspot up`, `osk hotspot down`, and
   `osk hotspot instructions`
+- Standalone preserved-evidence commands: `osk evidence unlock`,
+  `osk evidence export`, and `osk evidence destroy`
 - Database migrations, coordinator auth boundary, member reconnect handling,
   and heartbeat-based stale-session cleanup
 - Early REST/WebSocket hub surface for the coordinator and member join/runtime
@@ -251,7 +253,7 @@ The initial implementation is split into six phases:
 | [3. Synthesis Layer](docs/plans/2026-03-21-plan-3-synthesis-layer.md) | Events, alerts, SitReps | Heuristic synthesis + review surfaces in repo |
 | [4. Coordinator Dashboard](docs/plans/2026-03-21-plan-4-coordinator-dashboard.md) | Map, timeline, sensor management | Live review shell in repo |
 | [5. Mobile PWA](docs/plans/2026-03-21-plan-5-mobile-pwa.md) | Join flow, alert feed, edge sampling | Join/runtime shell with alerts, GPS, queued manual reports/media, early sensor capture, and first installable/offline behavior in repo |
-| [6. Operations Tooling](docs/plans/2026-03-21-plan-6-operations-tooling.md) | Hotspot, evidence, tile caching | Tile cache CLI + standalone hotspot tools in repo |
+| [6. Operations Tooling](docs/plans/2026-03-21-plan-6-operations-tooling.md) | Hotspot, evidence, tile caching | Tile cache CLI + standalone hotspot/evidence tools in repo |
 
 See the [design specification](docs/specs/2026-03-21-osk-design.md) for the
 full architecture, API contract, and threat-model assumptions.
@@ -295,6 +297,12 @@ full architecture, API contract, and threat-model assumptions.
   standalone local hotspot workflow before this is wired into `osk start`
 - Use `osk hotspot instructions` if you need the manual fallback flow instead
   of `nmcli`-driven setup
+- Use `osk evidence unlock` to open the preserved-evidence mount path and list
+  the currently visible files
+- Use `osk evidence export --output osk-evidence-export.zip` to bundle the
+  currently visible preserved-evidence files into a zip archive
+- Use `osk evidence destroy --yes` if you need to permanently remove the local
+  preserved-evidence store
 - Scan the QR join link into `/join?token=...`; the hub now exchanges that
   token into a clean `HttpOnly` browser cookie and redirects back to `/join`
   without leaving the shared operation token in the visible URL

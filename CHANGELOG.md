@@ -122,6 +122,9 @@ changes manually while the project is in its early public setup phase.
   module for the dashboard map path
 - Standalone hotspot-management slice: `osk hotspot status|up|down|instructions`
   and an `nmcli`-backed host-side hotspot manager with manual fallback copy
+- Standalone preserved-evidence slice: `osk evidence unlock|export|destroy`
+  and a host-side evidence manager for read-only unlock, zip export, and
+  destructive cleanup flows
 
 ### Changed
 

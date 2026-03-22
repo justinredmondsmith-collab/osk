@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import getpass
 import json
 import logging
 from pathlib import Path
@@ -403,14 +404,74 @@ def _cmd_hotspot_instructions(args: argparse.Namespace) -> int:
     return 0
 
 
+def _evidence_manager():
+    from .evidence import EvidenceManager
+    from .hub import default_storage_manager
+
+    cfg = load_config()
+    return EvidenceManager.from_storage(default_storage_manager(cfg))
+
+
 def _cmd_evidence(args: argparse.Namespace) -> int:
-    messages = {
-        "unlock": "Evidence unlock is not implemented yet.",
-        "export": "Evidence export is not implemented yet.",
-        "destroy": "Evidence destroy is not implemented yet.",
-    }
-    print(messages.get(args.evidence_command, "Unknown evidence command."))
-    return 1
+    manager = _evidence_manager()
+
+    if args.evidence_command == "unlock":
+        passphrase = (
+            "" if manager.backend == "directory" else getpass.getpass("Evidence passphrase: ")
+        )
+        try:
+            result = manager.unlock(passphrase)
+        except Exception as exc:
+            print(f"Failed to unlock evidence: {exc}")
+            return 1
+    elif args.evidence_command == "export":
+        try:
+            result = manager.export(Path(args.output))
+        except Exception as exc:
+            print(f"Failed to export evidence: {exc}")
+            return 1
+    elif args.evidence_command == "destroy":
+        if not args.yes:
+            target = (
+                manager.luks_mount_path
+                if manager.backend == "directory"
+                else manager.luks_image_path
+            )
+            confirmation = input(f"Destroy preserved evidence at {target}? [y/N]: ").strip().lower()
+            if confirmation not in {"y", "yes"}:
+                print("Aborted.")
+                return 1
+        try:
+            result = manager.destroy()
+        except Exception as exc:
+            print(f"Failed to destroy evidence: {exc}")
+            return 1
+    else:
+        print("Unknown evidence command.")
+        return 1
+
+    if args.json_output:
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0 if result.get("ok") else 1
+
+    if not result.get("ok"):
+        print(result.get("error", "Evidence command failed."))
+        return 1
+
+    if args.evidence_command == "unlock":
+        print(f"mount_path = {result['mount_path']}")
+        print(f"item_count = {result['item_count']}")
+        for item in result["items"][:20]:
+            print(f"- {item['path']} ({item['size_bytes']} bytes)")
+        return 0
+    if args.evidence_command == "export":
+        print(f"output_path = {result['output_path']}")
+        print(f"file_count = {result['file_count']}")
+        print(f"size = {_format_bytes(int(result['total_bytes']))} ({result['total_bytes']} bytes)")
+        return 0
+
+    print(f"destroyed_path = {result['destroyed_path']}")
+    return 0
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -752,13 +813,43 @@ def build_parser() -> argparse.ArgumentParser:
 
     evidence_parser = subparsers.add_parser("evidence", help="Manage pinned evidence.")
     evidence_sub = evidence_parser.add_subparsers(dest="evidence_command")
-    for name, help_text in (
-        ("unlock", "Unlock and view pinned evidence."),
-        ("export", "Export pinned evidence."),
-        ("destroy", "Destroy preserved evidence."),
-    ):
-        subparser = evidence_sub.add_parser(name, help=help_text)
-        subparser.set_defaults(func=_cmd_evidence)
+
+    evidence_unlock = evidence_sub.add_parser("unlock", help="Unlock and view pinned evidence.")
+    evidence_unlock.add_argument(
+        "--json",
+        dest="json_output",
+        action="store_true",
+        help="Emit machine-readable JSON output.",
+    )
+    evidence_unlock.set_defaults(func=_cmd_evidence)
+
+    evidence_export = evidence_sub.add_parser("export", help="Export pinned evidence.")
+    evidence_export.add_argument(
+        "--output",
+        default="osk-evidence-export.zip",
+        help="Zip path for the exported evidence bundle.",
+    )
+    evidence_export.add_argument(
+        "--json",
+        dest="json_output",
+        action="store_true",
+        help="Emit machine-readable JSON output.",
+    )
+    evidence_export.set_defaults(func=_cmd_evidence)
+
+    evidence_destroy = evidence_sub.add_parser("destroy", help="Destroy preserved evidence.")
+    evidence_destroy.add_argument(
+        "--yes",
+        action="store_true",
+        help="Skip the interactive confirmation prompt.",
+    )
+    evidence_destroy.add_argument(
+        "--json",
+        dest="json_output",
+        action="store_true",
+        help="Emit machine-readable JSON output.",
+    )
+    evidence_destroy.set_defaults(func=_cmd_evidence)
 
     return parser
 
