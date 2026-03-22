@@ -618,6 +618,74 @@ def test_coordinator_dashboard_state_tracks_buffer_history_window(
     assert second_payload["buffer_history"]["points"][-1]["frame_queue_size"] == 1
 
 
+def test_coordinator_dashboard_state_emits_sustained_buffer_signal(
+    client: TestClient,
+    mock_db: MagicMock,
+    mock_op_manager: MagicMock,
+    mock_intelligence_service: MagicMock,
+) -> None:
+    member_id = uuid.uuid4()
+    timestamp = dt.datetime.now(dt.timezone.utc)
+    mock_db.get_latest_sitrep.return_value = None
+    mock_db.get_review_feed.return_value = []
+    mock_intelligence_service.snapshot.return_value = {
+        "running": True,
+        "audio_ingest": {"queue_size": 2},
+        "frame_ingest": {"queue_size": 1},
+    }
+
+    member_row = {
+        "id": str(member_id),
+        "name": "Sensor One",
+        "role": "sensor",
+        "connected_at": timestamp,
+        "last_seen_at": timestamp,
+        "status": "connected",
+        "last_gps_at": timestamp,
+        "latitude": 39.7392,
+        "longitude": -104.9903,
+        "buffer_status": {
+            "pending_count": 4,
+            "manual_pending_count": 1,
+            "sensor_pending_count": 3,
+            "report_pending_count": 1,
+            "audio_pending_count": 2,
+            "frame_pending_count": 1,
+            "in_flight": True,
+            "network": "offline",
+            "last_error": "Upload retry pending.",
+            "oldest_pending_at": timestamp.isoformat(),
+            "updated_at": timestamp.isoformat(),
+        },
+    }
+    mock_op_manager.get_member_list.return_value = [member_row]
+
+    first = client.get("/api/coordinator/dashboard-state")
+    second = client.get("/api/coordinator/dashboard-state")
+    third = client.get("/api/coordinator/dashboard-state")
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert third.status_code == 200
+    third_payload = third.json()
+    assert third_payload["buffer_signal"] is not None
+    assert third_payload["buffer_signal"]["signal_kind"] == "member_buffer_sustained"
+    assert third_payload["buffer_signal"]["severity"] == "warning"
+    assert third_payload["buffer_signal"]["category"] == "member_buffer"
+    assert third_payload["review_feed"][0]["type"] == "signal"
+    assert third_payload["review_feed"][0]["signal_kind"] == "member_buffer_sustained"
+
+    fourth = client.get("/api/coordinator/dashboard-state")
+    assert fourth.status_code == 200
+    fourth_payload = fourth.json()
+    assert (
+        fourth_payload["buffer_signal"]["signal_id"] == third_payload["buffer_signal"]["signal_id"]
+    )
+    assert (
+        fourth_payload["buffer_signal"]["timestamp"] == third_payload["buffer_signal"]["timestamp"]
+    )
+
+
 def test_coordinator_dashboard_state_rejects_unknown_include(
     client: TestClient,
 ) -> None:

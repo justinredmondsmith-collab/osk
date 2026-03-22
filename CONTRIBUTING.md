@@ -32,7 +32,8 @@ The repository now includes:
   a one-time dashboard code to mint a short-lived local `HttpOnly` cookie
   instead of keeping a steady-state token in the request URL or JS storage, and
   it now consumes a same-origin live dashboard stream plus current member
-  health/ingest context, a rolling member-buffer trend view, and a local
+  health/ingest context, a rolling member-buffer trend view, sustained buffer
+  warning signals in the local review feed/current pulse, and a local
   tile-backed map surface with an explicit relative fallback when the tile
   cache is empty
 - A thin member join/runtime shell under `src/osk/templates/join.html`,

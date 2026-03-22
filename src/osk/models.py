@@ -71,6 +71,7 @@ class EventCategory(str, Enum):
     WEATHER = "weather"
     COMMUNITY = "community"
     MANUAL_REPORT = "manual_report"
+    MEMBER_BUFFER = "member_buffer"
 
 
 class FindingStatus(str, Enum):

@@ -419,17 +419,20 @@ textarea {
 }
 
 .timeline-row--finding[data-severity="critical"],
-.timeline-row--event[data-severity="critical"] {
+.timeline-row--event[data-severity="critical"],
+.timeline-row--signal[data-severity="critical"] {
   border-left-color: var(--color-critical);
 }
 
 .timeline-row--finding[data-severity="warning"],
-.timeline-row--event[data-severity="warning"] {
+.timeline-row--event[data-severity="warning"],
+.timeline-row--signal[data-severity="warning"] {
   border-left-color: var(--color-warning);
 }
 
 .timeline-row--finding[data-severity="advisory"],
-.timeline-row--event[data-severity="advisory"] {
+.timeline-row--event[data-severity="advisory"],
+.timeline-row--signal[data-severity="advisory"] {
   border-left-color: var(--color-advisory);
 }
 

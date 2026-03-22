@@ -113,6 +113,8 @@ changes manually while the project is in its early public setup phase.
 - Rolling member-buffer trend history in the coordinator shell, built from
   live in-memory member state and exposed through the existing dashboard
   state/SSE surfaces
+- Sustained member-buffer warning signals in the coordinator shell, surfaced as
+  transient review-feed/current-pulse items without adding new DB persistence
 
 ### Changed
 
@@ -160,6 +162,8 @@ changes manually while the project is in its early public setup phase.
   and the automated Playwright smoke path alongside the existing manual helper
 - Dashboard/member docs now describe the rolling member-buffer trend window in
   the coordinator shell instead of only the single-point buffer counts
+- Dashboard docs now describe the coordinator shell's sustained buffer warning
+  signal path in addition to the raw/trended buffer counts
 - Member docs now reflect that the current sensor runtime includes early audio
   and key-frame capture, while fuller media and offline PWA work remain planned
 - Member/browser docs now reflect that browser reload/reconnect auth is

@@ -82,6 +82,12 @@ SERVICE_WORKER_PATH = STATIC_ROOT / "sw.js"
 DASHBOARD_STREAM_INTERVAL_SECONDS = 2.0
 DASHBOARD_STREAM_KEEPALIVE_SECONDS = 15.0
 DASHBOARD_BUFFER_HISTORY_MAX_POINTS = 30
+DASHBOARD_BUFFER_SIGNAL_MIN_ITEMS = 2
+DASHBOARD_BUFFER_SIGNAL_SUSTAINED_POINTS = 3
+DASHBOARD_BUFFER_SIGNAL_WARNING_ITEMS = 5
+DASHBOARD_BUFFER_SIGNAL_WARNING_MEMBERS = 2
+DASHBOARD_BUFFER_SIGNAL_CRITICAL_ITEMS = 9
+DASHBOARD_BUFFER_SIGNAL_CRITICAL_MEMBERS = 4
 TRANSPARENT_TILE_PNG = base64.b64decode(
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9WnRnk4AAAAASUVORK5CYII="
 )
@@ -629,6 +635,120 @@ def _record_buffer_history(
     }
 
 
+def _buffer_signal_severity(point: dict[str, object]) -> EventSeverity:
+    buffered_items = int(point.get("buffered_items") or 0)
+    buffered_members = int(point.get("buffered_members") or 0)
+    sensor_buffered_items = int(point.get("sensor_buffered_items") or 0)
+    if (
+        buffered_items >= DASHBOARD_BUFFER_SIGNAL_CRITICAL_ITEMS
+        or buffered_members >= DASHBOARD_BUFFER_SIGNAL_CRITICAL_MEMBERS
+        or sensor_buffered_items >= DASHBOARD_BUFFER_SIGNAL_WARNING_ITEMS
+    ):
+        return EventSeverity.CRITICAL
+    if (
+        buffered_items >= DASHBOARD_BUFFER_SIGNAL_WARNING_ITEMS
+        or buffered_members >= DASHBOARD_BUFFER_SIGNAL_WARNING_MEMBERS
+        or sensor_buffered_items >= DASHBOARD_BUFFER_SIGNAL_MIN_ITEMS
+    ):
+        return EventSeverity.WARNING
+    return EventSeverity.ADVISORY
+
+
+def _build_buffer_signal_summary(
+    point: dict[str, object],
+    *,
+    window_points: int,
+    trend: str,
+) -> str:
+    buffered_members = int(point.get("buffered_members") or 0)
+    buffered_items = int(point.get("buffered_items") or 0)
+    manual_items = int(point.get("manual_buffered_items") or 0)
+    sensor_items = int(point.get("sensor_buffered_items") or 0)
+    audio_queue = int(point.get("audio_queue_size") or 0)
+    frame_queue = int(point.get("frame_queue_size") or 0)
+    summary = (
+        f"{buffered_members} member browsers have held {buffered_items} queued items "
+        f"across the last {window_points} dashboard samples"
+    )
+    detail_bits = [f"{sensor_items} sensor", f"{manual_items} manual", trend]
+    if audio_queue or frame_queue:
+        detail_bits.append(f"hub queues audio {audio_queue} / frame {frame_queue}")
+    return f"{summary} ({', '.join(detail_bits)})."
+
+
+def _build_buffer_signal(
+    *,
+    operation_id: uuid.UUID,
+    buffer_history: dict[str, object],
+    signal_store: dict[str, dict[str, object]] | None,
+    generated_at: str,
+) -> dict[str, object] | None:
+    points = list(buffer_history.get("points") or [])
+    if len(points) < DASHBOARD_BUFFER_SIGNAL_SUSTAINED_POINTS:
+        if signal_store is not None:
+            signal_store.pop("member_buffer_sustained", None)
+        return None
+
+    recent_points = points[-DASHBOARD_BUFFER_SIGNAL_SUSTAINED_POINTS:]
+    if any(
+        int(point.get("buffered_items") or 0) < DASHBOARD_BUFFER_SIGNAL_MIN_ITEMS
+        for point in recent_points
+    ):
+        if signal_store is not None:
+            signal_store.pop("member_buffer_sustained", None)
+        return None
+
+    latest = recent_points[-1]
+    severity = _buffer_signal_severity(latest)
+    summary = _build_buffer_signal_summary(
+        latest,
+        window_points=len(recent_points),
+        trend=str(buffer_history.get("trend") or "steady"),
+    )
+    signature = severity.value
+    existing = signal_store.get("member_buffer_sustained") if signal_store is not None else None
+    timestamp = (
+        str(existing.get("timestamp"))
+        if existing and existing.get("signature") == signature
+        else generated_at
+    )
+    signal_id = (
+        str(existing.get("id"))
+        if existing and existing.get("signature") == signature
+        else str(uuid.uuid4())
+    )
+    signal = {
+        "type": "signal",
+        "id": signal_id,
+        "signal_id": signal_id,
+        "signal_kind": "member_buffer_sustained",
+        "timestamp": timestamp,
+        "updated_at": generated_at,
+        "status": "active",
+        "title": "Sustained member buffering",
+        "summary": summary,
+        "severity": severity.value,
+        "category": EventCategory.MEMBER_BUFFER.value,
+        "trend": str(buffer_history.get("trend") or "steady"),
+        "buffered_members": int(latest.get("buffered_members") or 0),
+        "buffered_items": int(latest.get("buffered_items") or 0),
+        "sensor_buffered_items": int(latest.get("sensor_buffered_items") or 0),
+        "manual_buffered_items": int(latest.get("manual_buffered_items") or 0),
+        "audio_queue_size": int(latest.get("audio_queue_size") or 0),
+        "frame_queue_size": int(latest.get("frame_queue_size") or 0),
+        "window_points": len(recent_points),
+        "window_started_at": str(recent_points[0].get("generated_at") or generated_at),
+        "window_ended_at": str(latest.get("generated_at") or generated_at),
+        "operation_id": str(operation_id),
+    }
+    if signal_store is not None:
+        signal_store["member_buffer_sustained"] = {
+            **signal,
+            "signature": signature,
+        }
+    return signal
+
+
 def _parse_review_feed_types(include: list[str] | None) -> tuple[set[str] | None, list[str]]:
     include_types = (
         {item.strip().lower() for item in include if item and item.strip()} if include else None
@@ -870,6 +990,7 @@ async def _build_dashboard_state(
     severity: EventSeverity | None = None,
     category: EventCategory | None = None,
     buffer_history_store: deque[dict[str, object]] | None = None,
+    buffer_signal_store: dict[str, dict[str, object]] | None = None,
 ) -> dict[str, object]:
     operation = op_manager.operation
     if operation is None:
@@ -907,6 +1028,21 @@ async def _build_dashboard_state(
         member_summary=member_summary,
         intelligence_status=intelligence_status,
     )
+    buffer_signal = _build_buffer_signal(
+        operation_id=operation.id,
+        buffer_history=buffer_history,
+        signal_store=buffer_signal_store,
+        generated_at=generated_at,
+    )
+    review_feed_items = list(review_feed)
+    if (
+        buffer_signal is not None
+        and category in (None, EventCategory.MEMBER_BUFFER)
+        and (severity is None or buffer_signal["severity"] == severity.value)
+    ):
+        review_feed_items.append(buffer_signal)
+        review_feed_items.sort(key=lambda item: item["timestamp"], reverse=True)
+        review_feed_items = review_feed_items[: max(1, limit)]
     return {
         "generated_at": generated_at,
         "operation_status": {
@@ -919,10 +1055,11 @@ async def _build_dashboard_state(
         },
         "intelligence_status": intelligence_status,
         "latest_sitrep": latest_sitrep,
-        "review_feed": review_feed,
+        "review_feed": review_feed_items,
         "members": members,
         "member_summary": member_summary,
         "buffer_history": buffer_history,
+        "buffer_signal": buffer_signal,
         "map": _map_tile_cache_status(config),
     }
 
@@ -989,6 +1126,7 @@ def create_app(
     app = FastAPI(title="Osk Hub", docs_url=None, redoc_url=None)
     app.state.intelligence_service = intelligence_service
     app.state.dashboard_buffer_history = deque(maxlen=DASHBOARD_BUFFER_HISTORY_MAX_POINTS)
+    app.state.dashboard_buffer_signals = {}
     app.mount("/static", StaticFiles(directory=str(STATIC_ROOT)), name="static")
 
     @app.get("/manifest.webmanifest")
@@ -1267,6 +1405,7 @@ def create_app(
             severity=severity,
             category=category,
             buffer_history_store=app.state.dashboard_buffer_history,
+            buffer_signal_store=app.state.dashboard_buffer_signals,
         )
 
     @app.get("/api/coordinator/dashboard-stream")
@@ -1322,6 +1461,7 @@ def create_app(
                     severity=severity,
                     category=category,
                     buffer_history_store=app.state.dashboard_buffer_history,
+                    buffer_signal_store=app.state.dashboard_buffer_signals,
                 )
                 payload = json.dumps(snapshot, sort_keys=True, default=str)
                 if payload != last_payload:

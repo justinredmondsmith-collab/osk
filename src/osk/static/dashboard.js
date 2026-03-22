@@ -21,6 +21,7 @@
     members: [],
     memberSummary: null,
     bufferHistory: null,
+    bufferSignal: null,
     mapStatus: null,
     operationStatus: null,
     intelligenceStatus: null,
@@ -356,6 +357,7 @@
     state.members = snapshot.members || [];
     state.memberSummary = snapshot.member_summary || null;
     state.bufferHistory = snapshot.buffer_history || null;
+    state.bufferSignal = snapshot.buffer_signal || null;
     state.mapStatus = snapshot.map || null;
     state.lastSyncAt = snapshot.generated_at || new Date().toISOString();
     state.freshKeys = new Set(
@@ -447,7 +449,7 @@
 
     if (!state.feedItems.length) {
       elements.reviewFeed.innerHTML =
-        '<div class="empty-state"><p>No findings, events, or SitReps matched the current filters.</p></div>';
+        '<div class="empty-state"><p>No findings, events, SitReps, or coordinator signals matched the current filters.</p></div>';
       return;
     }
 
@@ -463,6 +465,9 @@
         const chips = [];
         if (item.status) {
           chips.push(statusPill(item.status));
+        }
+        if (item.type === "signal" && item.severity) {
+          chips.push(severityPill(item.severity));
         }
         if (item.category) {
           chips.push(`<span class="pill">${escapeHtml(item.category.replaceAll("_", " "))}</span>`);
@@ -505,6 +510,17 @@
     const value = String(status);
     const className = value === "resolved" ? "pill pill--resolved" : "pill pill--warning";
     return `<span class="${className}">${escapeHtml(value)}</span>`;
+  }
+
+  function severityPill(severity) {
+    const value = String(severity || "");
+    const classMap = {
+      advisory: "pill",
+      warning: "pill pill--warning",
+      critical: "pill pill--critical",
+      info: "pill pill--accent",
+    };
+    return `<span class="${classMap[value] || "pill"}">${escapeHtml(value)}</span>`;
   }
 
   function findingActionEnabled(action, status) {
@@ -598,11 +614,21 @@
     const trendLine = item.trend
       ? `<div><dt>Trend</dt><dd>${escapeHtml(item.trend)}</dd></div>`
       : "";
+    const signalLines =
+      item.type === "signal"
+        ? [
+            `<div><dt>Buffered items</dt><dd>${escapeHtml(item.buffered_items ?? "--")}</dd></div>`,
+            `<div><dt>Buffered members</dt><dd>${escapeHtml(item.buffered_members ?? "--")}</dd></div>`,
+            `<div><dt>Window</dt><dd>${escapeHtml(item.window_points ?? "--")} samples</dd></div>`,
+            `<div><dt>Updated</dt><dd>${formatLongTimestamp(item.updated_at || item.timestamp)}</dd></div>`,
+          ].join("")
+        : "";
     elements.detailStage.innerHTML = `
       <div class="detail-card">
         <div class="detail-header">
           <div class="timeline-row__meta">
             <span class="pill">${escapeHtml(item.type)}</span>
+            ${item.severity ? severityPill(item.severity) : ""}
           </div>
           <p class="detail-summary">${summary}</p>
         </div>
@@ -610,6 +636,7 @@
           <div><dt>Recorded</dt><dd>${timestamp}</dd></div>
           ${categoryLine}
           ${trendLine}
+          ${signalLines}
         </dl>
       </div>
     `;
@@ -867,6 +894,9 @@
       const recentFindings = (state.intelligenceStatus.recent_findings || []).length;
       const bufferedMembers = state.memberSummary?.buffered_members ?? "--";
       const bufferedItems = state.memberSummary?.buffered_items ?? "--";
+      const bufferSignal = state.bufferSignal
+        ? `${String(state.bufferSignal.severity || "active").toUpperCase()} • ${escapeHtml(state.bufferSignal.buffered_items ?? "--")} items`
+        : "Clear";
       elements.ingestPressure.innerHTML = [
         [
           "Audio queue",
@@ -880,6 +910,7 @@
           "Member buffers",
           `${escapeHtml(bufferedMembers)} members / ${escapeHtml(bufferedItems)} items`,
         ],
+        ["Buffer signal", bufferSignal],
         ["Recent findings", escapeHtml(recentFindings)],
       ]
         .map(
