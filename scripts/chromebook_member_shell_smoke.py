@@ -163,9 +163,7 @@ def managed_ssh_tunnel(
     ssh_identity: str | None = None,
 ) -> Iterator[subprocess.Popen[str]]:
     process = subprocess.Popen(
-        build_ssh_tunnel_command(
-            ssh_target, local_port, remote_port, ssh_port, ssh_identity
-        ),
+        build_ssh_tunnel_command(ssh_target, local_port, remote_port, ssh_port, ssh_identity),
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
@@ -275,9 +273,7 @@ def run_smoke_flow(
 
         page.on(
             "console",
-            lambda message: console_events.append(
-                {"type": message.type, "text": message.text}
-            ),
+            lambda message: console_events.append({"type": message.type, "text": message.text}),
         )
         page.on(
             "pageerror",
