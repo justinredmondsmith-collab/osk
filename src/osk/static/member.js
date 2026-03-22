@@ -158,6 +158,7 @@
     runtimeOutboxState: document.getElementById("runtime-outbox-state"),
     runtimeOutboxLast: document.getElementById("runtime-outbox-last"),
     runtimeOutboxDetail: document.getElementById("runtime-outbox-detail"),
+    runtimeOutboxReview: document.getElementById("runtime-outbox-review"),
     runtimeOutboxFlush: document.getElementById("runtime-outbox-flush"),
     runtimeOutboxClear: document.getElementById("runtime-outbox-clear"),
     runtimeNetworkState: document.getElementById("runtime-network-state"),
@@ -567,6 +568,7 @@
     const snapshot = state.outbox.snapshot || {};
     const pendingCount = Number(snapshot.pendingCount || 0);
     const pendingKinds = snapshot.pendingKinds || {};
+    const entries = Array.isArray(snapshot.entries) ? snapshot.entries : [];
     const online = navigator.onLine !== false;
 
     if (elements.runtimeOutboxCount) {
@@ -612,6 +614,65 @@
       }
       elements.runtimeOutboxDetail.textContent = detail;
       elements.runtimeOutboxDetail.classList.toggle("is-warning", !online || pendingCount > 0);
+    }
+    if (elements.runtimeOutboxReview) {
+      if (!entries.length) {
+        elements.runtimeOutboxReview.innerHTML =
+          '<div class="member-empty"><p>No queued items in this browser.</p></div>';
+      } else {
+        elements.runtimeOutboxReview.innerHTML = entries
+          .map((entry) => {
+            const statusLabel = entry.inFlight
+              ? "Sending"
+              : entry.lastError
+                ? "Retrying"
+                : "Queued";
+            const attemptsLabel =
+              Number(entry.attempts || 0) > 0
+                ? `${entry.attempts} attempt${entry.attempts === 1 ? "" : "s"}`
+                : "Waiting";
+            const metaParts = [attemptsLabel];
+            if (entry.createdAt) {
+              metaParts.push(formatRelativeTime(entry.createdAt));
+            }
+            if (entry.lastError) {
+              metaParts.push(entry.lastError);
+            }
+            return `
+              <article class="member-outbox-item">
+                <div class="member-outbox-item__head">
+                  <div>
+                    <span class="member-label">${escapeHtml(entry.label)}</span>
+                    <strong>${escapeHtml(statusLabel)}</strong>
+                  </div>
+                  <small>${escapeHtml(metaParts.join(" · "))}</small>
+                </div>
+                <p>${escapeHtml(entry.detail || "Pending local delivery.")}</p>
+                <div class="member-outbox-item__actions">
+                  <button
+                    class="member-button member-button--ghost member-button--small"
+                    type="button"
+                    data-outbox-action="retry"
+                    data-entry-id="${escapeHtml(entry.id)}"
+                    ${entry.inFlight || state.endingOperation ? "disabled" : ""}
+                  >
+                    Retry now
+                  </button>
+                  <button
+                    class="member-button member-button--ghost member-button--small"
+                    type="button"
+                    data-outbox-action="discard"
+                    data-entry-id="${escapeHtml(entry.id)}"
+                    ${entry.inFlight || state.endingOperation ? "disabled" : ""}
+                  >
+                    Discard
+                  </button>
+                </div>
+              </article>
+            `;
+          })
+          .join("");
+      }
     }
     if (elements.runtimeOutboxFlush) {
       elements.runtimeOutboxFlush.disabled =
@@ -694,6 +755,7 @@
         available: false,
         pendingCount: 0,
         pendingKinds: { report: 0, audio: 0, frame: 0 },
+        entries: [],
         inFlight: false,
         oldestPendingAt: null,
         lastError:
@@ -724,6 +786,22 @@
     if (!quiet) {
       pushFeed("Queued notes and manual media were cleared from this browser.", "note");
     }
+  }
+
+  async function retryQueuedEntry(entryId) {
+    if (!state.outbox.client) {
+      return;
+    }
+    await state.outbox.client.prioritizeEntry(entryId);
+    pushFeed("Queued item moved to the front for immediate retry.", "note");
+  }
+
+  async function discardQueuedEntry(entryId) {
+    if (!state.outbox.client) {
+      return;
+    }
+    await state.outbox.client.removeEntry(entryId);
+    pushFeed("Queued item removed from this browser outbox.", "note");
   }
 
   async function queueManualReport(text) {
@@ -1975,6 +2053,39 @@
     if (elements.runtimeOutboxClear) {
       elements.runtimeOutboxClear.addEventListener("click", () => {
         void clearQueuedOutbox();
+      });
+    }
+
+    if (elements.runtimeOutboxReview) {
+      elements.runtimeOutboxReview.addEventListener("click", (event) => {
+        const button = event.target instanceof HTMLElement
+          ? event.target.closest("[data-outbox-action]")
+          : null;
+        if (!(button instanceof HTMLElement)) {
+          return;
+        }
+        const action = String(button.dataset.outboxAction || "").trim();
+        const entryId = String(button.dataset.entryId || "").trim();
+        if (!entryId) {
+          return;
+        }
+        if (action === "retry") {
+          void retryQueuedEntry(entryId).catch((error) => {
+            pushFeed(
+              error instanceof Error ? error.message : "Queued item could not be retried.",
+              "warning",
+            );
+          });
+          return;
+        }
+        if (action === "discard") {
+          void discardQueuedEntry(entryId).catch((error) => {
+            pushFeed(
+              error instanceof Error ? error.message : "Queued item could not be removed.",
+              "warning",
+            );
+          });
+        }
       });
     }
 

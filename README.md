@@ -282,6 +282,12 @@ full architecture, API contract, and threat-model assumptions.
 - On supported secure/local browser setups, the member shell now also exposes
   a manifest, service worker, install prompt, and local browser outbox so you
   can exercise the first installable offline-capable PWA layer
+- The member shell now shows per-item outbox review controls for queued notes,
+  photos, and short clips so operators can retry or discard one pending item
+  instead of clearing the whole browser queue
+- Run `PYTHONPATH=src python scripts/member_shell_smoke.py --host 0.0.0.0 --advertise-host <lan-ip>`
+  on a real machine if you want a disposable mocked `/join` -> `/member` smoke
+  target for phone/browser testing outside the main hub runtime
 - Use `/api/intelligence/status`, `/api/intelligence/observations`,
   `/api/intelligence/findings`, `/api/intelligence/review-feed`, `/api/events`,
   `/api/sitreps`, `/api/coordinator/dashboard-state`, and

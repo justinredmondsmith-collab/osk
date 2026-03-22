@@ -42,8 +42,12 @@ The repository now includes:
   shell already includes reconnect-aware WebSocket state, live alerts, opt-in
   GPS sharing, manual report submission, observer-side photo/audio clip
   capture, early sensor-side audio/key-frame capture on the member WebSocket
-  path, a browser outbox for reconnect-safe manual report/media retries, and a
-  first manifest/service-worker/installable offline PWA layer
+  path, a browser outbox for reconnect-safe manual report/media retries with
+  per-item review controls, and a first manifest/service-worker/installable
+  offline PWA layer
+- A manual browser/device smoke helper at `scripts/member_shell_smoke.py` for
+  testing the member shell against a disposable mocked hub outside CI/sandboxed
+  environments
 
 The repository does **not** yet contain the full intelligence pipeline,
 synthesis layer, full coordinator dashboard, or mobile client described in the
@@ -100,6 +104,14 @@ Check the local scaffold:
 
 ```bash
 python -m osk doctor --json
+```
+
+Start the disposable member-shell smoke helper on a real machine if you want to
+exercise `/join` -> `/member`, offline queueing, replay, and installability in
+an actual browser or phone:
+
+```bash
+PYTHONPATH=src python scripts/member_shell_smoke.py --host 0.0.0.0 --advertise-host <lan-ip>
 ```
 
 ## Contribution Rules

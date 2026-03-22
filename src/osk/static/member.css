@@ -255,6 +255,41 @@ button:disabled {
   flex: 1 1 11rem;
 }
 
+.member-outbox-review {
+  display: grid;
+  gap: 0.7rem;
+}
+
+.member-outbox-item {
+  display: grid;
+  gap: 0.6rem;
+  padding: 0.85rem 0.9rem;
+  border: 1px solid var(--member-line);
+  border-radius: 1rem;
+  background: rgba(5, 13, 22, 0.56);
+}
+
+.member-outbox-item p {
+  margin: 0;
+  line-height: 1.45;
+}
+
+.member-outbox-item small {
+  color: var(--member-muted);
+}
+
+.member-outbox-item__head,
+.member-outbox-item__actions {
+  display: flex;
+  gap: 0.7rem;
+  justify-content: space-between;
+  align-items: flex-start;
+}
+
+.member-outbox-item__actions {
+  flex-wrap: wrap;
+}
+
 .member-control-copy {
   display: grid;
   gap: 0.35rem;
@@ -325,6 +360,11 @@ button:disabled {
 .member-button:hover:not(:disabled) {
   transform: translateY(-1px);
   border-color: rgba(91, 224, 206, 0.5);
+}
+
+.member-button--small {
+  min-height: 2.35rem;
+  padding: 0.62rem 0.82rem;
 }
 
 .member-button--ghost {
@@ -544,5 +584,11 @@ button:disabled {
 
   .member-action-row {
     gap: 0.65rem;
+  }
+
+  .member-outbox-item__head,
+  .member-outbox-item__actions {
+    flex-direction: column;
+    align-items: stretch;
   }
 }

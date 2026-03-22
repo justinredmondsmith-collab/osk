@@ -101,6 +101,9 @@ changes manually while the project is in its early public setup phase.
   reports/photos/clips, replay-safe `report_id` acknowledgements, install
   prompt wiring for the member shell, and offline/install status controls in
   the runtime UI
+- Member-shell manual smoke helper for real browser/device testing outside the
+  sandboxed CI/runtime environment, plus per-item outbox review controls for
+  queued notes, photos, and audio clips
 
 ### Changed
 
@@ -138,6 +141,9 @@ changes manually while the project is in its early public setup phase.
   state instead of forcing an immediate redirect
 - Member/browser docs now distinguish the current member-auth WebSocket report
   path from the coordinator-only REST report/pin routes
+- Member-shell docs now point to the disposable mocked smoke helper for real
+  `/join` -> `/member` testing, and the offline UI now lets users retry or
+  discard one queued item instead of only replaying or clearing the full queue
 - Member docs now reflect that the current sensor runtime includes early audio
   and key-frame capture, while fuller media and offline PWA work remain planned
 - Member/browser docs now reflect that browser reload/reconnect auth is

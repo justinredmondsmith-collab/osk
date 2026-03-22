@@ -194,11 +194,47 @@
       },
       { report: 0, audio: 0, frame: 0 },
     );
+    const summarizedEntries = entries.slice(0, MAX_PENDING_ITEMS).map((entry) => {
+      let label = "Queued item";
+      let detail = "Pending local delivery.";
+      if (entry.kind === "report") {
+        label = "Field note";
+        detail = String(entry.text || "").trim() || "Manual field note";
+      } else if (entry.kind === "frame") {
+        label = "Manual photo";
+        const width = Number(entry.metadata?.width || 0);
+        const height = Number(entry.metadata?.height || 0);
+        detail =
+          width && height
+            ? `Still frame ${width}x${height}`
+            : "Observer still photo";
+      } else if (entry.kind === "audio") {
+        label = "Audio clip";
+        const durationMs = Number(entry.metadata?.duration_ms || 0);
+        detail = durationMs
+          ? `Short clip ${Math.max(1, Math.round(durationMs / 1000))}s`
+          : "Observer audio clip";
+      }
+      return {
+        id: entry.id,
+        kind: entry.kind,
+        itemKey: entry.itemKey,
+        label,
+        detail,
+        createdAt: entry.createdAt,
+        updatedAt: entry.updatedAt,
+        attempts: Number(entry.attempts || 0),
+        sizeBytes: Number(entry.sizeBytes || 0),
+        lastError: entry.lastError || null,
+        inFlight: entry.id === inFlightEntryId,
+      };
+    });
     return {
       available: true,
       scope,
       pendingCount: entries.length,
       pendingKinds,
+      entries: summarizedEntries,
       inFlight: Boolean(inFlightEntryId),
       oldestPendingAt,
       lastError,
@@ -220,6 +256,7 @@
       scope: "",
       pendingCount: 0,
       pendingKinds: { report: 0, audio: 0, frame: 0 },
+      entries: [],
       inFlight: false,
       oldestPendingAt: null,
       lastError: null,
@@ -248,6 +285,7 @@
           scope: "",
           pendingCount: 0,
           pendingKinds: { report: 0, audio: 0, frame: 0 },
+          entries: [],
           inFlight: false,
           oldestPendingAt: null,
           lastError,
@@ -358,6 +396,40 @@
       inFlightEntryId = null;
       lastError = null;
       return refresh();
+    }
+
+    async function removeEntry(entryId) {
+      const targetId = String(entryId || "").trim();
+      if (!targetId) {
+        return refresh();
+      }
+      if (inFlightEntryId === targetId) {
+        inFlightEntryId = null;
+      }
+      await deleteEntry(targetId);
+      return refresh();
+    }
+
+    async function prioritizeEntry(entryId) {
+      const targetId = String(entryId || "").trim();
+      const scope = scopeKey();
+      if (!targetId || !scope) {
+        return refresh();
+      }
+      const entries = await getEntriesForScope(scope);
+      const target = entries.find((entry) => entry.id === targetId);
+      if (!target) {
+        return refresh();
+      }
+      const oldestCreatedAt = entries[0]?.createdAt || new Date().toISOString();
+      const baseTime = new Date(oldestCreatedAt).getTime();
+      target.createdAt = new Date(baseTime - 1).toISOString();
+      target.updatedAt = new Date().toISOString();
+      target.lastError = null;
+      await putEntry(target);
+      await refresh();
+      void flush();
+      return currentSnapshot;
     }
 
     async function sendEntry(entry) {
@@ -482,7 +554,9 @@
       enqueueReport,
       flush,
       handleAck,
+      prioritizeEntry,
       refresh,
+      removeEntry,
       snapshot() {
         return currentSnapshot;
       },

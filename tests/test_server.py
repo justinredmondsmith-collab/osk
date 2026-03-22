@@ -187,6 +187,8 @@ def test_member_page_without_cookie_renders_runtime_shell(
     assert "Share GPS" in resp.text
     assert "Send A Field Note" in resp.text
     assert "Snap Photo + Record Audio Clip" in resp.text
+    assert "No queued items in this browser." in resp.text
+    assert "Retry queued" in resp.text
     assert "Live Audio + Key Frames" in resp.text
     assert "Keep moving through reconnects" in resp.text
     assert "Install app" in resp.text
@@ -212,6 +214,7 @@ def test_member_page_renders_runtime_shell(
     assert "Mute mic" in resp.text
     assert "Snap photo" in resp.text
     assert "Record clip" in resp.text
+    assert "No queued items in this browser." in resp.text
     assert "osk_member_join" not in resp.text
     assert "content-security-policy" in resp.headers
 
