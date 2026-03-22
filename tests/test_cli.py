@@ -304,3 +304,43 @@ def test_findings_command_invokes_hub_helper(mock_show_findings: MagicMock) -> N
     code = main(["findings", "--limit", "7", "--json"])
     assert code == 0
     mock_show_findings.assert_called_once_with(limit=7, json_output=True)
+
+
+@patch("osk.hub.show_finding", return_value=0)
+def test_finding_show_command_invokes_hub_helper(mock_show_finding: MagicMock) -> None:
+    finding_id = "11111111-1111-1111-1111-111111111111"
+    code = main(["finding", "show", finding_id, "--json"])
+    assert code == 0
+    mock_show_finding.assert_called_once_with(finding_id, json_output=True)
+
+
+@patch("osk.hub.acknowledge_finding", return_value=0)
+def test_finding_ack_command_invokes_hub_helper(mock_acknowledge_finding: MagicMock) -> None:
+    finding_id = "11111111-1111-1111-1111-111111111111"
+    code = main(["finding", "acknowledge", finding_id])
+    assert code == 0
+    mock_acknowledge_finding.assert_called_once_with(finding_id)
+
+
+@patch("osk.hub.resolve_finding", return_value=0)
+def test_finding_resolve_command_invokes_hub_helper(mock_resolve_finding: MagicMock) -> None:
+    finding_id = "11111111-1111-1111-1111-111111111111"
+    code = main(["finding", "resolve", finding_id])
+    assert code == 0
+    mock_resolve_finding.assert_called_once_with(finding_id)
+
+
+@patch("osk.hub.escalate_finding", return_value=0)
+def test_finding_escalate_command_invokes_hub_helper(mock_escalate_finding: MagicMock) -> None:
+    finding_id = "11111111-1111-1111-1111-111111111111"
+    code = main(["finding", "escalate", finding_id])
+    assert code == 0
+    mock_escalate_finding.assert_called_once_with(finding_id)
+
+
+@patch("osk.hub.add_finding_note", return_value=0)
+def test_finding_note_command_invokes_hub_helper(mock_add_finding_note: MagicMock) -> None:
+    finding_id = "11111111-1111-1111-1111-111111111111"
+    code = main(["finding", "note", finding_id, "Hold for dashboard review"])
+    assert code == 0
+    mock_add_finding_note.assert_called_once_with(finding_id, "Hold for dashboard review")

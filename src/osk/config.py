@@ -44,6 +44,8 @@ class OskConfig(BaseModel):
     max_frame_payload_bytes: int = 4_000_000
     ingest_idempotency_window_seconds: int = 900
     ingest_idempotency_cache_size: int = 4096
+    ingest_receipt_retention_hours: int = 24
+    ingest_receipt_cleanup_interval_seconds: int = 900
     frame_change_threshold: float = 0.15
     frame_baseline_interval_seconds: int = 30
     frame_sampling_fps: float = 2.0

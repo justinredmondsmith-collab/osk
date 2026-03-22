@@ -333,3 +333,26 @@ async def test_intelligence_service_dedupes_audio_by_ingest_key() -> None:
     assert second.accepted is True
     assert second.duplicate is True
     assert service.snapshot()["audio_ingest"]["duplicate_submissions"] == 1
+
+
+async def test_intelligence_service_checks_durable_ingest_receipts() -> None:
+    db = MagicMock()
+    db.claim_ingest_receipt = AsyncMock(return_value=True)
+    db.prune_ingest_receipts = AsyncMock()
+    operation_manager = SimpleNamespace(operation=Operation(name="Test Op"))
+    service = IntelligenceService(
+        config=OskConfig(transcriber_backend="fake"),
+        db=db,
+        operation_manager=operation_manager,
+    )
+    chunk = AudioChunk(
+        ingest_key="member-1:chunk-9",
+        source=_source(),
+        duration_ms=250,
+    )
+
+    result = await service.submit_audio(chunk)
+
+    assert result.accepted is True
+    assert result.duplicate is True
+    db.claim_ingest_receipt.assert_awaited_once()

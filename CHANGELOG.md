@@ -65,6 +65,9 @@ changes manually while the project is in its early public setup phase.
 - Phase 2 operator review slice: persisted synthesis findings, local
   `osk findings`, `/api/intelligence/findings`, and duplicate-safe media
   acknowledgements when clients reuse stable ingest keys across reconnects
+- Phase 2 coordinator review actions: per-finding detail, acknowledge/resolve/
+  escalate/note flows, local `osk finding ...` commands, and durable ingest
+  receipts so duplicate detection survives hub restarts
 
 ### Changed
 
@@ -81,3 +84,5 @@ changes manually while the project is in its early public setup phase.
   audio ingest and the more stateful heuristic synthesis behavior
 - Docs now call out the current local findings surface and the expectation that
   reconnecting clients preserve media ingest keys when resubmitting uploads
+- Docs now reflect that findings have a real coordinator review lifecycle and
+  that restart-safe ingest dedupe is persisted rather than memory-only

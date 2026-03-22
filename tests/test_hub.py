@@ -4,6 +4,7 @@ import asyncio
 import datetime as dt
 import signal
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -662,6 +663,100 @@ def test_show_findings_formats_rows(mock_asyncio_run: MagicMock, tmp_path: Path,
     assert "Police Action" in out
     assert "corroborated" in out
     assert "severity=warning" in out
+
+
+@patch("osk.hub.asyncio.run")
+def test_show_finding_formats_detail(mock_asyncio_run: MagicMock, tmp_path: Path, capsys) -> None:
+    detail = {
+        "finding": {
+            "id": "11111111-1111-1111-1111-111111111111",
+            "title": "Police Action",
+            "severity": "warning",
+            "status": "acknowledged",
+            "last_seen_at": "2026-03-21T12:03:00Z",
+            "summary": "Police advancing north.",
+            "source_count": 2,
+            "signal_count": 2,
+            "observation_count": 3,
+            "notes_count": 1,
+        },
+        "events": [
+            {"category": "police_action", "severity": "warning", "text": "Police advancing"}
+        ],
+        "observations": [],
+        "notes": [{"created_at": "2026-03-21T12:04:00Z", "text": "Watching east entrance."}],
+    }
+
+    def return_detail(coro):
+        coro.close()
+        return detail
+
+    mock_asyncio_run.side_effect = return_detail
+
+    with patch("osk.hub._config_root", return_value=tmp_path):
+        (tmp_path / "hub-state.json").write_text(
+            '{"operation_id":"11111111-1111-1111-1111-111111111111"}\n'
+        )
+        from osk.hub import show_finding
+
+        code = show_finding("11111111-1111-1111-1111-111111111111")
+
+    out = capsys.readouterr().out
+    assert code == 0
+    assert "Police Action" in out
+    assert "latest_event=police_action:warning" in out
+    assert "note[" in out
+
+
+@patch("osk.hub.asyncio.run")
+def test_acknowledge_finding_updates_state(
+    mock_asyncio_run: MagicMock, tmp_path: Path, capsys
+) -> None:
+    def return_ack(coro):
+        coro.close()
+        return {"title": "Police Action", "status": "acknowledged"}
+
+    mock_asyncio_run.side_effect = return_ack
+
+    with patch("osk.hub._config_root", return_value=tmp_path):
+        (tmp_path / "hub-state.json").write_text(
+            '{"operation_id":"11111111-1111-1111-1111-111111111111"}\n'
+        )
+        from osk.hub import acknowledge_finding
+
+        code = acknowledge_finding("11111111-1111-1111-1111-111111111111")
+
+    out = capsys.readouterr().out
+    assert code == 0
+    assert "Acknowledged Police Action." in out
+
+
+@patch("osk.hub.asyncio.run")
+def test_add_finding_note_reports_success(
+    mock_asyncio_run: MagicMock, tmp_path: Path, capsys
+) -> None:
+    note_id = "11111111-1111-1111-1111-111111111112"
+
+    def return_note(coro):
+        coro.close()
+        return SimpleNamespace(id=note_id)
+
+    mock_asyncio_run.side_effect = return_note
+
+    with patch("osk.hub._config_root", return_value=tmp_path):
+        (tmp_path / "hub-state.json").write_text(
+            '{"operation_id":"11111111-1111-1111-1111-111111111111"}\n'
+        )
+        from osk.hub import add_finding_note
+
+        code = add_finding_note(
+            "11111111-1111-1111-1111-111111111111",
+            "Hold for dashboard review.",
+        )
+
+    out = capsys.readouterr().out
+    assert code == 0
+    assert note_id in out
 
 
 async def test_watch_member_heartbeats_disconnects_stale_members() -> None:

@@ -13,9 +13,10 @@ situations where shared awareness matters.
 > with config-selectable fake or real transcript/vision adapters, live
 > member audio/frame/GPS ingest wiring, persisted observations, `ffmpeg`-backed
 > compressed audio decode for Whisper mode, duplicate-safe media resubmission
-> hooks, and a heuristic synthesis layer with reviewable findings,
-> corroboration, and sitrep output. Full dashboard and mobile product work are
-> still planned.
+> hooks, persisted ingest receipts for restart-safe duplicate detection, and a
+> heuristic synthesis layer with reviewable findings, corroboration, sitrep
+> output, and coordinator triage actions. Full dashboard and mobile product
+> work are still planned.
 
 ## At a Glance
 
@@ -79,6 +80,8 @@ What exists today:
   `osk operator logout`
 - Local observability commands: `osk audit`, `osk logs`, `osk members`, and
   `osk findings`
+- Local finding triage commands: `osk finding show`, `osk finding acknowledge`,
+  `osk finding resolve`, `osk finding escalate`, and `osk finding note`
 - Database migrations, coordinator auth boundary, member reconnect handling,
   and heartbeat-based stale-session cleanup
 - Early REST/WebSocket hub surface for the coordinator and member join/runtime
@@ -92,9 +95,12 @@ What exists today:
   same owned service boundary
 - Duplicate-safe ingest acknowledgements when clients resend audio/frame media
   with a stable `chunk_id`, `frame_id`, or `ingest_key`
+- Durable ingest receipt tracking so duplicate-safe media resubmission survives
+  hub restarts within the configured retention window
 - Heuristic synthesis with cross-source corroboration, alert fan-out, rolling
-  sitrep generation, persisted reviewable findings, and local admin retrieval
-  for recent observations and findings
+  sitrep generation, persisted reviewable findings, coordinator
+  acknowledge/resolve/escalate/note actions, and local admin retrieval for
+  recent observations and findings
 - `ffmpeg`-backed decode path for compressed audio uploads such as WebM/Ogg
   when using the real Whisper backend
 
@@ -197,9 +203,12 @@ full architecture, API contract, and threat-model assumptions.
   after installing the package
 - Use `osk status`, `osk operator status`, `osk audit`, `osk members`,
   `osk findings`, and `osk logs` to inspect the local foundation runtime
+- Use `osk finding show|acknowledge|resolve|escalate|note` to triage one
+  reviewable finding locally before any dashboard exists
 - Use `/api/intelligence/status`, `/api/intelligence/observations`, and
   `/api/intelligence/findings` from the local coordinator surface to inspect
-  live Phase 2 runtime state
+  live Phase 2 runtime state, and use the per-finding coordinator routes to
+  review or update one finding
 - Reuse the same `chunk_id`, `frame_id`, or `ingest_key` when retransmitting
   media from a reconnecting client if you want duplicate-safe local acks
 - Configure `transcriber_backend` / `vision_backend` in `~/.config/osk/config.toml`

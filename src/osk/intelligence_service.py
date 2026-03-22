@@ -8,7 +8,7 @@ import time
 from collections import Counter, deque
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from datetime import timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from osk.audio_ingest import AudioIngest
@@ -23,6 +23,7 @@ from osk.intelligence_contracts import (
     ObservationKind,
 )
 from osk.intelligence_pipeline import build_observation
+from osk.models import SynthesisFinding
 from osk.synthesis import HeuristicObservationSynthesizer
 from osk.transcriber import TranscriptionWorker, WhisperTranscriber, build_audio_decoder
 from osk.vision_engine import OllamaVisionAnalyzer, VisionWorker
@@ -137,6 +138,7 @@ class IntelligenceService:
         self._observation_counts: Counter[str] = Counter()
         self._recent_location_samples: dict[Any, LocationSample] = {}
         self._ingest_receipts: dict[tuple[str, object, str], float] = {}
+        self._last_ingest_receipt_cleanup_at = 0.0
         self._audio_duplicate_submissions = 0
         self._frame_duplicate_submissions = 0
         self._started = False
@@ -186,10 +188,12 @@ class IntelligenceService:
         logger.info("Stopped intelligence service")
 
     async def submit_audio(self, chunk: AudioChunk) -> IngestSubmissionResult:
-        if self._is_duplicate_ingest(
+        if await self._is_duplicate_ingest(
             kind="audio",
             member_id=chunk.source.member_id,
             ingest_key=chunk.ingest_key,
+            item_id=chunk.chunk_id,
+            seen_at=chunk.source.received_at,
         ):
             self._audio_duplicate_submissions += 1
             return IngestSubmissionResult(accepted=True, duplicate=True)
@@ -200,10 +204,12 @@ class IntelligenceService:
         )
 
     async def submit_frame(self, frame: FrameSample) -> IngestSubmissionResult:
-        if self._is_duplicate_ingest(
+        if await self._is_duplicate_ingest(
             kind="frame",
             member_id=frame.source.member_id,
             ingest_key=frame.ingest_key,
+            item_id=frame.frame_id,
+            seen_at=frame.captured_at,
         ):
             self._frame_duplicate_submissions += 1
             return IngestSubmissionResult(accepted=True, duplicate=True)
@@ -268,6 +274,11 @@ class IntelligenceService:
                 "duplicate_submissions": self._audio_duplicate_submissions,
                 "evicted_chunks": self.audio_ingest.evicted_chunks,
                 "rejected_chunks": self.audio_ingest.rejected_chunks,
+                "receipt_cache_entries": sum(
+                    1
+                    for receipt_key in self._ingest_receipts
+                    if receipt_key[0] == "audio"
+                ),
                 "queue_size": self.audio_ingest.qsize(),
                 "running": self.audio_ingest.is_running,
             },
@@ -278,6 +289,11 @@ class IntelligenceService:
                 "evicted_frames": self.frame_ingest.evicted_frames,
                 "rate_limited_frames": self.frame_ingest.rate_limited_frames,
                 "rejected_frames": self.frame_ingest.rejected_frames,
+                "receipt_cache_entries": sum(
+                    1
+                    for receipt_key in self._ingest_receipts
+                    if receipt_key[0] == "frame"
+                ),
                 "queue_size": self.frame_ingest.qsize(),
                 "running": self.frame_ingest.is_running,
             },
@@ -349,8 +365,8 @@ class IntelligenceService:
             observation,
             source_member=source_member,
         )
-        self._recent_findings.extend(decision.findings)
         if self.db is None or operation is None:
+            self._recent_findings.extend(decision.findings)
             return
         for event in decision.events:
             await self.db.insert_event(
@@ -378,7 +394,11 @@ class IntelligenceService:
                     self._alert_payload(alert, event),
                 )
         for finding in decision.findings:
-            await self.db.upsert_synthesis_finding(operation.id, finding)
+            persisted = await self.db.upsert_synthesis_finding(operation.id, finding)
+            if isinstance(persisted, dict):
+                self._recent_findings.append(SynthesisFinding.model_validate(persisted))
+            else:
+                self._recent_findings.append(finding)
         if decision.sitrep is not None:
             await self.db.insert_sitrep(
                 decision.sitrep.id,
@@ -440,24 +460,41 @@ class IntelligenceService:
             "class": adapter.__class__.__name__,
         }
 
-    def _is_duplicate_ingest(
+    async def _is_duplicate_ingest(
         self,
         *,
         kind: str,
         member_id,
         ingest_key: str | None,
+        item_id,
+        seen_at: datetime,
     ) -> bool:
         if not ingest_key:
             return False
         now = time.monotonic()
         self._prune_ingest_receipts(now)
+        await self._maybe_prune_durable_ingest_receipts(now)
         receipt_key = (kind, member_id, ingest_key)
-        seen_at = self._ingest_receipts.pop(receipt_key, None)
-        if seen_at is not None and (
-            now - seen_at <= max(int(self.config.ingest_idempotency_window_seconds), 1)
+        cached_seen_at = self._ingest_receipts.pop(receipt_key, None)
+        if cached_seen_at is not None and (
+            now - cached_seen_at <= max(int(self.config.ingest_idempotency_window_seconds), 1)
         ):
             self._ingest_receipts[receipt_key] = now
             return True
+        operation = getattr(self.operation_manager, "operation", None)
+        if self.db is not None and operation is not None:
+            duplicate = await self.db.claim_ingest_receipt(
+                operation.id,
+                kind=kind,
+                member_id=member_id,
+                ingest_key=ingest_key,
+                item_id=item_id,
+                seen_at=seen_at,
+                window_seconds=int(self.config.ingest_idempotency_window_seconds),
+            )
+            self._ingest_receipts[receipt_key] = now
+            if duplicate:
+                return True
         self._ingest_receipts[receipt_key] = now
         cache_limit = max(int(self.config.ingest_idempotency_cache_size), 1)
         while len(self._ingest_receipts) > cache_limit:
@@ -474,3 +511,17 @@ class IntelligenceService:
         ]
         for receipt_key in expired_keys:
             self._ingest_receipts.pop(receipt_key, None)
+
+    async def _maybe_prune_durable_ingest_receipts(self, now: float) -> None:
+        interval_seconds = max(int(self.config.ingest_receipt_cleanup_interval_seconds), 1)
+        if now - self._last_ingest_receipt_cleanup_at < interval_seconds:
+            return
+        operation = getattr(self.operation_manager, "operation", None)
+        if self.db is None or operation is None:
+            self._last_ingest_receipt_cleanup_at = now
+            return
+        older_than = datetime.now(timezone.utc) - timedelta(
+            hours=max(int(self.config.ingest_receipt_retention_hours), 1)
+        )
+        await self.db.prune_ingest_receipts(operation.id, older_than=older_than)
+        self._last_ingest_receipt_cleanup_at = now

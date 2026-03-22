@@ -59,6 +59,8 @@ stage should still stay disciplined:
   new coordinator-facing intelligence features
 - Make reconnect/retry behavior explicit for ingest protocols rather than
   assuming lossy mobile transport will behave perfectly
+- Make manual review state explicit and durable before building coordinator UI
+  against a new intelligence surface
 
 ## Suggested Order For The Next Stage
 
@@ -68,7 +70,7 @@ For the next implementation stage, follow this order:
    ffmpeg-backed browser-audio path
 2. Richer reviewable synthesis and cross-observation correlation beyond the
    current heuristic corroboration model
-3. Coordinator-facing sitrep and event review UX
+3. Coordinator-facing sitrep, finding, and event review UX
 4. Coordinator dashboard
 5. Mobile client
 6. Operations tooling

@@ -34,7 +34,7 @@ from osk.local_operator import (
     read_bootstrap_session,
     read_operator_session,
 )
-from osk.models import Member, MemberStatus
+from osk.models import FindingNote, FindingStatus, Member, MemberStatus
 from osk.operation import OperationManager
 from osk.qr import build_join_url, generate_qr_ascii, generate_qr_png
 from osk.server import create_app
@@ -359,6 +359,94 @@ async def _get_findings(operation_id: uuid.UUID, limit: int) -> list[dict]:
     await db.connect(config.database_url)
     try:
         return await db.get_recent_synthesis_findings(operation_id, limit)
+    finally:
+        await db.close()
+
+
+async def _get_finding_detail(operation_id: uuid.UUID, finding_id: uuid.UUID) -> dict | None:
+    config = load_config()
+    db = Database()
+    await db.connect(config.database_url)
+    try:
+        return await db.get_synthesis_finding_detail(operation_id, finding_id)
+    finally:
+        await db.close()
+
+
+async def _update_finding_status(
+    operation_id: uuid.UUID,
+    finding_id: uuid.UUID,
+    status: FindingStatus,
+) -> dict | None:
+    config = load_config()
+    db = Database()
+    await db.connect(config.database_url)
+    try:
+        finding = await db.update_synthesis_finding_status(
+            operation_id,
+            finding_id,
+            status,
+            changed_at=dt.datetime.now(dt.timezone.utc),
+        )
+        if finding is not None:
+            await db.insert_audit_event(
+                operation_id,
+                "system",
+                f"finding_{status.value}",
+                details={"finding_id": str(finding_id)},
+            )
+        return finding
+    finally:
+        await db.close()
+
+
+async def _escalate_finding(operation_id: uuid.UUID, finding_id: uuid.UUID) -> dict | None:
+    config = load_config()
+    db = Database()
+    await db.connect(config.database_url)
+    try:
+        finding = await db.escalate_synthesis_finding(
+            operation_id,
+            finding_id,
+            changed_at=dt.datetime.now(dt.timezone.utc),
+        )
+        if finding is not None:
+            await db.insert_audit_event(
+                operation_id,
+                "system",
+                "finding_escalated",
+                details={"finding_id": str(finding_id)},
+            )
+        return finding
+    finally:
+        await db.close()
+
+
+async def _add_finding_note(
+    operation_id: uuid.UUID,
+    finding_id: uuid.UUID,
+    text: str,
+) -> FindingNote | None:
+    config = load_config()
+    db = Database()
+    await db.connect(config.database_url)
+    try:
+        finding = await db.get_synthesis_finding(operation_id, finding_id)
+        if finding is None:
+            return None
+        note = FindingNote(
+            operation_id=operation_id,
+            finding_id=finding_id,
+            text=text,
+        )
+        await db.insert_synthesis_finding_note(note)
+        await db.insert_audit_event(
+            operation_id,
+            "system",
+            "finding_note_added",
+            details={"finding_id": str(finding_id), "note_id": str(note.id)},
+        )
+        return note
     finally:
         await db.close()
 
@@ -1108,6 +1196,142 @@ def show_findings(*, limit: int = 20, json_output: bool = False) -> int:
             f"{title} severity={severity} status={status}{corroborated} "
             f"last_seen={last_seen_at} summary={summary}"
         )
+    return 0
+
+
+def show_finding(finding_id: str, *, json_output: bool = False) -> int:
+    state = read_hub_state()
+    if state is None:
+        print("No running Osk hub state found.")
+        return 1
+
+    operation_uuid = _parse_operation_id(str(state.get("operation_id", "")).strip())
+    if operation_uuid is None:
+        print("Hub state contains an invalid operation id.")
+        return 1
+    finding_uuid = _parse_operation_id(finding_id)
+    if finding_uuid is None:
+        print("Invalid finding id.")
+        return 1
+
+    try:
+        detail = asyncio.run(_get_finding_detail(operation_uuid, finding_uuid))
+    except Exception as exc:
+        print(f"Failed to load finding: {exc}")
+        return 1
+
+    if detail is None:
+        print("Finding not found.")
+        return 1
+
+    if json_output:
+        print(json.dumps(detail, indent=2, sort_keys=True, default=str))
+        return 0
+
+    finding = detail["finding"]
+    print(
+        f"{finding['title']} severity={finding['severity']} status={finding['status']} "
+        f"last_seen={finding['last_seen_at']}"
+    )
+    print(f"summary={finding['summary']}")
+    print(
+        f"sources={finding['source_count']} signals={finding['signal_count']} "
+        f"observations={finding['observation_count']} notes={finding['notes_count']}"
+    )
+    if detail["events"]:
+        latest_event = detail["events"][0]
+        print(
+            "latest_event="
+            f"{latest_event.get('category')}:{latest_event.get('severity')} "
+            f"{latest_event.get('text')}"
+        )
+    for note in detail["notes"][:3]:
+        print(f"note[{note.get('created_at')}] {note.get('text')}")
+    return 0
+
+
+def acknowledge_finding(finding_id: str) -> int:
+    return _apply_finding_status(finding_id, FindingStatus.ACKNOWLEDGED, "acknowledged")
+
+
+def resolve_finding(finding_id: str) -> int:
+    return _apply_finding_status(finding_id, FindingStatus.RESOLVED, "resolved")
+
+
+def escalate_finding(finding_id: str) -> int:
+    state = read_hub_state()
+    if state is None:
+        print("No running Osk hub state found.")
+        return 1
+    operation_uuid = _parse_operation_id(str(state.get("operation_id", "")).strip())
+    finding_uuid = _parse_operation_id(finding_id)
+    if operation_uuid is None or finding_uuid is None:
+        print("Invalid operation or finding id.")
+        return 1
+
+    try:
+        finding = asyncio.run(_escalate_finding(operation_uuid, finding_uuid))
+    except Exception as exc:
+        print(f"Failed to escalate finding: {exc}")
+        return 1
+    if finding is None:
+        print("Finding not found.")
+        return 1
+    print(
+        f"Escalated {finding.get('title', 'finding')} to severity={finding.get('severity')}."
+    )
+    return 0
+
+
+def add_finding_note(finding_id: str, text: str) -> int:
+    note_text = text.strip()
+    if not note_text:
+        print("Note text is required.")
+        return 1
+    state = read_hub_state()
+    if state is None:
+        print("No running Osk hub state found.")
+        return 1
+    operation_uuid = _parse_operation_id(str(state.get("operation_id", "")).strip())
+    finding_uuid = _parse_operation_id(finding_id)
+    if operation_uuid is None or finding_uuid is None:
+        print("Invalid operation or finding id.")
+        return 1
+    try:
+        note = asyncio.run(_add_finding_note(operation_uuid, finding_uuid, note_text))
+    except Exception as exc:
+        print(f"Failed to add note: {exc}")
+        return 1
+    if note is None:
+        print("Finding not found.")
+        return 1
+    print(f"Added note {note.id} to finding {finding_id}.")
+    return 0
+
+
+def _apply_finding_status(
+    finding_id: str,
+    status: FindingStatus,
+    verb: str,
+) -> int:
+    state = read_hub_state()
+    if state is None:
+        print("No running Osk hub state found.")
+        return 1
+    operation_uuid = _parse_operation_id(str(state.get("operation_id", "")).strip())
+    finding_uuid = _parse_operation_id(finding_id)
+    if operation_uuid is None or finding_uuid is None:
+        print("Invalid operation or finding id.")
+        return 1
+    try:
+        finding = asyncio.run(_update_finding_status(operation_uuid, finding_uuid, status))
+    except Exception as exc:
+        print(f"Failed to update finding: {exc}")
+        return 1
+    if finding is None:
+        print("Finding not found.")
+        return 1
+    print(f"{verb.capitalize()} {finding.get('title', 'finding')}.")
     return 0
 
 

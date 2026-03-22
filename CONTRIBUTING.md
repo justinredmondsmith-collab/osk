@@ -17,11 +17,14 @@ The repository now includes:
 - Local hub runtime commands (`install`, `start`, `status`, `stop`)
 - Local operator and observability commands (`operator`, `audit`, `logs`,
   `members`, `findings`)
+- Local finding review commands (`finding show`, `finding acknowledge`,
+  `finding resolve`, `finding escalate`, `finding note`)
 - A hub-owned Phase 2 intelligence service with config-selectable fake or real
   transcript/vision adapters, live GPS/audio/frame ingest wiring, persisted
   intelligence observations, persisted reviewable findings, `ffmpeg`-backed
-  compressed audio decode, and a heuristic synthesis layer with corroboration
-  and sitrep output
+  compressed audio decode, durable ingest receipts for restart-safe dedupe, and
+  a heuristic synthesis layer with corroboration, sitrep output, and
+  coordinator review actions
 
 The repository does **not** yet contain the full intelligence pipeline,
 synthesis layer, coordinator dashboard, or mobile client described in the
@@ -121,6 +124,8 @@ Code contributions should:
 - Preserve reconnect-safe ingest semantics: if client code resends media after
   a transport break, reuse the same `chunk_id`, `frame_id`, or `ingest_key`
   instead of generating a fresh key for the retry
+- Preserve review-state semantics: do not let new synth output silently erase a
+  coordinator’s acknowledged or resolved finding state
 
 ## How to Contribute
 

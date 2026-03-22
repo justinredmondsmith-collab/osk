@@ -23,7 +23,15 @@ from osk.intelligence_contracts import (
 )
 from osk.intelligence_service import IngestSubmissionResult
 from osk.local_operator import validate_operator_session
-from osk.models import Event, EventCategory, EventSeverity, MemberRole, Pin
+from osk.models import (
+    Event,
+    EventCategory,
+    EventSeverity,
+    FindingNote,
+    FindingStatus,
+    MemberRole,
+    Pin,
+)
 from osk.operation import OperationManager
 
 logger = logging.getLogger(__name__)
@@ -42,6 +50,10 @@ class ReportRequest(BaseModel):
 
 class PinRequest(BaseModel):
     member_id: str
+
+
+class FindingNoteRequest(BaseModel):
+    text: str
 
 
 def _utcnow() -> dt.datetime:
@@ -332,6 +344,116 @@ def create_app(
             return JSONResponse({"error": "No active operation"}, status_code=503)
         clamped_limit = max(1, min(limit, MAX_FINDING_LIMIT))
         return await db.get_recent_synthesis_findings(operation.id, clamped_limit)
+
+    @app.get("/api/intelligence/findings/{finding_id}")
+    async def intelligence_finding_detail(finding_id: uuid.UUID, request: Request):
+        if response := _require_local_admin(request, op_manager):
+            return response
+        operation = op_manager.operation
+        if operation is None:
+            return JSONResponse({"error": "No active operation"}, status_code=503)
+        detail = await db.get_synthesis_finding_detail(operation.id, finding_id)
+        if detail is None:
+            return JSONResponse({"error": "Finding not found"}, status_code=404)
+        return detail
+
+    @app.post("/api/intelligence/findings/{finding_id}/acknowledge")
+    async def acknowledge_intelligence_finding(finding_id: uuid.UUID, request: Request):
+        if response := _require_local_admin(request, op_manager):
+            return response
+        operation = op_manager.operation
+        if operation is None:
+            return JSONResponse({"error": "No active operation"}, status_code=503)
+        finding = await db.update_synthesis_finding_status(
+            operation.id,
+            finding_id,
+            FindingStatus.ACKNOWLEDGED,
+            changed_at=_utcnow(),
+        )
+        if finding is None:
+            return JSONResponse({"error": "Finding not found"}, status_code=404)
+        await db.insert_audit_event(
+            operation.id,
+            "coordinator",
+            "finding_acknowledged",
+            details={"finding_id": str(finding_id)},
+        )
+        return finding
+
+    @app.post("/api/intelligence/findings/{finding_id}/resolve")
+    async def resolve_intelligence_finding(finding_id: uuid.UUID, request: Request):
+        if response := _require_local_admin(request, op_manager):
+            return response
+        operation = op_manager.operation
+        if operation is None:
+            return JSONResponse({"error": "No active operation"}, status_code=503)
+        finding = await db.update_synthesis_finding_status(
+            operation.id,
+            finding_id,
+            FindingStatus.RESOLVED,
+            changed_at=_utcnow(),
+        )
+        if finding is None:
+            return JSONResponse({"error": "Finding not found"}, status_code=404)
+        await db.insert_audit_event(
+            operation.id,
+            "coordinator",
+            "finding_resolved",
+            details={"finding_id": str(finding_id)},
+        )
+        return finding
+
+    @app.post("/api/intelligence/findings/{finding_id}/escalate")
+    async def escalate_intelligence_finding(finding_id: uuid.UUID, request: Request):
+        if response := _require_local_admin(request, op_manager):
+            return response
+        operation = op_manager.operation
+        if operation is None:
+            return JSONResponse({"error": "No active operation"}, status_code=503)
+        finding = await db.escalate_synthesis_finding(
+            operation.id,
+            finding_id,
+            changed_at=_utcnow(),
+        )
+        if finding is None:
+            return JSONResponse({"error": "Finding not found"}, status_code=404)
+        await db.insert_audit_event(
+            operation.id,
+            "coordinator",
+            "finding_escalated",
+            details={"finding_id": str(finding_id)},
+        )
+        return finding
+
+    @app.post("/api/intelligence/findings/{finding_id}/notes")
+    async def note_intelligence_finding(
+        finding_id: uuid.UUID,
+        req: FindingNoteRequest,
+        request: Request,
+    ):
+        if response := _require_local_admin(request, op_manager):
+            return response
+        operation = op_manager.operation
+        if operation is None:
+            return JSONResponse({"error": "No active operation"}, status_code=503)
+        if not req.text.strip():
+            return JSONResponse({"error": "Note text is required"}, status_code=400)
+        finding = await db.get_synthesis_finding(operation.id, finding_id)
+        if finding is None:
+            return JSONResponse({"error": "Finding not found"}, status_code=404)
+        note = FindingNote(
+            operation_id=operation.id,
+            finding_id=finding_id,
+            text=req.text.strip(),
+        )
+        await db.insert_synthesis_finding_note(note)
+        await db.insert_audit_event(
+            operation.id,
+            "coordinator",
+            "finding_note_added",
+            details={"finding_id": str(finding_id), "note_id": str(note.id)},
+        )
+        return note.model_dump(mode="json")
 
     @app.get("/api/members")
     async def list_members(request: Request):

@@ -5,13 +5,20 @@ from __future__ import annotations
 import json
 import logging
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import asyncpg
 
 from osk.intelligence_contracts import IntelligenceObservation
-from osk.models import EventCategory, EventSeverity, MemberRole, SynthesisFinding
+from osk.models import (
+    EventCategory,
+    EventSeverity,
+    FindingNote,
+    FindingStatus,
+    MemberRole,
+    SynthesisFinding,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -412,31 +419,56 @@ class Database:
         self,
         operation_id: uuid.UUID,
         finding: SynthesisFinding,
-    ) -> None:
+    ) -> dict:
         pool = self._require_pool()
-        await pool.execute(
+        row = await pool.fetchrow(
             """INSERT INTO synthesis_findings
                (id, operation_id, signature, category, severity, title, summary, status,
                 corroborated, source_count, signal_count, observation_count, first_seen_at,
-                last_seen_at, latest_observation_id, latest_event_id, details)
+                last_seen_at, status_updated_at, acknowledged_at, resolved_at, notes_count,
+                latest_observation_id, latest_event_id, details)
                VALUES (
                  $1, $2, $3, $4, $5, $6, $7, $8, $9,
-                 $10, $11, $12, $13, $14, $15, $16, $17::jsonb
+                 $10, $11, $12, $13, $14, $15, $16, $17, $18, $19::jsonb
                )
-               ON CONFLICT (id) DO UPDATE SET
+               ON CONFLICT (operation_id, signature) DO UPDATE SET
                  severity = EXCLUDED.severity,
                  title = EXCLUDED.title,
                  summary = EXCLUDED.summary,
-                 status = EXCLUDED.status,
+                 status = CASE
+                   WHEN synthesis_findings.status = 'resolved'
+                     AND EXCLUDED.last_seen_at > synthesis_findings.last_seen_at
+                   THEN 'open'
+                   ELSE synthesis_findings.status
+                 END,
                  corroborated = EXCLUDED.corroborated,
                  source_count = EXCLUDED.source_count,
                  signal_count = EXCLUDED.signal_count,
                  observation_count = EXCLUDED.observation_count,
                  last_seen_at = EXCLUDED.last_seen_at,
+                 status_updated_at = CASE
+                   WHEN synthesis_findings.status = 'resolved'
+                     AND EXCLUDED.last_seen_at > synthesis_findings.last_seen_at
+                   THEN NOW()
+                   ELSE synthesis_findings.status_updated_at
+                 END,
+                 acknowledged_at = CASE
+                   WHEN synthesis_findings.status = 'resolved'
+                     AND EXCLUDED.last_seen_at > synthesis_findings.last_seen_at
+                   THEN NULL
+                   ELSE synthesis_findings.acknowledged_at
+                 END,
+                 resolved_at = CASE
+                   WHEN synthesis_findings.status = 'resolved'
+                     AND EXCLUDED.last_seen_at > synthesis_findings.last_seen_at
+                   THEN NULL
+                   ELSE synthesis_findings.resolved_at
+                 END,
                  latest_observation_id = EXCLUDED.latest_observation_id,
                  latest_event_id = EXCLUDED.latest_event_id,
                  details = EXCLUDED.details,
-                 updated_at = NOW()""",
+                 updated_at = NOW()
+               RETURNING *""",
             finding.id,
             operation_id,
             finding.signature,
@@ -451,10 +483,15 @@ class Database:
             finding.observation_count,
             finding.first_seen_at,
             finding.last_seen_at,
+            finding.status_updated_at,
+            finding.acknowledged_at,
+            finding.resolved_at,
+            finding.notes_count,
             finding.latest_observation_id,
             finding.latest_event_id,
             json.dumps(finding.details),
         )
+        return dict(row)
 
     async def get_recent_synthesis_findings(
         self,
@@ -471,6 +508,257 @@ class Database:
             limit,
         )
         return [dict(row) for row in rows]
+
+    async def get_synthesis_finding(
+        self,
+        operation_id: uuid.UUID,
+        finding_id: uuid.UUID,
+    ) -> dict | None:
+        pool = self._require_pool()
+        row = await pool.fetchrow(
+            """SELECT * FROM synthesis_findings
+               WHERE operation_id = $1 AND id = $2""",
+            operation_id,
+            finding_id,
+        )
+        return dict(row) if row else None
+
+    async def get_synthesis_finding_notes(
+        self,
+        finding_id: uuid.UUID,
+        limit: int = 20,
+    ) -> list[dict]:
+        pool = self._require_pool()
+        rows = await pool.fetch(
+            """SELECT * FROM synthesis_finding_notes
+               WHERE finding_id = $1
+               ORDER BY created_at DESC
+               LIMIT $2""",
+            finding_id,
+            limit,
+        )
+        return [dict(row) for row in rows]
+
+    async def get_intelligence_observations_by_ids(
+        self,
+        observation_ids: list[uuid.UUID],
+    ) -> list[dict]:
+        if not observation_ids:
+            return []
+        pool = self._require_pool()
+        rows = await pool.fetch(
+            """SELECT * FROM intelligence_observations
+               WHERE id = ANY($1::uuid[])
+               ORDER BY created_at DESC""",
+            observation_ids,
+        )
+        return [dict(row) for row in rows]
+
+    async def get_events_by_ids(self, event_ids: list[uuid.UUID]) -> list[dict]:
+        if not event_ids:
+            return []
+        pool = self._require_pool()
+        rows = await pool.fetch(
+            """SELECT * FROM events
+               WHERE id = ANY($1::uuid[])
+               ORDER BY timestamp DESC""",
+            event_ids,
+        )
+        return [dict(row) for row in rows]
+
+    async def get_synthesis_finding_detail(
+        self,
+        operation_id: uuid.UUID,
+        finding_id: uuid.UUID,
+        *,
+        note_limit: int = 20,
+    ) -> dict | None:
+        finding = await self.get_synthesis_finding(operation_id, finding_id)
+        if finding is None:
+            return None
+
+        details = finding.get("details") or {}
+        observation_ids = [
+            uuid.UUID(str(observation_id))
+            for observation_id in details.get("observation_ids", [])
+            if observation_id
+        ]
+        event_ids: list[uuid.UUID] = []
+        latest_event_id = finding.get("latest_event_id")
+        if latest_event_id:
+            event_ids.append(uuid.UUID(str(latest_event_id)))
+
+        observations = await self.get_intelligence_observations_by_ids(observation_ids)
+        events = await self.get_events_by_ids(event_ids)
+        notes = await self.get_synthesis_finding_notes(finding_id, limit=note_limit)
+        return {
+            "finding": finding,
+            "observations": observations,
+            "events": events,
+            "notes": notes,
+        }
+
+    async def update_synthesis_finding_status(
+        self,
+        operation_id: uuid.UUID,
+        finding_id: uuid.UUID,
+        status: FindingStatus,
+        *,
+        changed_at: datetime,
+    ) -> dict | None:
+        pool = self._require_pool()
+        row = await pool.fetchrow(
+            """UPDATE synthesis_findings
+               SET status = $3,
+                   status_updated_at = $4,
+                   acknowledged_at = CASE
+                     WHEN $3 = 'acknowledged' THEN COALESCE(acknowledged_at, $4)
+                     ELSE acknowledged_at
+                   END,
+                   resolved_at = CASE
+                     WHEN $3 = 'resolved' THEN $4
+                     WHEN $3 = 'open' THEN NULL
+                     ELSE resolved_at
+                   END,
+                   updated_at = NOW()
+               WHERE operation_id = $1 AND id = $2
+               RETURNING *""",
+            operation_id,
+            finding_id,
+            status.value,
+            changed_at,
+        )
+        return dict(row) if row else None
+
+    async def escalate_synthesis_finding(
+        self,
+        operation_id: uuid.UUID,
+        finding_id: uuid.UUID,
+        *,
+        changed_at: datetime,
+    ) -> dict | None:
+        pool = self._require_pool()
+        row = await pool.fetchrow(
+            """UPDATE synthesis_findings
+               SET severity = CASE severity
+                   WHEN 'info' THEN 'advisory'
+                   WHEN 'advisory' THEN 'warning'
+                   WHEN 'warning' THEN 'critical'
+                   ELSE severity
+                 END,
+                   updated_at = NOW(),
+                   status_updated_at = CASE
+                     WHEN status = 'resolved' THEN $3
+                     ELSE status_updated_at
+                   END,
+                   status = CASE
+                     WHEN status = 'resolved' THEN 'open'
+                     ELSE status
+                   END,
+                   resolved_at = CASE
+                     WHEN status = 'resolved' THEN NULL
+                     ELSE resolved_at
+                   END
+               WHERE operation_id = $1 AND id = $2
+               RETURNING *""",
+            operation_id,
+            finding_id,
+            changed_at,
+        )
+        return dict(row) if row else None
+
+    async def insert_synthesis_finding_note(
+        self,
+        note: FindingNote,
+    ) -> None:
+        pool = self._require_pool()
+        await pool.execute(
+            """INSERT INTO synthesis_finding_notes
+               (id, operation_id, finding_id, author_type, text, created_at)
+               VALUES ($1, $2, $3, $4, $5, $6)""",
+            note.id,
+            note.operation_id,
+            note.finding_id,
+            note.author_type,
+            note.text,
+            note.created_at,
+        )
+        await pool.execute(
+            """UPDATE synthesis_findings
+               SET notes_count = notes_count + 1,
+                   updated_at = NOW()
+               WHERE operation_id = $1 AND id = $2""",
+            note.operation_id,
+            note.finding_id,
+        )
+
+    async def claim_ingest_receipt(
+        self,
+        operation_id: uuid.UUID,
+        *,
+        kind: str,
+        member_id: uuid.UUID,
+        ingest_key: str,
+        item_id: uuid.UUID,
+        seen_at: datetime,
+        window_seconds: int,
+    ) -> bool:
+        pool = self._require_pool()
+        existing = await pool.fetchrow(
+            """SELECT last_seen_at
+               FROM ingest_receipts
+               WHERE operation_id = $1 AND kind = $2 AND member_id = $3 AND ingest_key = $4""",
+            operation_id,
+            kind,
+            member_id,
+            ingest_key,
+        )
+        duplicate = False
+        if existing is None:
+            await pool.execute(
+                """INSERT INTO ingest_receipts
+                   (operation_id, kind, member_id, ingest_key, item_id, first_seen_at, last_seen_at)
+                   VALUES ($1, $2, $3, $4, $5, $6, $6)""",
+                operation_id,
+                kind,
+                member_id,
+                ingest_key,
+                item_id,
+                seen_at,
+            )
+            return False
+
+        last_seen_at = existing["last_seen_at"]
+        duplicate = (seen_at - last_seen_at) <= timedelta(seconds=max(window_seconds, 1))
+        await pool.execute(
+            """UPDATE ingest_receipts
+               SET item_id = $5,
+                   last_seen_at = $6,
+                   duplicate_count = duplicate_count + $7
+               WHERE operation_id = $1 AND kind = $2 AND member_id = $3 AND ingest_key = $4""",
+            operation_id,
+            kind,
+            member_id,
+            ingest_key,
+            item_id,
+            seen_at,
+            1 if duplicate else 0,
+        )
+        return duplicate
+
+    async def prune_ingest_receipts(
+        self,
+        operation_id: uuid.UUID,
+        *,
+        older_than: datetime,
+    ) -> None:
+        pool = self._require_pool()
+        await pool.execute(
+            """DELETE FROM ingest_receipts
+               WHERE operation_id = $1 AND last_seen_at < $2""",
+            operation_id,
+            older_than,
+        )
 
     async def insert_stream(
         self, stream_id: uuid.UUID, member_id: uuid.UUID, stream_type: str

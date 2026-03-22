@@ -8,6 +8,7 @@ from osk.models import (
     Event,
     EventCategory,
     EventSeverity,
+    FindingNote,
     Member,
     MemberRole,
     MemberStatus,
@@ -99,6 +100,16 @@ def test_synthesis_finding_creation() -> None:
     assert finding.id is not None
     assert finding.status.value == "open"
     assert finding.observation_count == 1
+
+
+def test_finding_note_creation() -> None:
+    note = FindingNote(
+        operation_id=uuid.uuid4(),
+        finding_id=uuid.uuid4(),
+        text="Coordinator note",
+    )
+    assert note.id is not None
+    assert note.author_type == "coordinator"
 
 
 def test_operation_serialization() -> None:

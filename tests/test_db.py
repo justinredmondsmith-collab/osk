@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
@@ -11,7 +11,14 @@ import pytest
 
 from osk.db import Database
 from osk.intelligence_contracts import IntelligenceObservation, ObservationKind
-from osk.models import EventCategory, EventSeverity, MemberRole, SynthesisFinding
+from osk.models import (
+    EventCategory,
+    EventSeverity,
+    FindingNote,
+    FindingStatus,
+    MemberRole,
+    SynthesisFinding,
+)
 
 
 @pytest.fixture
@@ -42,13 +49,14 @@ def mock_pool() -> MagicMock:
 
 async def test_migration_files_exist(db: Database) -> None:
     migrations = db._get_migration_files()
-    assert len(migrations) >= 6
+    assert len(migrations) >= 7
     assert migrations[0].name == "001_initial.sql"
     assert migrations[1].name == "002_operation_coordinator_token.sql"
     assert migrations[2].name == "003_members_reconnect_and_audit.sql"
     assert migrations[3].name == "004_member_heartbeat.sql"
     assert migrations[4].name == "005_intelligence_observations.sql"
     assert migrations[5].name == "006_synthesis_findings.sql"
+    assert migrations[6].name == "007_finding_review_and_ingest_receipts.sql"
 
 
 async def test_insert_operation(db: Database, mock_pool: MagicMock) -> None:
@@ -180,11 +188,13 @@ async def test_upsert_synthesis_finding(db: Database, mock_pool: MagicMock) -> N
         title="Police Action",
         summary="Police advancing north. Corroborated by 2 sources across 2 signals.",
     )
+    mock_pool.fetchrow = AsyncMock(return_value={"id": finding.id})
 
-    await db.upsert_synthesis_finding(uuid.uuid4(), finding)
+    result = await db.upsert_synthesis_finding(uuid.uuid4(), finding)
 
-    mock_pool.execute.assert_called_once()
-    assert "INSERT INTO synthesis_findings" in mock_pool.execute.call_args.args[0]
+    mock_pool.fetchrow.assert_called_once()
+    assert "INSERT INTO synthesis_findings" in mock_pool.fetchrow.call_args.args[0]
+    assert result == {"id": finding.id}
 
 
 async def test_get_recent_synthesis_findings(db: Database, mock_pool: MagicMock) -> None:
@@ -194,6 +204,106 @@ async def test_get_recent_synthesis_findings(db: Database, mock_pool: MagicMock)
     result = await db.get_recent_synthesis_findings(uuid.uuid4(), 10)
 
     assert result == [{"title": "Police Action"}]
+
+
+async def test_get_synthesis_finding_detail(db: Database, mock_pool: MagicMock) -> None:
+    db._pool = mock_pool
+    finding_id = uuid.uuid4()
+    observation_id = uuid.uuid4()
+    mock_pool.fetchrow = AsyncMock(
+        return_value={
+            "id": finding_id,
+            "operation_id": uuid.uuid4(),
+            "latest_event_id": None,
+            "details": {"observation_ids": [str(observation_id)]},
+        }
+    )
+    mock_pool.fetch = AsyncMock(
+        side_effect=[
+            [{"id": observation_id, "summary": "Police moving east."}],
+            [{"id": uuid.uuid4(), "text": "Watching east entrance"}],
+        ]
+    )
+
+    detail = await db.get_synthesis_finding_detail(uuid.uuid4(), finding_id)
+
+    assert detail is not None
+    assert detail["observations"][0]["summary"] == "Police moving east."
+    assert detail["notes"][0]["text"] == "Watching east entrance"
+
+
+async def test_update_synthesis_finding_status(db: Database, mock_pool: MagicMock) -> None:
+    db._pool = mock_pool
+    updated_row = {"id": uuid.uuid4(), "status": "acknowledged"}
+    mock_pool.fetchrow = AsyncMock(return_value=updated_row)
+
+    result = await db.update_synthesis_finding_status(
+        uuid.uuid4(),
+        uuid.uuid4(),
+        FindingStatus.ACKNOWLEDGED,
+        changed_at=datetime.now(timezone.utc),
+    )
+
+    assert result == updated_row
+
+
+async def test_escalate_synthesis_finding(db: Database, mock_pool: MagicMock) -> None:
+    db._pool = mock_pool
+    updated_row = {"id": uuid.uuid4(), "severity": "critical"}
+    mock_pool.fetchrow = AsyncMock(return_value=updated_row)
+
+    result = await db.escalate_synthesis_finding(
+        uuid.uuid4(),
+        uuid.uuid4(),
+        changed_at=datetime.now(timezone.utc),
+    )
+
+    assert result == updated_row
+
+
+async def test_insert_synthesis_finding_note(db: Database, mock_pool: MagicMock) -> None:
+    db._pool = mock_pool
+    note = FindingNote(
+        operation_id=uuid.uuid4(),
+        finding_id=uuid.uuid4(),
+        text="Hold this for dashboard review.",
+    )
+
+    await db.insert_synthesis_finding_note(note)
+
+    assert mock_pool.execute.await_count == 2
+    assert "INSERT INTO synthesis_finding_notes" in mock_pool.execute.await_args_list[0].args[0]
+    assert "UPDATE synthesis_findings" in mock_pool.execute.await_args_list[1].args[0]
+
+
+async def test_claim_ingest_receipt_detects_duplicate(db: Database, mock_pool: MagicMock) -> None:
+    db._pool = mock_pool
+    seen_at = datetime(2026, 3, 21, 18, 0, tzinfo=timezone.utc)
+    mock_pool.fetchrow = AsyncMock(return_value={"last_seen_at": seen_at})
+
+    duplicate = await db.claim_ingest_receipt(
+        uuid.uuid4(),
+        kind="audio",
+        member_id=uuid.uuid4(),
+        ingest_key="chunk-1",
+        item_id=uuid.uuid4(),
+        seen_at=seen_at,
+        window_seconds=60,
+    )
+
+    assert duplicate is True
+
+
+async def test_prune_ingest_receipts(db: Database, mock_pool: MagicMock) -> None:
+    db._pool = mock_pool
+
+    await db.prune_ingest_receipts(
+        uuid.uuid4(),
+        older_than=datetime.now(timezone.utc),
+    )
+
+    mock_pool.execute.assert_called_once()
+    assert "DELETE FROM ingest_receipts" in mock_pool.execute.call_args.args[0]
 
 
 async def test_get_events_since(db: Database, mock_pool: MagicMock) -> None:

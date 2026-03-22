@@ -215,6 +215,76 @@ def test_intelligence_findings(client: TestClient, mock_db: MagicMock) -> None:
     mock_db.get_recent_synthesis_findings.assert_called_once()
 
 
+def test_intelligence_finding_detail(client: TestClient, mock_db: MagicMock) -> None:
+    finding_id = uuid.uuid4()
+    mock_db.get_synthesis_finding_detail.return_value = {
+        "finding": {"id": str(finding_id), "title": "Police Action"},
+        "observations": [],
+        "events": [],
+        "notes": [],
+    }
+
+    resp = client.get(f"/api/intelligence/findings/{finding_id}")
+
+    assert resp.status_code == 200
+    assert resp.json()["finding"]["title"] == "Police Action"
+    mock_db.get_synthesis_finding_detail.assert_called_once()
+
+
+def test_acknowledge_intelligence_finding(client: TestClient, mock_db: MagicMock) -> None:
+    finding_id = uuid.uuid4()
+    mock_db.update_synthesis_finding_status.return_value = {
+        "id": str(finding_id),
+        "status": "acknowledged",
+    }
+
+    resp = client.post(f"/api/intelligence/findings/{finding_id}/acknowledge")
+
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "acknowledged"
+    mock_db.update_synthesis_finding_status.assert_called_once()
+
+
+def test_resolve_intelligence_finding(client: TestClient, mock_db: MagicMock) -> None:
+    finding_id = uuid.uuid4()
+    mock_db.update_synthesis_finding_status.return_value = {
+        "id": str(finding_id),
+        "status": "resolved",
+    }
+
+    resp = client.post(f"/api/intelligence/findings/{finding_id}/resolve")
+
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "resolved"
+
+
+def test_escalate_intelligence_finding(client: TestClient, mock_db: MagicMock) -> None:
+    finding_id = uuid.uuid4()
+    mock_db.escalate_synthesis_finding.return_value = {
+        "id": str(finding_id),
+        "severity": "critical",
+    }
+
+    resp = client.post(f"/api/intelligence/findings/{finding_id}/escalate")
+
+    assert resp.status_code == 200
+    assert resp.json()["severity"] == "critical"
+
+
+def test_note_intelligence_finding(client: TestClient, mock_db: MagicMock) -> None:
+    finding_id = uuid.uuid4()
+    mock_db.get_synthesis_finding.return_value = {"id": str(finding_id)}
+
+    resp = client.post(
+        f"/api/intelligence/findings/{finding_id}/notes",
+        json={"text": "Watch east entrance for regrouping."},
+    )
+
+    assert resp.status_code == 200
+    assert resp.json()["finding_id"] == str(finding_id)
+    mock_db.insert_synthesis_finding_note.assert_called_once()
+
+
 def test_intelligence_status_reports_missing_service(
     mock_op_manager: MagicMock,
     mock_conn_mgr: MagicMock,

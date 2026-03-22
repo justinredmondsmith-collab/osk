@@ -75,6 +75,7 @@ class EventCategory(str, Enum):
 
 class FindingStatus(str, Enum):
     OPEN = "open"
+    ACKNOWLEDGED = "acknowledged"
     RESOLVED = "resolved"
 
 
@@ -157,9 +158,22 @@ class SynthesisFinding(BaseModel):
     observation_count: int = 1
     first_seen_at: datetime = Field(default_factory=_utcnow)
     last_seen_at: datetime = Field(default_factory=_utcnow)
+    status_updated_at: datetime = Field(default_factory=_utcnow)
+    acknowledged_at: datetime | None = None
+    resolved_at: datetime | None = None
+    notes_count: int = 0
     latest_observation_id: uuid.UUID | None = None
     latest_event_id: uuid.UUID | None = None
     details: dict[str, Any] = Field(default_factory=dict)
+
+
+class FindingNote(BaseModel):
+    id: uuid.UUID = Field(default_factory=_new_id)
+    operation_id: uuid.UUID
+    finding_id: uuid.UUID
+    author_type: str = "coordinator"
+    text: str
+    created_at: datetime = Field(default_factory=_utcnow)
 
 
 class AuditEvent(BaseModel):

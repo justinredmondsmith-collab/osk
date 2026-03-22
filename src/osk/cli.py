@@ -207,6 +207,36 @@ def _cmd_findings(args: argparse.Namespace) -> int:
     return show_findings(limit=args.limit, json_output=args.json_output)
 
 
+def _cmd_finding_show(args: argparse.Namespace) -> int:
+    from .hub import show_finding
+
+    return show_finding(args.finding_id, json_output=args.json_output)
+
+
+def _cmd_finding_acknowledge(args: argparse.Namespace) -> int:
+    from .hub import acknowledge_finding
+
+    return acknowledge_finding(args.finding_id)
+
+
+def _cmd_finding_resolve(args: argparse.Namespace) -> int:
+    from .hub import resolve_finding
+
+    return resolve_finding(args.finding_id)
+
+
+def _cmd_finding_escalate(args: argparse.Namespace) -> int:
+    from .hub import escalate_finding
+
+    return escalate_finding(args.finding_id)
+
+
+def _cmd_finding_note(args: argparse.Namespace) -> int:
+    from .hub import add_finding_note
+
+    return add_finding_note(args.finding_id, args.text)
+
+
 def _cmd_rotate_token(_: argparse.Namespace) -> int:
     print("Token rotation requires a running hub and is not wired through the CLI yet.")
     return 1
@@ -370,6 +400,36 @@ def build_parser() -> argparse.ArgumentParser:
         help="Emit machine-readable JSON output.",
     )
     findings_parser.set_defaults(func=_cmd_findings)
+
+    finding_parser = subparsers.add_parser("finding", help="Review or triage one finding.")
+    finding_sub = finding_parser.add_subparsers(dest="finding_command")
+
+    finding_show = finding_sub.add_parser("show", help="Show one finding with context.")
+    finding_show.add_argument("finding_id", help="Finding identifier")
+    finding_show.add_argument(
+        "--json",
+        dest="json_output",
+        action="store_true",
+        help="Emit machine-readable JSON output.",
+    )
+    finding_show.set_defaults(func=_cmd_finding_show)
+
+    finding_ack = finding_sub.add_parser("acknowledge", help="Acknowledge one finding.")
+    finding_ack.add_argument("finding_id", help="Finding identifier")
+    finding_ack.set_defaults(func=_cmd_finding_acknowledge)
+
+    finding_resolve = finding_sub.add_parser("resolve", help="Resolve one finding.")
+    finding_resolve.add_argument("finding_id", help="Finding identifier")
+    finding_resolve.set_defaults(func=_cmd_finding_resolve)
+
+    finding_escalate = finding_sub.add_parser("escalate", help="Escalate one finding.")
+    finding_escalate.add_argument("finding_id", help="Finding identifier")
+    finding_escalate.set_defaults(func=_cmd_finding_escalate)
+
+    finding_note = finding_sub.add_parser("note", help="Attach a note to one finding.")
+    finding_note.add_argument("finding_id", help="Finding identifier")
+    finding_note.add_argument("text", help="Note text")
+    finding_note.set_defaults(func=_cmd_finding_note)
 
     rotate_parser = subparsers.add_parser("rotate-token", help="Rotate the operation token.")
     rotate_parser.set_defaults(func=_cmd_rotate_token)
