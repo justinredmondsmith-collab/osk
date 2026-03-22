@@ -115,6 +115,8 @@ changes manually while the project is in its early public setup phase.
   state/SSE surfaces
 - Sustained member-buffer warning signals in the coordinator shell, surfaced as
   transient review-feed/current-pulse items without adding new DB persistence
+- Local acknowledge/snooze controls for transient coordinator buffer signals,
+  plus config-driven threshold and default snooze tuning
 
 ### Changed
 
@@ -164,6 +166,8 @@ changes manually while the project is in its early public setup phase.
   the coordinator shell instead of only the single-point buffer counts
 - Dashboard docs now describe the coordinator shell's sustained buffer warning
   signal path in addition to the raw/trended buffer counts
+- Dashboard/contributor docs now describe transient signal acknowledge/snooze
+  behavior and the expectation that this state stays local/config-driven
 - Member docs now reflect that the current sensor runtime includes early audio
   and key-frame capture, while fuller media and offline PWA work remain planned
 - Member/browser docs now reflect that browser reload/reconnect auth is

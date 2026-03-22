@@ -55,6 +55,7 @@
     detailMeta: document.getElementById("detail-meta"),
     detailStage: document.getElementById("detail-stage"),
     findingActions: document.getElementById("finding-actions"),
+    signalActions: document.getElementById("signal-actions"),
     findingNoteForm: document.getElementById("finding-note-form"),
     findingNoteInput: document.getElementById("finding-note-input"),
     noteStatus: document.getElementById("note-status"),
@@ -463,7 +464,7 @@
         const title = escapeHtml(item.title || "Untitled item");
         const summary = escapeHtml(item.summary || "");
         const chips = [];
-        if (item.status) {
+        if (item.status && (item.type !== "signal" || item.status !== "active")) {
           chips.push(statusPill(item.status));
         }
         if (item.type === "signal" && item.severity) {
@@ -508,7 +509,12 @@
 
   function statusPill(status) {
     const value = String(status);
-    const className = value === "resolved" ? "pill pill--resolved" : "pill pill--warning";
+    const className =
+      value === "resolved" || value === "snoozed"
+        ? "pill pill--resolved"
+        : value === "acknowledged"
+          ? "pill pill--accent"
+          : "pill pill--warning";
     return `<span class="${className}">${escapeHtml(value)}</span>`;
   }
 
@@ -532,6 +538,16 @@
     }
     if (action === "reopen") {
       return status !== "open";
+    }
+    return true;
+  }
+
+  function signalActionEnabled(action, status) {
+    if (action === "acknowledge") {
+      return status !== "acknowledged";
+    }
+    if (action === "snooze") {
+      return status !== "snoozed";
     }
     return true;
   }
@@ -575,6 +591,7 @@
       elements.detailStage.innerHTML =
         '<div class="empty-state"><p>Select a review item to inspect its context and triage controls.</p></div>';
       elements.findingActions.hidden = true;
+      elements.signalActions.hidden = true;
       elements.findingNoteForm.hidden = true;
       elements.selectionEcho.textContent =
         "The detail pane tracks the current feed selection and refreshes against the live API.";
@@ -585,9 +602,22 @@
     elements.detailMeta.textContent = `${item.type.toUpperCase()} • ${formatLongTimestamp(item.timestamp)}`;
     elements.selectionEcho.textContent = `${item.type.toUpperCase()} selected: ${item.title}`;
 
+    if (item.type === "signal") {
+      renderNonFindingDetail(item);
+      elements.findingActions.hidden = true;
+      elements.findingNoteForm.hidden = true;
+      elements.signalActions.hidden = false;
+      for (const button of elements.signalActions.querySelectorAll("button")) {
+        const action = button.dataset.signalAction;
+        button.disabled = !signalActionEnabled(action, item.status);
+      }
+      return;
+    }
+
     if (item.type !== "finding") {
       renderNonFindingDetail(item);
       elements.findingActions.hidden = true;
+      elements.signalActions.hidden = true;
       elements.findingNoteForm.hidden = true;
       return;
     }
@@ -617,10 +647,17 @@
     const signalLines =
       item.type === "signal"
         ? [
+            `<div><dt>Status</dt><dd>${escapeHtml(item.status || "active")}</dd></div>`,
             `<div><dt>Buffered items</dt><dd>${escapeHtml(item.buffered_items ?? "--")}</dd></div>`,
             `<div><dt>Buffered members</dt><dd>${escapeHtml(item.buffered_members ?? "--")}</dd></div>`,
             `<div><dt>Window</dt><dd>${escapeHtml(item.window_points ?? "--")} samples</dd></div>`,
             `<div><dt>Updated</dt><dd>${formatLongTimestamp(item.updated_at || item.timestamp)}</dd></div>`,
+            item.snoozed_until
+              ? `<div><dt>Snoozed until</dt><dd>${formatLongTimestamp(item.snoozed_until)}</dd></div>`
+              : "",
+            item.acknowledged_at
+              ? `<div><dt>Acknowledged</dt><dd>${formatLongTimestamp(item.acknowledged_at)}</dd></div>`
+              : "",
           ].join("")
         : "";
     elements.detailStage.innerHTML = `
@@ -763,6 +800,7 @@
     `;
 
     elements.findingActions.hidden = false;
+    elements.signalActions.hidden = true;
     for (const button of elements.findingActions.querySelectorAll("button")) {
       const action = button.dataset.findingAction;
       button.disabled = !findingActionEnabled(action, finding.status);
@@ -806,6 +844,30 @@
     } catch (error) {
       const message = error instanceof Error ? error.message : "Could not add note";
       elements.noteStatus.textContent = message;
+      setBanner(message, "error");
+    }
+  }
+
+  async function postSignalAction(action) {
+    const item = selectedItem();
+    if (!item || item.type !== "signal") {
+      return;
+    }
+    const path = `${bootstrap.paths.signals}/${item.signal_kind}/${action}`;
+    const options =
+      action === "snooze"
+        ? {
+            method: "POST",
+            body: JSON.stringify({ minutes: 15 }),
+          }
+        : {
+            method: "POST",
+          };
+    try {
+      await fetchJson(path, options);
+      await refreshDashboard();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Signal action failed";
       setBanner(message, "error");
     }
   }
@@ -895,7 +957,11 @@
       const bufferedMembers = state.memberSummary?.buffered_members ?? "--";
       const bufferedItems = state.memberSummary?.buffered_items ?? "--";
       const bufferSignal = state.bufferSignal
-        ? `${String(state.bufferSignal.severity || "active").toUpperCase()} • ${escapeHtml(state.bufferSignal.buffered_items ?? "--")} items`
+        ? state.bufferSignal.status === "snoozed"
+          ? `SNOOZED • until ${escapeHtml(formatTimestamp(state.bufferSignal.snoozed_until))}`
+          : state.bufferSignal.status === "acknowledged"
+            ? `ACKNOWLEDGED • ${escapeHtml(state.bufferSignal.buffered_items ?? "--")} items`
+            : `${String(state.bufferSignal.severity || "active").toUpperCase()} • ${escapeHtml(state.bufferSignal.buffered_items ?? "--")} items`
         : "Clear";
       elements.ingestPressure.innerHTML = [
         [
@@ -1302,6 +1368,12 @@
       button.addEventListener("click", () => {
         const action = button.dataset.findingAction;
         void postFindingAction(action);
+      });
+    }
+    for (const button of elements.signalActions.querySelectorAll("button")) {
+      button.addEventListener("click", () => {
+        const action = button.dataset.signalAction;
+        void postSignalAction(action);
       });
     }
   }

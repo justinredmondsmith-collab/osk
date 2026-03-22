@@ -82,12 +82,6 @@ SERVICE_WORKER_PATH = STATIC_ROOT / "sw.js"
 DASHBOARD_STREAM_INTERVAL_SECONDS = 2.0
 DASHBOARD_STREAM_KEEPALIVE_SECONDS = 15.0
 DASHBOARD_BUFFER_HISTORY_MAX_POINTS = 30
-DASHBOARD_BUFFER_SIGNAL_MIN_ITEMS = 2
-DASHBOARD_BUFFER_SIGNAL_SUSTAINED_POINTS = 3
-DASHBOARD_BUFFER_SIGNAL_WARNING_ITEMS = 5
-DASHBOARD_BUFFER_SIGNAL_WARNING_MEMBERS = 2
-DASHBOARD_BUFFER_SIGNAL_CRITICAL_ITEMS = 9
-DASHBOARD_BUFFER_SIGNAL_CRITICAL_MEMBERS = 4
 TRANSPARENT_TILE_PNG = base64.b64decode(
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9WnRnk4AAAAASUVORK5CYII="
 )
@@ -112,6 +106,10 @@ class DashboardSessionRequest(BaseModel):
 
 class MemberRuntimeSessionRequest(BaseModel):
     member_session_code: str
+
+
+class SignalSnoozeRequest(BaseModel):
+    minutes: int | None = None
 
 
 def _utcnow() -> dt.datetime:
@@ -635,20 +633,20 @@ def _record_buffer_history(
     }
 
 
-def _buffer_signal_severity(point: dict[str, object]) -> EventSeverity:
+def _buffer_signal_severity(point: dict[str, object], config) -> EventSeverity:
     buffered_items = int(point.get("buffered_items") or 0)
     buffered_members = int(point.get("buffered_members") or 0)
     sensor_buffered_items = int(point.get("sensor_buffered_items") or 0)
     if (
-        buffered_items >= DASHBOARD_BUFFER_SIGNAL_CRITICAL_ITEMS
-        or buffered_members >= DASHBOARD_BUFFER_SIGNAL_CRITICAL_MEMBERS
-        or sensor_buffered_items >= DASHBOARD_BUFFER_SIGNAL_WARNING_ITEMS
+        buffered_items >= config.dashboard_buffer_signal_critical_items
+        or buffered_members >= config.dashboard_buffer_signal_critical_members
+        or sensor_buffered_items >= config.dashboard_buffer_signal_warning_items
     ):
         return EventSeverity.CRITICAL
     if (
-        buffered_items >= DASHBOARD_BUFFER_SIGNAL_WARNING_ITEMS
-        or buffered_members >= DASHBOARD_BUFFER_SIGNAL_WARNING_MEMBERS
-        or sensor_buffered_items >= DASHBOARD_BUFFER_SIGNAL_MIN_ITEMS
+        buffered_items >= config.dashboard_buffer_signal_warning_items
+        or buffered_members >= config.dashboard_buffer_signal_warning_members
+        or sensor_buffered_items >= config.dashboard_buffer_signal_min_items
     ):
         return EventSeverity.WARNING
     return EventSeverity.ADVISORY
@@ -682,16 +680,17 @@ def _build_buffer_signal(
     buffer_history: dict[str, object],
     signal_store: dict[str, dict[str, object]] | None,
     generated_at: str,
+    config,
 ) -> dict[str, object] | None:
     points = list(buffer_history.get("points") or [])
-    if len(points) < DASHBOARD_BUFFER_SIGNAL_SUSTAINED_POINTS:
+    if len(points) < config.dashboard_buffer_signal_sustained_points:
         if signal_store is not None:
             signal_store.pop("member_buffer_sustained", None)
         return None
 
-    recent_points = points[-DASHBOARD_BUFFER_SIGNAL_SUSTAINED_POINTS:]
+    recent_points = points[-config.dashboard_buffer_signal_sustained_points :]
     if any(
-        int(point.get("buffered_items") or 0) < DASHBOARD_BUFFER_SIGNAL_MIN_ITEMS
+        int(point.get("buffered_items") or 0) < config.dashboard_buffer_signal_min_items
         for point in recent_points
     ):
         if signal_store is not None:
@@ -699,7 +698,7 @@ def _build_buffer_signal(
         return None
 
     latest = recent_points[-1]
-    severity = _buffer_signal_severity(latest)
+    severity = _buffer_signal_severity(latest, config)
     summary = _build_buffer_signal_summary(
         latest,
         window_points=len(recent_points),
@@ -707,6 +706,25 @@ def _build_buffer_signal(
     )
     signature = severity.value
     existing = signal_store.get("member_buffer_sustained") if signal_store is not None else None
+    status = "active"
+    acknowledged_at: str | None = None
+    snoozed_until: str | None = None
+    if existing and existing.get("signature") == signature:
+        status = str(existing.get("status") or "active")
+        acknowledged_at = (
+            str(existing.get("acknowledged_at")) if existing.get("acknowledged_at") else None
+        )
+        snoozed_until = (
+            str(existing.get("snoozed_until")) if existing.get("snoozed_until") else None
+        )
+        if snoozed_until:
+            try:
+                snooze_deadline = dt.datetime.fromisoformat(snoozed_until)
+            except ValueError:
+                snooze_deadline = None
+            if snooze_deadline is None or snooze_deadline <= _utcnow():
+                status = "active"
+                snoozed_until = None
     timestamp = (
         str(existing.get("timestamp"))
         if existing and existing.get("signature") == signature
@@ -724,7 +742,7 @@ def _build_buffer_signal(
         "signal_kind": "member_buffer_sustained",
         "timestamp": timestamp,
         "updated_at": generated_at,
-        "status": "active",
+        "status": status,
         "title": "Sustained member buffering",
         "summary": summary,
         "severity": severity.value,
@@ -740,6 +758,8 @@ def _build_buffer_signal(
         "window_started_at": str(recent_points[0].get("generated_at") or generated_at),
         "window_ended_at": str(latest.get("generated_at") or generated_at),
         "operation_id": str(operation_id),
+        "acknowledged_at": acknowledged_at,
+        "snoozed_until": snoozed_until,
     }
     if signal_store is not None:
         signal_store["member_buffer_sustained"] = {
@@ -747,6 +767,15 @@ def _build_buffer_signal(
             "signature": signature,
         }
     return signal
+
+
+def _dashboard_signal(signal_store: dict[str, dict[str, object]], signal_kind: str) -> dict | None:
+    signal = signal_store.get(signal_kind)
+    return dict(signal) if signal is not None else None
+
+
+def _public_dashboard_signal(signal: dict[str, object]) -> dict[str, object]:
+    return {key: value for key, value in signal.items() if key != "signature"}
 
 
 def _parse_review_feed_types(include: list[str] | None) -> tuple[set[str] | None, list[str]]:
@@ -1033,10 +1062,12 @@ async def _build_dashboard_state(
         buffer_history=buffer_history,
         signal_store=buffer_signal_store,
         generated_at=generated_at,
+        config=config,
     )
     review_feed_items = list(review_feed)
     if (
         buffer_signal is not None
+        and buffer_signal.get("status") != "snoozed"
         and category in (None, EventCategory.MEMBER_BUFFER)
         and (severity is None or buffer_signal["severity"] == severity.value)
     ):
@@ -1326,6 +1357,7 @@ def create_app(
                 "dashboard_session": "/api/operator/dashboard-session",
                 "dashboard_state": "/api/coordinator/dashboard-state",
                 "dashboard_stream": "/api/coordinator/dashboard-stream",
+                "signals": "/api/coordinator/signals",
                 "operation_status": "/api/operation/status",
                 "intelligence_status": "/api/intelligence/status",
                 "review_feed": "/api/intelligence/review-feed",
@@ -1486,6 +1518,81 @@ def create_app(
                 "X-Accel-Buffering": "no",
             },
         )
+
+    @app.post("/api/coordinator/signals/{signal_kind}/acknowledge")
+    async def acknowledge_dashboard_signal(
+        signal_kind: str,
+        request: Request,
+    ):
+        if response := _require_local_admin(request, op_manager):
+            return response
+        operation = op_manager.operation
+        if operation is None:
+            return JSONResponse({"error": "No active operation"}, status_code=503)
+
+        signal = _dashboard_signal(app.state.dashboard_buffer_signals, signal_kind)
+        if signal is None:
+            return JSONResponse({"error": "Signal not found"}, status_code=404)
+
+        acknowledged_at = _utcnow().isoformat().replace("+00:00", "Z")
+        signal["status"] = "acknowledged"
+        signal["acknowledged_at"] = acknowledged_at
+        signal["snoozed_until"] = None
+        signal["updated_at"] = acknowledged_at
+        app.state.dashboard_buffer_signals[signal_kind] = signal
+        await db.insert_audit_event(
+            operation.id,
+            "coordinator",
+            "dashboard_signal_acknowledged",
+            details={
+                "signal_kind": signal_kind,
+                "signal_id": signal.get("signal_id"),
+                "severity": signal.get("severity"),
+            },
+        )
+        return JSONResponse(_public_dashboard_signal(signal), headers={"Cache-Control": "no-store"})
+
+    @app.post("/api/coordinator/signals/{signal_kind}/snooze")
+    async def snooze_dashboard_signal(
+        signal_kind: str,
+        request: Request,
+        payload: SignalSnoozeRequest | None = None,
+    ):
+        if response := _require_local_admin(request, op_manager):
+            return response
+        operation = op_manager.operation
+        if operation is None:
+            return JSONResponse({"error": "No active operation"}, status_code=503)
+
+        signal = _dashboard_signal(app.state.dashboard_buffer_signals, signal_kind)
+        if signal is None:
+            return JSONResponse({"error": "Signal not found"}, status_code=404)
+
+        config = load_config()
+        minutes = (
+            payload.minutes if payload is not None and payload.minutes is not None else None
+        ) or config.dashboard_buffer_signal_snooze_minutes
+        minutes = max(1, min(int(minutes), 240))
+        snoozed_until = (
+            (_utcnow() + dt.timedelta(minutes=minutes)).isoformat().replace("+00:00", "Z")
+        )
+        signal["status"] = "snoozed"
+        signal["snoozed_until"] = snoozed_until
+        signal["updated_at"] = _utcnow().isoformat().replace("+00:00", "Z")
+        app.state.dashboard_buffer_signals[signal_kind] = signal
+        await db.insert_audit_event(
+            operation.id,
+            "coordinator",
+            "dashboard_signal_snoozed",
+            details={
+                "signal_kind": signal_kind,
+                "signal_id": signal.get("signal_id"),
+                "severity": signal.get("severity"),
+                "minutes": minutes,
+                "snoozed_until": snoozed_until,
+            },
+        )
+        return JSONResponse(_public_dashboard_signal(signal), headers={"Cache-Control": "no-store"})
 
     @app.get("/api/operator/dashboard-session")
     async def get_dashboard_session(request: Request):

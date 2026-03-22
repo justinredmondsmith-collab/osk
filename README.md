@@ -145,8 +145,9 @@ What exists today:
 - Live coordinator dashboard state and SSE stream endpoints for the local shell
   plus operator context panels for member health, ingest pressure, and a
   rolling member-buffer trend window, sustained buffer warning signals in the
-  local review feed/current pulse, plus a local tile-backed field map with a
-  relative-position fallback when the tile cache is empty
+  local review feed/current pulse, local acknowledge/snooze controls for those
+  transient signals, and a local tile-backed field map with a relative-position
+  fallback when the tile cache is empty
 - `ffmpeg`-backed decode path for compressed audio uploads such as WebM/Ogg
   when using the real Whisper backend
 
@@ -273,6 +274,8 @@ full architecture, API contract, and threat-model assumptions.
   including a rolling trend window and sustained warning signals, so buffered
   notes/media and bounded sensor reconnect backlog are visible in the same
   dashboard pulse instead of being hidden only on the phone
+- Buffer-signal sensitivity and default snooze duration are now config-driven,
+  so different field setups can tune coordinator noise without code changes
 - Seed `map_tile_cache_path` with local PNG tiles if you want the dashboard map
   to render real cached geography instead of the relative fallback view
 - Scan the QR join link into `/join?token=...`; the hub now exchanges that

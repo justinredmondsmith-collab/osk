@@ -686,6 +686,132 @@ def test_coordinator_dashboard_state_emits_sustained_buffer_signal(
     )
 
 
+def test_acknowledge_dashboard_signal(
+    client: TestClient,
+    mock_db: MagicMock,
+    mock_op_manager: MagicMock,
+    mock_intelligence_service: MagicMock,
+) -> None:
+    member_id = uuid.uuid4()
+    timestamp = dt.datetime.now(dt.timezone.utc)
+    mock_db.get_latest_sitrep.return_value = None
+    mock_db.get_review_feed.return_value = []
+    mock_intelligence_service.snapshot.return_value = {
+        "running": True,
+        "audio_ingest": {"queue_size": 2},
+        "frame_ingest": {"queue_size": 1},
+    }
+    mock_op_manager.get_member_list.return_value = [
+        {
+            "id": str(member_id),
+            "name": "Sensor One",
+            "role": "sensor",
+            "connected_at": timestamp,
+            "last_seen_at": timestamp,
+            "status": "connected",
+            "last_gps_at": timestamp,
+            "latitude": 39.7392,
+            "longitude": -104.9903,
+            "buffer_status": {
+                "pending_count": 4,
+                "manual_pending_count": 1,
+                "sensor_pending_count": 3,
+                "report_pending_count": 1,
+                "audio_pending_count": 2,
+                "frame_pending_count": 1,
+                "in_flight": True,
+                "network": "offline",
+                "last_error": "Upload retry pending.",
+                "oldest_pending_at": timestamp.isoformat(),
+                "updated_at": timestamp.isoformat(),
+            },
+        }
+    ]
+
+    client.get("/api/coordinator/dashboard-state")
+    client.get("/api/coordinator/dashboard-state")
+    client.get("/api/coordinator/dashboard-state")
+    mock_db.insert_audit_event.reset_mock()
+
+    resp = client.post("/api/coordinator/signals/member_buffer_sustained/acknowledge")
+
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "acknowledged"
+    assert "signature" not in resp.json()
+    mock_db.insert_audit_event.assert_awaited_once()
+
+    next_snapshot = client.get("/api/coordinator/dashboard-state")
+    assert next_snapshot.status_code == 200
+    payload = next_snapshot.json()
+    assert payload["buffer_signal"]["status"] == "acknowledged"
+    assert payload["review_feed"][0]["type"] == "signal"
+    assert payload["review_feed"][0]["status"] == "acknowledged"
+
+
+def test_snooze_dashboard_signal_hides_feed_item(
+    client: TestClient,
+    mock_db: MagicMock,
+    mock_op_manager: MagicMock,
+    mock_intelligence_service: MagicMock,
+) -> None:
+    member_id = uuid.uuid4()
+    timestamp = dt.datetime.now(dt.timezone.utc)
+    mock_db.get_latest_sitrep.return_value = None
+    mock_db.get_review_feed.return_value = []
+    mock_intelligence_service.snapshot.return_value = {
+        "running": True,
+        "audio_ingest": {"queue_size": 2},
+        "frame_ingest": {"queue_size": 1},
+    }
+    mock_op_manager.get_member_list.return_value = [
+        {
+            "id": str(member_id),
+            "name": "Sensor One",
+            "role": "sensor",
+            "connected_at": timestamp,
+            "last_seen_at": timestamp,
+            "status": "connected",
+            "last_gps_at": timestamp,
+            "latitude": 39.7392,
+            "longitude": -104.9903,
+            "buffer_status": {
+                "pending_count": 4,
+                "manual_pending_count": 1,
+                "sensor_pending_count": 3,
+                "report_pending_count": 1,
+                "audio_pending_count": 2,
+                "frame_pending_count": 1,
+                "in_flight": True,
+                "network": "offline",
+                "last_error": "Upload retry pending.",
+                "oldest_pending_at": timestamp.isoformat(),
+                "updated_at": timestamp.isoformat(),
+            },
+        }
+    ]
+
+    client.get("/api/coordinator/dashboard-state")
+    client.get("/api/coordinator/dashboard-state")
+    client.get("/api/coordinator/dashboard-state")
+    mock_db.insert_audit_event.reset_mock()
+
+    resp = client.post(
+        "/api/coordinator/signals/member_buffer_sustained/snooze",
+        json={"minutes": 5},
+    )
+
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "snoozed"
+    assert resp.json()["snoozed_until"]
+    mock_db.insert_audit_event.assert_awaited_once()
+
+    next_snapshot = client.get("/api/coordinator/dashboard-state")
+    assert next_snapshot.status_code == 200
+    payload = next_snapshot.json()
+    assert payload["buffer_signal"]["status"] == "snoozed"
+    assert not any(item["type"] == "signal" for item in payload["review_feed"])
+
+
 def test_coordinator_dashboard_state_rejects_unknown_include(
     client: TestClient,
 ) -> None:

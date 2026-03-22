@@ -33,7 +33,8 @@ The repository now includes:
   instead of keeping a steady-state token in the request URL or JS storage, and
   it now consumes a same-origin live dashboard stream plus current member
   health/ingest context, a rolling member-buffer trend view, sustained buffer
-  warning signals in the local review feed/current pulse, and a local
+  warning signals in the local review feed/current pulse, local
+  acknowledge/snooze controls for those transient signals, and a local
   tile-backed map surface with an explicit relative fallback when the tile
   cache is empty
 - A thin member join/runtime shell under `src/osk/templates/join.html`,
@@ -201,6 +202,10 @@ Code contributions should:
 - Keep transient coordinator telemetry in the right place: member-side browser
   buffer pressure and similar fast-changing dashboard context should come from
   live in-memory operation state, not only the persisted database snapshot
+- Keep transient dashboard signals configurable and ephemeral: threshold/snooze
+  tuning belongs in config, while acknowledge/snooze state should stay local to
+  the coordinator runtime unless there is a deliberate design change to persist
+  it
 
 ## How to Contribute
 
