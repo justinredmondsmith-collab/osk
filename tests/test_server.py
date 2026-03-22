@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import datetime as dt
 import uuid
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -147,6 +148,8 @@ def test_coordinator_dashboard_renders_local_shell(client: TestClient) -> None:
     assert resp.status_code == 200
     assert "Osk Coordinator Review" in resp.text
     assert "/static/dashboard.js" in resp.text
+    assert "/api/coordinator/dashboard-state" in resp.text
+    assert "/api/coordinator/dashboard-stream" in resp.text
     assert resp.headers["cache-control"] == "no-store"
     assert resp.headers["pragma"] == "no-cache"
     assert resp.headers["referrer-policy"] == "no-referrer"
@@ -235,6 +238,62 @@ def test_dashboard_session_exchange_sets_cookie(
         "one-time-code",
     )
     mock_db.insert_audit_event.assert_awaited_once()
+
+
+def test_coordinator_dashboard_state_returns_snapshot(
+    client: TestClient,
+    mock_db: MagicMock,
+) -> None:
+    member_id = uuid.uuid4()
+    operation_id = client.app.state.mock_operation.id
+    timestamp = dt.datetime.now(dt.timezone.utc)
+    mock_db.get_members.return_value = [
+        {
+            "id": member_id,
+            "operation_id": operation_id,
+            "name": "Field Sensor",
+            "role": "sensor",
+            "reconnect_token": "resume-secret",
+            "connected_at": timestamp,
+            "last_seen_at": timestamp,
+            "status": "connected",
+            "last_gps_at": timestamp,
+            "latitude": 39.7392,
+            "longitude": -104.9903,
+        }
+    ]
+    mock_db.get_latest_sitrep.return_value = {"text": "Situation steady.", "trend": "stable"}
+    mock_db.get_review_feed.return_value = [
+        {
+            "type": "finding",
+            "id": str(uuid.uuid4()),
+            "timestamp": "2026-03-21T19:45:00Z",
+            "title": "Police Action",
+            "summary": "Police advancing east.",
+            "severity": "warning",
+        }
+    ]
+
+    resp = client.get("/api/coordinator/dashboard-state?include=finding&limit=10")
+
+    assert resp.status_code == 200
+    payload = resp.json()
+    assert payload["operation_status"]["name"] == "Test Op"
+    assert payload["member_summary"]["fresh"] == 1
+    assert payload["members"][0]["name"] == "Field Sensor"
+    assert payload["latest_sitrep"]["text"] == "Situation steady."
+    _, kwargs = mock_db.get_review_feed.await_args
+    assert kwargs["include_types"] == {"finding"}
+    assert kwargs["limit"] == 10
+
+
+def test_coordinator_dashboard_state_rejects_unknown_include(
+    client: TestClient,
+) -> None:
+    resp = client.get("/api/coordinator/dashboard-state?include=bogus")
+
+    assert resp.status_code == 400
+    assert resp.json()["invalid_types"] == ["bogus"]
 
 
 def test_dashboard_static_asset_serves(client: TestClient) -> None:

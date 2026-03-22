@@ -30,7 +30,9 @@ The repository now includes:
 - A thin local coordinator review shell served from FastAPI with static
   HTML/CSS/JS under `src/osk/templates/` and `src/osk/static/`; the shell uses
   a one-time dashboard code to mint a short-lived local `HttpOnly` cookie
-  instead of keeping a steady-state token in the request URL or JS storage
+  instead of keeping a steady-state token in the request URL or JS storage, and
+  it now consumes a same-origin live dashboard stream plus current member
+  health/ingest context
 
 The repository does **not** yet contain the full intelligence pipeline,
 synthesis layer, full coordinator dashboard, or mobile client described in the
@@ -138,6 +140,9 @@ Code contributions should:
 - Keep browser auth bootstrap non-secret on the server side: do not put
   operator/coordinator tokens in request query strings, rendered HTML, or
   long-lived browser-managed JS storage when extending the dashboard flow
+- Keep dashboard map/status surfaces truthful: the current field map is a
+  relative-position panel driven by member GPS, not yet a full offline-tile map
+  stack, so docs and UI copy should not imply more than that
 
 ## How to Contribute
 

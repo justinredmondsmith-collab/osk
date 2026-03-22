@@ -4,11 +4,11 @@
 
 **Goal:** Build the coordinator's desktop dashboard — a three-panel web UI with member map, event timeline + SitRep, and sensor management. Served by the hub's FastAPI server.
 
-**Architecture:** Single-page Jinja2 template with vanilla JS. WebSocket connection for real-time updates. Leaflet.js for the map with offline tile support. No framework build step — follows bodycam-summarizer's pattern of a monolithic dashboard.html with inline JS.
+**Architecture:** Single-page Jinja2 template with vanilla JS. Same-origin live transport for coordinator updates, starting with SSE for read-heavy review flows and expanding to WebSocket only where bidirectional control is warranted. Leaflet.js for the fuller map with offline tile support. No framework build step — follows bodycam-summarizer's pattern of a monolithic dashboard.html with inline JS.
 
-**Current state:** A thinner review-focused coordinator shell now exists at `/coordinator`, backed by the local review/feed APIs and served with static HTML/CSS/JS. That shell is local-only and uses a one-time dashboard code exchange into a short-lived `HttpOnly` cookie rather than embedding auth in the server-rendered HTML, request URL, or browser-managed JS storage. The tasks below describe the fuller dashboard target beyond that shell.
+**Current state:** A thinner review-focused coordinator shell now exists at `/coordinator`, backed by the local review/feed APIs and served with static HTML/CSS/JS. That shell is local-only, uses a one-time dashboard code exchange into a short-lived `HttpOnly` cookie rather than embedding auth in the server-rendered HTML, request URL, or browser-managed JS storage, and now has a same-origin live dashboard stream plus early right-rail context for member health, ingest pressure, and a relative-position field map. The tasks below describe the fuller tiled-map and broader dashboard target beyond that shell.
 
-**Tech Stack:** HTML, vanilla JS, Leaflet.js, Jinja2, WebSocket API
+**Tech Stack:** HTML, vanilla JS, Leaflet.js, Jinja2, SSE/WebSocket API
 
 **Spec:** `docs/specs/2026-03-21-osk-design.md` — "Coordinator Dashboard" section
 **Depends on:** Plan 1 (server, connection_manager), Plan 3 (events, alerts, sitreps)

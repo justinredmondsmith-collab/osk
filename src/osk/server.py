@@ -2,16 +2,18 @@
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import datetime as dt
 import ipaddress
 import json
 import logging
 import uuid
+from collections import Counter
 from pathlib import Path
 
 from fastapi import FastAPI, Query, Request, WebSocket, WebSocketDisconnect
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -39,7 +41,9 @@ from osk.models import (
     EventSeverity,
     FindingNote,
     FindingStatus,
+    Member,
     MemberRole,
+    MemberStatus,
     Pin,
 )
 from osk.operation import OperationManager
@@ -59,6 +63,8 @@ PACKAGE_ROOT = Path(__file__).resolve().parent
 STATIC_ROOT = PACKAGE_ROOT / "static"
 TEMPLATE_ROOT = PACKAGE_ROOT / "templates"
 COORDINATOR_TEMPLATE_PATH = TEMPLATE_ROOT / "coordinator.html"
+DASHBOARD_STREAM_INTERVAL_SECONDS = 2.0
+DASHBOARD_STREAM_KEEPALIVE_SECONDS = 15.0
 
 
 class ReportRequest(BaseModel):
@@ -316,6 +322,136 @@ def _normalize_submission_result(result) -> IngestSubmissionResult:
     return IngestSubmissionResult(accepted=bool(result))
 
 
+def _member_dashboard_snapshot(
+    row: dict,
+    *,
+    heartbeat_timeout_seconds: int,
+) -> dict[str, object]:
+    member = Member.model_validate(row)
+    now = _utcnow()
+    last_seen_at = member.last_seen_at.astimezone(dt.timezone.utc)
+    seconds_since_last_seen = max(int((now - last_seen_at).total_seconds()), 0)
+    if member.status != MemberStatus.CONNECTED:
+        heartbeat_state = member.status.value
+    elif seconds_since_last_seen >= heartbeat_timeout_seconds:
+        heartbeat_state = "stale"
+    else:
+        heartbeat_state = "fresh"
+
+    return {
+        "id": str(member.id),
+        "name": member.name,
+        "role": member.role.value,
+        "status": member.status.value,
+        "heartbeat_state": heartbeat_state,
+        "seconds_since_last_seen": seconds_since_last_seen,
+        "last_seen_at": last_seen_at.isoformat().replace("+00:00", "Z"),
+        "connected_at": member.connected_at.astimezone(dt.timezone.utc)
+        .isoformat()
+        .replace("+00:00", "Z"),
+        "last_gps_at": (
+            member.last_gps_at.astimezone(dt.timezone.utc).isoformat().replace("+00:00", "Z")
+            if member.last_gps_at
+            else None
+        ),
+        "latitude": member.latitude,
+        "longitude": member.longitude,
+    }
+
+
+def _member_summary(members: list[dict[str, object]]) -> dict[str, int]:
+    role_counter: Counter[str] = Counter()
+    heartbeat_counter: Counter[str] = Counter()
+    status_counter: Counter[str] = Counter()
+    for member in members:
+        role_counter[str(member.get("role") or "unknown")] += 1
+        heartbeat_counter[str(member.get("heartbeat_state") or "unknown")] += 1
+        status_counter[str(member.get("status") or "unknown")] += 1
+    return {
+        "total": len(members),
+        "sensors": role_counter.get("sensor", 0),
+        "observers": role_counter.get("observer", 0),
+        "coordinators": role_counter.get("coordinator", 0),
+        "fresh": heartbeat_counter.get("fresh", 0),
+        "stale": heartbeat_counter.get("stale", 0),
+        "connected": status_counter.get("connected", 0),
+        "disconnected": status_counter.get("disconnected", 0),
+    }
+
+
+def _parse_review_feed_types(include: list[str] | None) -> tuple[set[str] | None, list[str]]:
+    include_types = (
+        {item.strip().lower() for item in include if item and item.strip()} if include else None
+    )
+    invalid_types = sorted((include_types or set()) - VALID_REVIEW_FEED_TYPES)
+    return include_types, invalid_types
+
+
+async def _build_dashboard_state(
+    *,
+    op_manager: OperationManager,
+    conn_manager: ConnectionManager,
+    db,
+    intelligence_service,
+    limit: int = 40,
+    include_types: set[str] | None = None,
+    finding_status: FindingStatus | None = None,
+    severity: EventSeverity | None = None,
+    category: EventCategory | None = None,
+) -> dict[str, object]:
+    operation = op_manager.operation
+    if operation is None:
+        raise RuntimeError("No active operation")
+    config = load_config()
+    member_rows = await db.get_members(operation.id)
+    members = [
+        _member_dashboard_snapshot(
+            row,
+            heartbeat_timeout_seconds=config.member_heartbeat_timeout_seconds,
+        )
+        for row in member_rows
+    ]
+    latest_sitrep = await db.get_latest_sitrep(operation.id)
+    review_feed = await db.get_review_feed(
+        operation.id,
+        limit=max(1, limit),
+        include_types=include_types or {"finding", "event", "sitrep"},
+        finding_status=finding_status,
+        severity=severity,
+        category=category,
+    )
+    intelligence_status = (
+        intelligence_service.snapshot()
+        if intelligence_service is not None
+        else {"running": False, "error": "Intelligence service is not configured"}
+    )
+    return {
+        "generated_at": _utcnow().isoformat().replace("+00:00", "Z"),
+        "operation_status": {
+            "id": str(operation.id),
+            "name": operation.name,
+            "started_at": operation.started_at.isoformat(),
+            "members": len(members),
+            "sensors": sum(1 for member in members if member["role"] == MemberRole.SENSOR.value),
+            "connected": conn_manager.connected_count,
+        },
+        "intelligence_status": intelligence_status,
+        "latest_sitrep": latest_sitrep,
+        "review_feed": review_feed,
+        "members": members,
+        "member_summary": _member_summary(members),
+    }
+
+
+def _sse_message(
+    *,
+    event: str,
+    data: dict[str, object],
+) -> str:
+    payload = json.dumps(data, sort_keys=True, default=str)
+    return f"event: {event}\ndata: {payload}\n\n"
+
+
 def _submission_ack_payload(
     *,
     ack_type: str,
@@ -398,6 +534,8 @@ def create_app(
         bootstrap = {
             "paths": {
                 "dashboard_session": "/api/operator/dashboard-session",
+                "dashboard_state": "/api/coordinator/dashboard-state",
+                "dashboard_stream": "/api/coordinator/dashboard-stream",
                 "operation_status": "/api/operation/status",
                 "intelligence_status": "/api/intelligence/status",
                 "review_feed": "/api/intelligence/review-feed",
@@ -417,6 +555,118 @@ def create_app(
                 "Referrer-Policy": "no-referrer",
                 "X-Frame-Options": "DENY",
                 "X-Content-Type-Options": "nosniff",
+            },
+        )
+
+    @app.get("/api/coordinator/dashboard-state")
+    async def coordinator_dashboard_state(
+        request: Request,
+        limit: int = 40,
+        include: list[str] | None = Query(default=None),
+        finding_status: FindingStatus | None = None,
+        severity: EventSeverity | None = None,
+        category: EventCategory | None = None,
+    ):
+        if response := _require_local_admin(request, op_manager):
+            return response
+        operation = op_manager.operation
+        if operation is None:
+            return JSONResponse({"error": "No active operation"}, status_code=503)
+        include_types, invalid_types = _parse_review_feed_types(include)
+        if invalid_types:
+            return JSONResponse(
+                {
+                    "error": "Unsupported review feed types",
+                    "invalid_types": invalid_types,
+                },
+                status_code=400,
+            )
+        return await _build_dashboard_state(
+            op_manager=op_manager,
+            conn_manager=conn_manager,
+            db=db,
+            intelligence_service=intelligence_service,
+            limit=max(1, min(limit, MAX_REVIEW_FEED_LIMIT)),
+            include_types=include_types,
+            finding_status=finding_status,
+            severity=severity,
+            category=category,
+        )
+
+    @app.get("/api/coordinator/dashboard-stream")
+    async def coordinator_dashboard_stream(
+        request: Request,
+        limit: int = 40,
+        include: list[str] | None = Query(default=None),
+        finding_status: FindingStatus | None = None,
+        severity: EventSeverity | None = None,
+        category: EventCategory | None = None,
+    ):
+        if response := _require_local_admin(request, op_manager):
+            return response
+        if op_manager.operation is None:
+            return JSONResponse({"error": "No active operation"}, status_code=503)
+        include_types, invalid_types = _parse_review_feed_types(include)
+        if invalid_types:
+            return JSONResponse(
+                {
+                    "error": "Unsupported review feed types",
+                    "invalid_types": invalid_types,
+                },
+                status_code=400,
+            )
+        clamped_limit = max(1, min(limit, MAX_REVIEW_FEED_LIMIT))
+
+        async def event_stream():
+            last_payload: str | None = None
+            loop = asyncio.get_running_loop()
+            last_keepalive = loop.time()
+            dashboard_token = str(request.cookies.get(DASHBOARD_SESSION_COOKIE) or "").strip()
+            while True:
+                if await request.is_disconnected():
+                    break
+                if dashboard_token and not validate_dashboard_session(
+                    dashboard_token,
+                    str(op_manager.operation.id),
+                ):
+                    yield _sse_message(
+                        event="auth_required",
+                        data={"error": "Dashboard session expired."},
+                    )
+                    break
+
+                snapshot = await _build_dashboard_state(
+                    op_manager=op_manager,
+                    conn_manager=conn_manager,
+                    db=db,
+                    intelligence_service=intelligence_service,
+                    limit=clamped_limit,
+                    include_types=include_types,
+                    finding_status=finding_status,
+                    severity=severity,
+                    category=category,
+                )
+                payload = json.dumps(snapshot, sort_keys=True, default=str)
+                if payload != last_payload:
+                    last_payload = payload
+                    yield _sse_message(event="snapshot", data=snapshot)
+                    last_keepalive = loop.time()
+                elif loop.time() - last_keepalive >= DASHBOARD_STREAM_KEEPALIVE_SECONDS:
+                    yield _sse_message(
+                        event="ping",
+                        data={"generated_at": _utcnow().isoformat().replace("+00:00", "Z")},
+                    )
+                    last_keepalive = loop.time()
+
+                await asyncio.sleep(DASHBOARD_STREAM_INTERVAL_SECONDS)
+
+        return StreamingResponse(
+            event_stream(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-store",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no",
             },
         )
 
@@ -957,19 +1207,15 @@ def create_app(
         operation = op_manager.operation
         if operation is None:
             return JSONResponse({"error": "No active operation"}, status_code=503)
-        include_types = (
-            {item.strip().lower() for item in include if item and item.strip()} if include else None
-        )
-        if include_types is not None:
-            invalid_types = sorted(include_types - VALID_REVIEW_FEED_TYPES)
-            if invalid_types:
-                return JSONResponse(
-                    {
-                        "error": "Unsupported review feed types",
-                        "invalid_types": invalid_types,
-                    },
-                    status_code=400,
-                )
+        include_types, invalid_types = _parse_review_feed_types(include)
+        if invalid_types:
+            return JSONResponse(
+                {
+                    "error": "Unsupported review feed types",
+                    "invalid_types": invalid_types,
+                },
+                status_code=400,
+            )
         return await db.get_review_feed(
             operation.id,
             since=since,

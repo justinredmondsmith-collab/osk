@@ -74,6 +74,9 @@ changes manually while the project is in its early public setup phase.
   commands
 - Thin coordinator review shell: local `/coordinator` UI, static dashboard
   assets, and `osk dashboard` for printing a session-backed local review URL
+- Live coordinator review stream: same-origin dashboard-state/SSE endpoints,
+  member health and ingest-pressure context, and an early relative-position
+  field map in the local review shell
 
 ### Changed
 
@@ -99,3 +102,6 @@ changes manually while the project is in its early public setup phase.
 - The dashboard shell now uses a clean local URL plus one-time dashboard code
   exchange into a short-lived `HttpOnly` cookie instead of URL or JS-stored
   steady-state auth tokens
+- Dashboard review docs now distinguish the current live shell and
+  relative-position field map from the still-planned fuller tiled/offline map
+  experience

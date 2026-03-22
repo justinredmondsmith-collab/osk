@@ -566,6 +566,10 @@ textarea {
   gap: 0.55rem;
 }
 
+.detail-list--tight {
+  gap: 0.45rem;
+}
+
 .detail-item {
   padding: 0.8rem 0.9rem;
   border: 1px solid var(--color-line);
@@ -651,6 +655,55 @@ textarea {
   line-height: 1.55;
 }
 
+.map-panel {
+  display: grid;
+  place-items: center;
+  min-height: 13rem;
+  border: 1px solid var(--color-line);
+  background:
+    radial-gradient(circle at center, rgba(78, 205, 196, 0.08), transparent 60%),
+    rgba(7, 17, 31, 0.42);
+}
+
+.map-panel svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.map-grid-line {
+  stroke: rgba(159, 184, 214, 0.12);
+  stroke-width: 1;
+}
+
+.map-member {
+  stroke: rgba(7, 17, 31, 0.78);
+  stroke-width: 2;
+}
+
+.map-member--sensor {
+  fill: var(--color-critical);
+}
+
+.map-member--observer {
+  fill: var(--color-accent);
+}
+
+.map-member--coordinator {
+  fill: var(--color-advisory);
+}
+
+.map-member--stale,
+.map-member--disconnected {
+  fill: var(--color-resolved);
+}
+
+.map-member-label {
+  fill: var(--color-ink);
+  font-size: 11px;
+  font-family: var(--font-ui);
+}
+
 .stack-list {
   display: grid;
   gap: 0.5rem;
@@ -676,6 +729,13 @@ textarea {
   border: 1px dashed var(--color-line);
   color: var(--color-muted);
   text-align: center;
+}
+
+.empty-state--compact {
+  min-height: 0;
+  width: 100%;
+  height: 100%;
+  padding: 1rem;
 }
 
 @keyframes boot-rise {

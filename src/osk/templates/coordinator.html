@@ -205,8 +205,38 @@
           </section>
 
           <section class="context-block">
+            <h3>Field Map</h3>
+            <div class="map-panel" id="member-map">
+              <div class="empty-state empty-state--compact">
+                <p>No live member positions yet.</p>
+              </div>
+            </div>
+          </section>
+
+          <section class="context-block">
+            <h3>Member Health</h3>
+            <div class="stack-list" id="member-summary">
+              <div class="stack-row"><span>Fresh</span><strong>--</strong></div>
+              <div class="stack-row"><span>Stale</span><strong>--</strong></div>
+              <div class="stack-row"><span>Disconnected</span><strong>--</strong></div>
+            </div>
+            <div class="detail-list detail-list--tight" id="member-health">
+              <div class="detail-item"><p>No member telemetry yet.</p></div>
+            </div>
+          </section>
+
+          <section class="context-block">
             <h3>Latest SitRep</h3>
             <div class="context-copy" id="latest-sitrep">No situation reports yet.</div>
+          </section>
+
+          <section class="context-block">
+            <h3>Ingest Pressure</h3>
+            <div class="stack-list" id="ingest-pressure">
+              <div class="stack-row"><span>Audio queue</span><strong>--</strong></div>
+              <div class="stack-row"><span>Frame queue</span><strong>--</strong></div>
+              <div class="stack-row"><span>Recent findings</span><strong>--</strong></div>
+            </div>
           </section>
 
           <section class="context-block">

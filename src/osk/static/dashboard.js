@@ -18,11 +18,14 @@
     detail: null,
     correlations: null,
     latestSitrep: null,
+    members: [],
+    memberSummary: null,
     operationStatus: null,
     intelligenceStatus: null,
     lastSyncAt: null,
     freshKeys: new Set(),
-    pollHandle: null,
+    streamHandle: null,
+    streamRetryHandle: null,
     refreshInFlight: false,
   };
 
@@ -55,6 +58,10 @@
     metricMembers: document.getElementById("metric-members"),
     metricSensors: document.getElementById("metric-sensors"),
     metricConnected: document.getElementById("metric-connected"),
+    memberHealth: document.getElementById("member-health"),
+    memberMap: document.getElementById("member-map"),
+    memberSummary: document.getElementById("member-summary"),
+    ingestPressure: document.getElementById("ingest-pressure"),
     latestSitrep: document.getElementById("latest-sitrep"),
     pipelineStatus: document.getElementById("pipeline-status"),
     selectionEcho: document.getElementById("selection-echo"),
@@ -156,7 +163,7 @@
     return response.json();
   }
 
-  function buildReviewFeedPath() {
+  function buildDashboardQuery() {
     const params = new URLSearchParams();
     params.set("limit", "40");
     for (const type of state.filters.include) {
@@ -171,7 +178,17 @@
     if (state.filters.category) {
       params.set("category", state.filters.category);
     }
-    return `${bootstrap.paths.review_feed}?${params.toString()}`;
+    return params.toString();
+  }
+
+  function buildDashboardStatePath() {
+    const query = buildDashboardQuery();
+    return query ? `${bootstrap.paths.dashboard_state}?${query}` : bootstrap.paths.dashboard_state;
+  }
+
+  function buildDashboardStreamPath() {
+    const query = buildDashboardQuery();
+    return query ? `${bootstrap.paths.dashboard_stream}?${query}` : bootstrap.paths.dashboard_stream;
   }
 
   function setBanner(message, level) {
@@ -196,10 +213,14 @@
     elements.connectionLabel.textContent = label;
   }
 
-  function stopPolling() {
-    if (state.pollHandle) {
-      window.clearInterval(state.pollHandle);
-      state.pollHandle = null;
+  function disconnectStream() {
+    if (state.streamHandle) {
+      state.streamHandle.close();
+      state.streamHandle = null;
+    }
+    if (state.streamRetryHandle) {
+      window.clearTimeout(state.streamRetryHandle);
+      state.streamRetryHandle = null;
     }
   }
 
@@ -210,7 +231,7 @@
       elements.authStatus.textContent = message;
     }
     if (visible) {
-      stopPolling();
+      disconnectStream();
     }
   }
 
@@ -222,6 +243,53 @@
     );
     updateConnectionState("error", "Locked");
     elements.refreshLabel.textContent = "Awaiting code";
+  }
+
+  function maybeRefreshDetail(previousSelection) {
+    const nextSelection = selectedItem();
+    if (!nextSelection) {
+      void refreshDetail();
+      return;
+    }
+    if (!previousSelection || itemKey(previousSelection) !== itemKey(nextSelection)) {
+      void refreshDetail();
+      return;
+    }
+    if ((previousSelection.timestamp || "") !== (nextSelection.timestamp || "")) {
+      void refreshDetail();
+    }
+  }
+
+  function applyDashboardState(snapshot) {
+    const previousSelection = selectedItem();
+    const previous = new Map(state.feedItems.map((item) => [itemKey(item), item.timestamp]));
+    state.feedItems = snapshot.review_feed || [];
+    state.latestSitrep = snapshot.latest_sitrep || null;
+    state.operationStatus = snapshot.operation_status || null;
+    state.intelligenceStatus = snapshot.intelligence_status || null;
+    state.members = snapshot.members || [];
+    state.memberSummary = snapshot.member_summary || null;
+    state.lastSyncAt = snapshot.generated_at || new Date().toISOString();
+    state.freshKeys = new Set(
+      state.feedItems
+        .filter((item) => previous.get(itemKey(item)) !== item.timestamp)
+        .map((item) => itemKey(item)),
+    );
+
+    if (!state.selectedKey || !state.feedItems.some((item) => itemKey(item) === state.selectedKey)) {
+      state.selectedKey = state.feedItems[0] ? itemKey(state.feedItems[0]) : null;
+    }
+
+    renderFeed();
+    renderContext();
+    maybeRefreshDetail(previousSelection);
+    setBanner("", "info");
+    updateConnectionState("live", "Live stream");
+    elements.refreshLabel.textContent = "Streaming";
+    window.setTimeout(() => {
+      state.freshKeys.clear();
+      renderFeed();
+    }, 1800);
   }
 
   async function syncDashboardSession() {
@@ -273,8 +341,8 @@
       state.authenticated = true;
       elements.authCodeInput.value = "";
       setAuthGateVisible(false);
-      startPolling();
       await refreshDashboard();
+      connectDashboardStream();
     } catch (error) {
       const message = error instanceof Error ? error.message : "Dashboard login failed";
       lockDashboard(message);
@@ -378,62 +446,10 @@
     updateConnectionState("pending", "Refreshing");
 
     try {
-      const previous = new Map(state.feedItems.map((item) => [itemKey(item), item.timestamp]));
-      const [feedResult, sitrepResult, operationResult, intelligenceResult] = await Promise.allSettled([
-        fetchJson(buildReviewFeedPath(), {
-          method: "GET",
-        }),
-        fetchJson(bootstrap.paths.latest_sitrep, {
-          method: "GET",
-        }),
-        fetchJson(bootstrap.paths.operation_status, {
-          method: "GET",
-        }),
-        fetchJson(bootstrap.paths.intelligence_status, {
-          method: "GET",
-        }),
-      ]);
-
-      if (feedResult.status !== "fulfilled") {
-        throw feedResult.reason;
-      }
-      if (operationResult.status !== "fulfilled") {
-        throw operationResult.reason;
-      }
-
-      const feedItems = feedResult.value;
-      const operationStatus = operationResult.value;
-      const latestSitrep = sitrepResult.status === "fulfilled" ? sitrepResult.value : state.latestSitrep;
-      const intelligenceStatus =
-        intelligenceResult.status === "fulfilled"
-          ? intelligenceResult.value
-          : state.intelligenceStatus;
-
-      state.feedItems = feedItems;
-      state.latestSitrep = latestSitrep;
-      state.operationStatus = operationStatus;
-      state.intelligenceStatus = intelligenceStatus;
-      state.lastSyncAt = new Date().toISOString();
-      state.freshKeys = new Set(
-        feedItems
-          .filter((item) => previous.get(itemKey(item)) !== item.timestamp)
-          .map((item) => itemKey(item)),
-      );
-
-      if (!state.selectedKey || !state.feedItems.some((item) => itemKey(item) === state.selectedKey)) {
-        state.selectedKey = state.feedItems[0] ? itemKey(state.feedItems[0]) : null;
-      }
-
-      renderFeed();
-      renderContext();
-      await refreshDetail();
-      setBanner("", "info");
-      updateConnectionState("live", "Connected");
-      elements.refreshLabel.textContent = `Every ${Math.round(bootstrap.poll_interval_ms / 1000)}s`;
-      window.setTimeout(() => {
-        state.freshKeys.clear();
-        renderFeed();
-      }, 1800);
+      const snapshot = await fetchJson(buildDashboardStatePath(), {
+        method: "GET",
+      });
+      applyDashboardState(snapshot);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Dashboard refresh failed";
       if (error && (error.status === 401 || error.status === 403)) {
@@ -696,6 +712,40 @@
       elements.latestSitrep.textContent = `${prefix}${state.latestSitrep.text || "No situation reports yet."}`;
     }
 
+    const memberSummary = state.memberSummary || {};
+    elements.memberSummary.innerHTML = [
+      ["Fresh", memberSummary.fresh ?? "--"],
+      ["Stale", memberSummary.stale ?? "--"],
+      ["Disconnected", memberSummary.disconnected ?? "--"],
+    ]
+      .map(
+        ([label, value]) =>
+          `<div class="stack-row"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`,
+      )
+      .join("");
+
+    elements.memberHealth.innerHTML = state.members.length
+      ? state.members
+          .slice()
+          .sort((left, right) => {
+            return Number(left.seconds_since_last_seen || 0) - Number(right.seconds_since_last_seen || 0);
+          })
+          .slice(0, 6)
+          .map((member) => {
+            return `
+              <div class="detail-item">
+                <p>${escapeHtml(member.name)} <span class="pill">${escapeHtml(member.role)}</span></p>
+                <small>
+                  ${escapeHtml(member.heartbeat_state)} • last seen ${escapeHtml(member.last_seen_at)}
+                </small>
+              </div>
+            `;
+          })
+          .join("")
+      : '<div class="detail-item"><p>No member telemetry yet.</p></div>';
+
+    renderFieldMap();
+
     if (state.intelligenceStatus) {
       elements.pipelineStatus.innerHTML = [
         ["Transcriber", state.intelligenceStatus.transcriber?.backend || "--"],
@@ -708,7 +758,96 @@
             `<div class="stack-row"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`,
         )
         .join("");
+
+      const audio = state.intelligenceStatus.audio_ingest || {};
+      const frame = state.intelligenceStatus.frame_ingest || {};
+      const recentFindings = (state.intelligenceStatus.recent_findings || []).length;
+      elements.ingestPressure.innerHTML = [
+        [
+          "Audio queue",
+          `${escapeHtml(audio.queue_size ?? "--")} queued / ${escapeHtml(audio.accepted_chunks ?? "--")} accepted`,
+        ],
+        [
+          "Frame queue",
+          `${escapeHtml(frame.queue_size ?? "--")} queued / ${escapeHtml(frame.accepted_frames ?? "--")} accepted`,
+        ],
+        ["Recent findings", escapeHtml(recentFindings)],
+      ]
+        .map(
+          ([label, value]) =>
+            `<div class="stack-row"><span>${escapeHtml(label)}</span><strong>${value}</strong></div>`,
+        )
+        .join("");
     }
+  }
+
+  function renderFieldMap() {
+    const positionedMembers = state.members.filter(
+      (member) => member.latitude !== null && member.longitude !== null,
+    );
+    if (!positionedMembers.length) {
+      elements.memberMap.innerHTML =
+        '<div class="empty-state empty-state--compact"><p>No live member positions yet.</p></div>';
+      return;
+    }
+
+    const width = 320;
+    const height = 180;
+    const padding = 22;
+    const latitudes = positionedMembers.map((member) => Number(member.latitude));
+    const longitudes = positionedMembers.map((member) => Number(member.longitude));
+    const minLat = Math.min(...latitudes);
+    const maxLat = Math.max(...latitudes);
+    const minLon = Math.min(...longitudes);
+    const maxLon = Math.max(...longitudes);
+    const latSpan = maxLat - minLat || 0.0002;
+    const lonSpan = maxLon - minLon || 0.0002;
+
+    const gridLines = [0.25, 0.5, 0.75]
+      .map((ratio) => {
+        const x = padding + (width - padding * 2) * ratio;
+        const y = padding + (height - padding * 2) * ratio;
+        return `
+          <line class="map-grid-line" x1="${x}" y1="${padding}" x2="${x}" y2="${height - padding}"></line>
+          <line class="map-grid-line" x1="${padding}" y1="${y}" x2="${width - padding}" y2="${y}"></line>
+        `;
+      })
+      .join("");
+
+    const members = positionedMembers
+      .map((member) => {
+        const x =
+          padding +
+          ((Number(member.longitude) - minLon) / lonSpan) * (width - padding * 2);
+        const y =
+          height -
+          padding -
+          ((Number(member.latitude) - minLat) / latSpan) * (height - padding * 2);
+        const heartbeatClass =
+          member.heartbeat_state === "fresh" ? "" : ` map-member--${member.heartbeat_state}`;
+        return `
+          <g>
+            <circle
+              class="map-member map-member--${escapeHtml(member.role)}${heartbeatClass}"
+              cx="${x.toFixed(1)}"
+              cy="${y.toFixed(1)}"
+              r="7"
+            ></circle>
+            <text class="map-member-label" x="${(x + 10).toFixed(1)}" y="${(y - 10).toFixed(1)}">
+              ${escapeHtml(member.name)}
+            </text>
+          </g>
+        `;
+      })
+      .join("");
+
+    elements.memberMap.innerHTML = `
+      <svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Relative member positions">
+        <rect x="${padding}" y="${padding}" width="${width - padding * 2}" height="${height - padding * 2}" fill="transparent" stroke="rgba(159, 184, 214, 0.22)" />
+        ${gridLines}
+        ${members}
+      </svg>
+    `;
   }
 
   function handleFilterChange() {
@@ -720,13 +859,68 @@
       category: String(formData.get("category") || ""),
     };
     void refreshDashboard();
+    connectDashboardStream();
   }
 
-  function startPolling() {
-    stopPolling();
-    state.pollHandle = window.setInterval(() => {
-      void refreshDashboard();
-    }, bootstrap.poll_interval_ms || 10000);
+  function scheduleStreamReconnect() {
+    if (state.streamRetryHandle || !state.authenticated) {
+      return;
+    }
+    state.streamRetryHandle = window.setTimeout(async () => {
+      state.streamRetryHandle = null;
+      try {
+        const payload = await syncDashboardSession();
+        if (!payload) {
+          return;
+        }
+        await refreshDashboard();
+        connectDashboardStream();
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Stream reconnect failed";
+        setBanner(message, "error");
+        updateConnectionState("error", "Stream offline");
+        scheduleStreamReconnect();
+      }
+    }, 1500);
+  }
+
+  function connectDashboardStream() {
+    if (!state.authenticated) {
+      return;
+    }
+    disconnectStream();
+    const stream = new EventSource(buildDashboardStreamPath(), { withCredentials: true });
+    state.streamHandle = stream;
+
+    stream.addEventListener("snapshot", (event) => {
+      const payload = JSON.parse(event.data || "{}");
+      applyDashboardState(payload);
+    });
+
+    stream.addEventListener("ping", () => {
+      updateConnectionState("live", "Live stream");
+      elements.refreshLabel.textContent = "Streaming";
+    });
+
+    stream.addEventListener("auth_required", (event) => {
+      const payload = JSON.parse(event.data || "{}");
+      lockDashboard(
+        payload.error || "Dashboard session expired. Run `osk dashboard` for a fresh one-time code.",
+      );
+    });
+
+    stream.onerror = () => {
+      if (!state.authenticated) {
+        return;
+      }
+      updateConnectionState("pending", "Stream reconnecting");
+      elements.refreshLabel.textContent = "Reconnecting";
+      if (state.streamHandle) {
+        state.streamHandle.close();
+        state.streamHandle = null;
+      }
+      scheduleStreamReconnect();
+    };
   }
 
   function bindEvents() {
@@ -750,8 +944,8 @@
     try {
       const payload = await syncDashboardSession();
       if (payload) {
-        startPolling();
         await refreshDashboard();
+        connectDashboardStream();
       }
     } catch (error) {
       const message =

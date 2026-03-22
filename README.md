@@ -17,9 +17,10 @@ situations where shared awareness matters.
 > heuristic synthesis layer with reviewable findings, corroboration, sitrep
 > output, coordinator triage actions, and a thin local-only coordinator review
 > shell served by FastAPI with one-time dashboard code exchange into a
-> short-lived local cookie session. The fuller
-> map/live dashboard and mobile product work are
-> still planned.
+> short-lived local cookie session, a live dashboard stream, right-rail member
+> health and ingest context, and an early relative-position field map. The
+> fuller tiled/offline map, broader dashboard surface, and mobile product work
+> are still planned.
 
 ## At a Glance
 
@@ -111,6 +112,9 @@ What exists today:
 - Local coordinator review shell at `/coordinator`, backed by the existing
   admin APIs, served with static CSS/JS from the hub, and bootstrapped from a
   one-time dashboard code into a short-lived `HttpOnly` local cookie session
+- Live coordinator dashboard state and SSE stream endpoints for the local shell
+  plus operator context panels for member health, ingest pressure, and an
+  early relative-position field map
 - `ffmpeg`-backed decode path for compressed audio uploads such as WebM/Ogg
   when using the real Whisper backend
 
@@ -120,7 +124,8 @@ What is still missing:
 - Production-grade media ingest, including broader client compatibility and
   stronger end-to-end resend/session semantics across restarts
 - Full coordinator dashboard experience, including live map, richer transport,
-  and broader review workflows beyond the current shell
+  offline tile support, and broader review workflows beyond the current live
+  review shell
 - Mobile PWA user experience
 - Validated wipe timing and production-grade evidence/export tooling
 
@@ -200,7 +205,7 @@ The initial implementation is split into six phases:
 | [1. Core Hub + Connection](docs/plans/2026-03-21-plan-1-core-hub-connection.md) | Scaffolding, models, DB, auth, server, CLI | Foundational runtime in repo |
 | [2. Intelligence Pipeline](docs/plans/2026-03-21-plan-2-intelligence-pipeline.md) | Whisper, vision, ingest queues, location engine | Live ingest + persistence bridge in repo |
 | [3. Synthesis Layer](docs/plans/2026-03-21-plan-3-synthesis-layer.md) | Events, alerts, SitReps | Planned |
-| [4. Coordinator Dashboard](docs/plans/2026-03-21-plan-4-coordinator-dashboard.md) | Map, timeline, sensor management | Review shell in repo |
+| [4. Coordinator Dashboard](docs/plans/2026-03-21-plan-4-coordinator-dashboard.md) | Map, timeline, sensor management | Live review shell in repo |
 | [5. Mobile PWA](docs/plans/2026-03-21-plan-5-mobile-pwa.md) | Join flow, alert feed, edge sampling | Planned |
 | [6. Operations Tooling](docs/plans/2026-03-21-plan-6-operations-tooling.md) | Hotspot, evidence, tile caching | Planned |
 
@@ -224,10 +229,15 @@ full architecture, API contract, and threat-model assumptions.
 - The browser exchange turns that one-time code into a short-lived local
   `HttpOnly` cookie instead of keeping a steady-state auth token in the URL or
   in browser-managed JavaScript storage
+- The current shell stays live with a same-origin SSE stream and shows member
+  health, ingest pressure, and a relative field map based on the latest member
+  GPS fixes
 - Use `/api/intelligence/status`, `/api/intelligence/observations`,
   `/api/intelligence/findings`, `/api/intelligence/review-feed`, `/api/events`,
-  and `/api/sitreps` from the local coordinator surface to inspect live
-  runtime state and build dashboard review flows against stable query surfaces
+  `/api/sitreps`, `/api/coordinator/dashboard-state`, and
+  `/api/coordinator/dashboard-stream` from the local coordinator surface to
+  inspect live runtime state and build dashboard review flows against stable
+  query surfaces
 - Reuse the same `chunk_id`, `frame_id`, or `ingest_key` when retransmitting
   media from a reconnecting client if you want duplicate-safe local acks
 - Configure `transcriber_backend` / `vision_backend` in `~/.config/osk/config.toml`
