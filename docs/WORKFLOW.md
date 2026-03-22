@@ -91,6 +91,8 @@ Pause and review carefully when a task touches:
 
 - Auth and membership rules
 - Key handling, encryption, or wipe logic
+- Operator drills or runbooks that might overstate current wipe/install
+  guarantees
 - Privacy guarantees
 - Network transport assumptions
 - Any transplant from predecessor repositories

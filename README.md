@@ -110,6 +110,8 @@ What exists today:
   automatically mutating host networking
 - Standalone preserved-evidence commands: `osk evidence unlock`,
   `osk evidence export`, and `osk evidence destroy`
+- Read-only operator drill commands: `osk drill install` and `osk drill wipe`,
+  plus an operations drill runbook under [docs/runbooks](docs/runbooks/operations-drills.md)
 - Database migrations, coordinator auth boundary, member reconnect handling,
   and heartbeat-based stale-session cleanup
 - Early REST/WebSocket hub surface for the coordinator and member join/runtime
@@ -256,7 +258,7 @@ The initial implementation is split into six phases:
 | [3. Synthesis Layer](docs/plans/2026-03-21-plan-3-synthesis-layer.md) | Events, alerts, SitReps | Heuristic synthesis + review surfaces in repo |
 | [4. Coordinator Dashboard](docs/plans/2026-03-21-plan-4-coordinator-dashboard.md) | Map, timeline, sensor management | Live review shell in repo |
 | [5. Mobile PWA](docs/plans/2026-03-21-plan-5-mobile-pwa.md) | Join flow, alert feed, edge sampling | Join/runtime shell with alerts, GPS, queued manual reports/media, early sensor capture, and first installable/offline behavior in repo |
-| [6. Operations Tooling](docs/plans/2026-03-21-plan-6-operations-tooling.md) | Hotspot, evidence, tile caching | Tile cache CLI + standalone hotspot/evidence tools, plus hotspot-aware doctor/start guidance, in repo |
+| [6. Operations Tooling](docs/plans/2026-03-21-plan-6-operations-tooling.md) | Hotspot, evidence, tile caching | Tile cache CLI + standalone hotspot/evidence tools, hotspot-aware doctor/start guidance, and read-only install/wipe drills in repo |
 
 See the [design specification](docs/specs/2026-03-21-osk-design.md) for the
 full architecture, API contract, and threat-model assumptions.
@@ -313,6 +315,12 @@ full architecture, API contract, and threat-model assumptions.
   currently visible preserved-evidence files into a zip archive
 - Use `osk evidence destroy --yes` if you need to permanently remove the local
   preserved-evidence store
+- Use `osk drill install` for a read-only operations-focused install/start
+  report that includes Compose/runtime readiness and hotspot/join-host guidance
+- Use `osk drill wipe` for a read-only report of the current wipe boundary,
+  affected host paths, and the safe export/wipe/shutdown/destroy sequence
+- See [Operations Drills](docs/runbooks/operations-drills.md) for the current
+  operator runbook around those two commands
 - Scan the QR join link into `/join?token=...`; the hub now exchanges that
   token into a clean `HttpOnly` browser cookie and redirects back to `/join`
   without leaving the shared operation token in the visible URL

@@ -122,6 +122,19 @@ def test_parse_install() -> None:
     assert args.command == "install"
 
 
+def test_parse_drill_install() -> None:
+    args = parse_args(["drill", "install", "--json"])
+    assert args.command == "drill"
+    assert args.drill_command == "install"
+    assert args.json_output is True
+
+
+def test_parse_drill_wipe() -> None:
+    args = parse_args(["drill", "wipe"])
+    assert args.command == "drill"
+    assert args.drill_command == "wipe"
+
+
 def test_parse_config() -> None:
     args = parse_args(["config", "--set", "max_sensors=5"])
     assert args.command == "config"
@@ -313,6 +326,82 @@ def test_evidence_export_prints_summary(mock_manager_factory: MagicMock, capsys)
     assert code == 0
     assert "output_path = /tmp/export.zip" in out
     assert "file_count = 2" in out
+
+
+@patch(
+    "osk.drills.install_drill_report",
+    return_value={
+        "compose": {
+            "available": True,
+            "command": "docker compose",
+            "note": None,
+            "required": True,
+        },
+        "drill": "install",
+        "hotspot": {
+            "actions": [],
+            "ip_address": "10.42.0.1",
+            "join_host": "10.42.0.1",
+            "ssid": "osk-local",
+            "status": "active",
+            "warnings": [],
+        },
+        "install_ready": True,
+        "issues": [],
+        "next_steps": [],
+        "read_only": True,
+        "service_mode": "compose-managed local services",
+        "status": "ready",
+    },
+)
+def test_drill_install_prints_summary(mock_report: MagicMock, capsys) -> None:
+    code = main(["drill", "install"])
+    out = capsys.readouterr().out
+
+    assert code == 0
+    assert "Install drill: ready" in out
+    assert "compose_command = docker compose" in out
+    assert "hotspot = active" in out
+    mock_report.assert_called_once_with()
+
+
+@patch(
+    "osk.drills.wipe_drill_report",
+    return_value={
+        "capabilities": [
+            {
+                "available": True,
+                "details": "Wipe broadcast path is reachable.",
+                "name": "member_broadcast",
+            }
+        ],
+        "drill": "wipe",
+        "gaps": ["No integrated `osk wipe` CLI command is wired yet for the coordinator host."],
+        "hub_running": True,
+        "next_steps": ["Stop the hub to clear local operator/dashboard session files."],
+        "operation_id": "11111111-1111-1111-1111-111111111111",
+        "paths": [
+            {
+                "current_behavior": "Unmounted by the host-side emergency wipe primitive.",
+                "exists": True,
+                "label": "runtime_tmpfs",
+                "path": "/tmp/osk-runtime",
+            }
+        ],
+        "read_only": True,
+        "status": "partial",
+        "storage_backend": "luks",
+    },
+)
+def test_drill_wipe_prints_summary(mock_report: MagicMock, capsys) -> None:
+    code = main(["drill", "wipe"])
+    out = capsys.readouterr().out
+
+    assert code == 1
+    assert "Wipe drill: partial" in out
+    assert "member_broadcast: available" in out
+    assert "No integrated `osk wipe` CLI command" in out
+    mock_report.assert_called_once_with()
 
 
 @patch("osk.cli._repo_root")

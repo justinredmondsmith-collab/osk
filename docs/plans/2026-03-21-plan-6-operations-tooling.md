@@ -18,7 +18,8 @@ repo now also has conservative hotspot-aware guidance in `osk doctor` and
 `osk start`, so field-network and `join_host` mismatches are surfaced without
 automatically changing host networking. The missing work in this phase is
 deeper hub orchestration, validated wipe/install operations, and field
-validation.
+validation. The repo now also has read-only `osk drill install|wipe` reports
+to make the current install and wipe boundaries explicit.
 
 **Tech Stack:** Python, nmcli, cryptsetup, keyctl, zipfile, subprocess
 
@@ -33,9 +34,11 @@ validation.
 |---|---|
 | `src/osk/hotspot.py` | WiFi hotspot management via nmcli |
 | `src/osk/evidence.py` | Post-operation evidence viewer, exporter, destroyer |
+| `src/osk/drills.py` | Read-only install and wipe drill reports |
 | `src/osk/tiles.py` | Offline map tile download and caching |
 | `scripts/setup-sudoers.sh` | Configure sudoers.d for cryptsetup/mount commands |
 | Modify: `src/osk/cli.py` | Wire new commands (tiles, evidence subcommands) |
+| `docs/runbooks/operations-drills.md` | Current install/wipe operator runbook |
 | Modify: `src/osk/hub.py` | Surface hotspot/startup guidance and later runtime orchestration |
 | `tests/test_hotspot.py` | Hotspot management tests (mocked nmcli) |
 | `tests/test_evidence.py` | Evidence export/destroy tests |
@@ -434,6 +437,20 @@ The install function should:
 git add src/osk/hub.py tests/
 git commit -m "feat: complete install flow with GPU validation and model download"
 ```
+
+---
+
+### Current Operations Gap
+
+The repo now has read-only install and wipe drills:
+
+- `osk drill install`
+- `osk drill wipe`
+
+Those commands are intentionally conservative. They make the current install and
+wipe boundaries explicit, including partial wipe behavior and separate preserved
+evidence destruction. Keep them truthful until a single integrated wipe path is
+actually validated.
 
 ---
 

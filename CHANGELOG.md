@@ -127,6 +127,8 @@ changes manually while the project is in its early public setup phase.
   destructive cleanup flows
 - Hotspot-aware preflight/startup guidance in `osk doctor` and `osk start`,
   including `join_host` mismatch warnings and field-network next-step hints
+- Read-only `osk drill install|wipe` reports plus an operations runbook for
+  install readiness and the current partial wipe boundary
 
 ### Changed
 
@@ -193,3 +195,5 @@ changes manually while the project is in its early public setup phase.
 - Operations-tooling docs now describe the conservative hotspot-aware
   doctor/start path instead of implying that the hub silently brings host
   networking up for the operator
+- Operations docs now include explicit install/wipe drill guidance and a
+  runbook rather than leaving those paths implicit

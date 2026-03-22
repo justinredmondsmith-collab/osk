@@ -145,6 +145,75 @@ def _cmd_install(_: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_drill(args: argparse.Namespace) -> int:
+    from .drills import install_drill_report, wipe_drill_report
+
+    if args.drill_command == "install":
+        payload = install_drill_report()
+    elif args.drill_command == "wipe":
+        payload = wipe_drill_report()
+    else:
+        print("Unknown drill command.")
+        return 1
+
+    if args.json_output:
+        print(json.dumps(payload, indent=2, sort_keys=True))
+        return 0 if payload["status"] == "ready" else 1
+
+    print(f"{payload['drill'].capitalize()} drill: {payload['status']}")
+    print("Read-only: this command does not change host or browser state.")
+
+    if payload["drill"] == "install":
+        print(f"service_mode = {payload['service_mode']}")
+        print(f"install_ready = {str(payload['install_ready']).lower()}")
+        compose = payload["compose"]
+        if compose["required"]:
+            print(f"compose_available = {str(bool(compose['available'])).lower()}")
+            if compose["command"]:
+                print(f"compose_command = {compose['command']}")
+            elif compose["note"]:
+                print(f"compose_note = {compose['note']}")
+        else:
+            print("compose_required = false")
+        hotspot = payload["hotspot"]
+        print(
+            "hotspot = "
+            f"{hotspot['status']} (ssid={hotspot['ssid']}, ip={hotspot['ip_address'] or 'unknown'})"
+        )
+        print(f"join_host = {hotspot['join_host']}")
+        if payload["issues"]:
+            print("Issues:")
+            for issue in payload["issues"]:
+                print(f"- {issue}")
+        if hotspot["warnings"]:
+            print("Field network guidance:")
+            for warning in hotspot["warnings"]:
+                print(f"- {warning}")
+    else:
+        print(f"hub_running = {str(payload['hub_running']).lower()}")
+        print(f"storage_backend = {payload['storage_backend']}")
+        print("Current capabilities:")
+        for capability in payload["capabilities"]:
+            availability = "available" if capability["available"] else "not_available"
+            print(f"- {capability['name']}: {availability} — {capability['details']}")
+        print("Host paths:")
+        for path_entry in payload["paths"]:
+            exists = "present" if path_entry["exists"] else "missing"
+            print(f"- {path_entry['label']}: {exists} ({path_entry['path']})")
+            print(f"  current_behavior = {path_entry['current_behavior']}")
+        if payload["gaps"]:
+            print("Known gaps:")
+            for gap in payload["gaps"]:
+                print(f"- {gap}")
+
+    if payload["next_steps"]:
+        print("Next steps:")
+        for step in payload["next_steps"]:
+            print(f"- {step}")
+
+    return 0 if payload["status"] == "ready" else 1
+
+
 def _cmd_start(args: argparse.Namespace) -> int:
     from .hub import run_hub_sync
 
@@ -523,6 +592,36 @@ def build_parser() -> argparse.ArgumentParser:
         "install", help="Install local prerequisites and assets."
     )
     install_parser.set_defaults(func=_cmd_install)
+
+    drill_parser = subparsers.add_parser(
+        "drill",
+        help="Run a read-only install or wipe drill report.",
+    )
+    drill_sub = drill_parser.add_subparsers(dest="drill_command")
+
+    drill_install = drill_sub.add_parser(
+        "install",
+        help="Report install/start readiness and operator next steps.",
+    )
+    drill_install.add_argument(
+        "--json",
+        dest="json_output",
+        action="store_true",
+        help="Emit machine-readable JSON output.",
+    )
+    drill_install.set_defaults(func=_cmd_drill)
+
+    drill_wipe = drill_sub.add_parser(
+        "wipe",
+        help="Report the current wipe boundary and cleanup runbook.",
+    )
+    drill_wipe.add_argument(
+        "--json",
+        dest="json_output",
+        action="store_true",
+        help="Emit machine-readable JSON output.",
+    )
+    drill_wipe.set_defaults(func=_cmd_drill)
 
     start_parser = subparsers.add_parser("start", help="Start an operation.")
     start_parser.add_argument("name", help="Operation name")

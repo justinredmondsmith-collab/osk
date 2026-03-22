@@ -46,6 +46,8 @@ The repository now includes:
   mutating host networking
 - A standalone preserved-evidence slice:
   `osk evidence unlock|export|destroy`
+- Read-only operator drill reports:
+  `osk drill install|wipe`
 - A thin member join/runtime shell under `src/osk/templates/join.html`,
   `src/osk/templates/member.html`, and `src/osk/static/member.*`; it now uses
   a clean cookie-backed join flow so the shared operation token is not kept in
@@ -172,6 +174,18 @@ Export the currently visible preserved-evidence mount into a zip:
 osk evidence export --output osk-evidence-export.zip
 ```
 
+Run the read-only install or wipe drills:
+
+```bash
+osk drill install
+osk drill wipe
+```
+
+The drill outputs are also documented in
+[docs/runbooks/operations-drills.md](docs/runbooks/operations-drills.md). Keep
+that runbook aligned with the actual CLI behavior when you change operational
+cleanup or install/start semantics.
+
 ## Contribution Rules
 
 ### Documentation and Design Changes
@@ -232,6 +246,9 @@ Code contributions should:
 - Keep host-network changes explicit: if you extend hotspot/startup behavior,
   prefer operator-visible guidance and opt-in actions over silent network
   mutation unless the design/spec is explicitly updated to make that automatic
+- Keep wipe semantics brutally accurate: if a cleanup path is only partial,
+  disconnected clients miss it, or preserved evidence requires a separate
+  destroy step, the docs and drill outputs should say that plainly
 - Keep browser media capture modular: add mic/camera/client-side analysis work
   behind dedicated static modules instead of folding codec/capture logic
   directly into the main member runtime script
