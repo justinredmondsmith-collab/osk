@@ -330,6 +330,8 @@ full architecture, API contract, and threat-model assumptions.
   cookies, IndexedDB outbox state, and the cached member-shell registration
   when they receive a live wipe or `op_ended` message, but disconnected
   browsers remain outside that live broadcast path
+- Reopening `/member` after the browser has lost its valid member session now
+  self-clears stale local member state before returning to `/join`
 - Use `osk drill install` for a read-only operations-focused install/start
   report that includes Compose/runtime readiness and hotspot/join-host guidance
 - Use `osk drill wipe` for a read-only report of the current wipe boundary,

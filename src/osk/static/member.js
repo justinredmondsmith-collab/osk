@@ -2219,8 +2219,7 @@
   async function initializeMemberPage() {
     const session = await fetchMemberSession();
     if (!session) {
-      clearLocalMemberState();
-      window.location.href = bootstrap.paths.join_page;
+      await clearMemberSession();
       return;
     }
     state.session = session;

@@ -136,6 +136,9 @@ changes manually while the project is in its early public setup phase.
   browser data, waits on service-worker cache clear where possible, and
   unregisters the cached member-shell registration before falling back to a
   local cleared screen
+- Stale `/member` reload hardening: browsers that reopen the member shell
+  without a valid member session now self-clear local member state before
+  returning to `/join`
 
 ### Changed
 

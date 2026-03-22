@@ -61,7 +61,9 @@ The repository now includes:
   per-item review controls, bounded sensor-side reconnect buffering for recent
   audio/key-frame capture, and a first manifest/service-worker/installable
   offline PWA layer whose current leave/wipe path clears queued browser state
-  and unregisters the cached member shell on the connected device
+  and unregisters the cached member shell on the connected device; stale
+  `/member` reloads now also self-clear browser state before returning to
+  `/join`
 - A manual browser/device smoke helper at `scripts/member_shell_smoke.py` for
   testing the member shell against a disposable mocked hub outside CI/sandboxed
   environments
