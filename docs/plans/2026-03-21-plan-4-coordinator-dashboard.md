@@ -6,6 +6,8 @@
 
 **Architecture:** Single-page Jinja2 template with vanilla JS. WebSocket connection for real-time updates. Leaflet.js for the map with offline tile support. No framework build step — follows bodycam-summarizer's pattern of a monolithic dashboard.html with inline JS.
 
+**Current state:** A thinner review-focused coordinator shell now exists at `/coordinator`, backed by the local review/feed APIs and served with static HTML/CSS/JS. The tasks below describe the fuller dashboard target beyond that shell.
+
 **Tech Stack:** HTML, vanilla JS, Leaflet.js, Jinja2, WebSocket API
 
 **Spec:** `docs/specs/2026-03-21-osk-design.md` — "Coordinator Dashboard" section

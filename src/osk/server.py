@@ -8,9 +8,11 @@ import ipaddress
 import json
 import logging
 import uuid
+from pathlib import Path
 
 from fastapi import FastAPI, Query, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from osk.connection_manager import ConnectionManager
@@ -44,6 +46,10 @@ MAX_FINDING_LIMIT = 100
 MAX_REVIEW_FEED_LIMIT = 200
 MAX_SITREP_LIMIT = 100
 VALID_REVIEW_FEED_TYPES = {"finding", "event", "sitrep"}
+PACKAGE_ROOT = Path(__file__).resolve().parent
+STATIC_ROOT = PACKAGE_ROOT / "static"
+TEMPLATE_ROOT = PACKAGE_ROOT / "templates"
+COORDINATOR_TEMPLATE_PATH = TEMPLATE_ROOT / "coordinator.html"
 
 
 class ReportRequest(BaseModel):
@@ -77,6 +83,16 @@ def _extract_admin_token(request: Request) -> str | None:
     return None
 
 
+def _extract_dashboard_token(request: Request) -> str | None:
+    if token := _extract_admin_token(request):
+        return token
+
+    query_token = str(request.query_params.get("token") or "").strip()
+    if query_token:
+        return query_token
+    return None
+
+
 def _is_loopback_host(host: str | None) -> bool:
     if host is None:
         return False
@@ -86,6 +102,15 @@ def _is_loopback_host(host: str | None) -> bool:
         return ipaddress.ip_address(host).is_loopback
     except ValueError:
         return False
+
+
+def _validate_local_admin_token(token: str, op_manager: OperationManager) -> bool:
+    operation = op_manager.operation
+    if operation is None:
+        return False
+    if validate_operator_session(token, str(operation.id)):
+        return True
+    return op_manager.validate_coordinator_token(token)
 
 
 def _require_local_admin(request: Request, op_manager: OperationManager) -> JSONResponse | None:
@@ -102,9 +127,7 @@ def _require_local_admin(request: Request, op_manager: OperationManager) -> JSON
                 status_code=401,
                 headers={"WWW-Authenticate": "Bearer"},
             )
-        if validate_operator_session(token, str(operation.id)):
-            return None
-        if op_manager.validate_coordinator_token(token):
+        if _validate_local_admin_token(token, op_manager):
             return None
 
         logger.warning("Rejected admin request with invalid local credentials from %s", client_host)
@@ -112,6 +135,12 @@ def _require_local_admin(request: Request, op_manager: OperationManager) -> JSON
 
     logger.warning("Rejected non-local admin request from %s", client_host)
     return JSONResponse({"error": "Local coordinator access only"}, status_code=403)
+
+
+def _render_coordinator_dashboard(bootstrap: dict[str, object]) -> str:
+    template = COORDINATOR_TEMPLATE_PATH.read_text()
+    bootstrap_json = json.dumps(bootstrap, sort_keys=True).replace("<", "\\u003c")
+    return template.replace("__OSK_DASHBOARD_BOOTSTRAP__", bootstrap_json)
 
 
 def _member_priority(role: MemberRole) -> IngestPriority:
@@ -286,6 +315,7 @@ def create_app(
 ) -> FastAPI:
     app = FastAPI(title="Osk Hub", docs_url=None, redoc_url=None)
     app.state.intelligence_service = intelligence_service
+    app.mount("/static", StaticFiles(directory=str(STATIC_ROOT)), name="static")
 
     @app.get("/join")
     async def join_page(token: str = Query(...)):
@@ -300,6 +330,50 @@ def create_app(
             f"<p>Join: {name}</p>"
             f"<script>sessionStorage.setItem('osk_token','{token}');</script>"
             "</body></html>"
+        )
+
+    @app.get("/coordinator")
+    async def coordinator_dashboard(request: Request):
+        client_host = request.client.host if request.client else None
+        if not _is_loopback_host(client_host):
+            return JSONResponse({"error": "Local coordinator access only"}, status_code=403)
+
+        operation = op_manager.operation
+        if operation is None:
+            return JSONResponse({"error": "No active operation"}, status_code=503)
+
+        token = _extract_dashboard_token(request)
+        if token is None:
+            return JSONResponse(
+                {"error": "Missing operator credentials"},
+                status_code=401,
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        if not _validate_local_admin_token(token, op_manager):
+            return JSONResponse({"error": "Invalid operator credentials"}, status_code=403)
+
+        bootstrap = {
+            "api_token": token,
+            "operation": {
+                "id": str(operation.id),
+                "name": operation.name,
+                "started_at": operation.started_at.isoformat().replace("+00:00", "Z"),
+            },
+            "paths": {
+                "operation_status": "/api/operation/status",
+                "intelligence_status": "/api/intelligence/status",
+                "review_feed": "/api/intelligence/review-feed",
+                "findings": "/api/intelligence/findings",
+                "events": "/api/events",
+                "members": "/api/members",
+                "latest_sitrep": "/api/sitrep/latest",
+                "sitreps": "/api/sitreps",
+            },
+            "poll_interval_ms": 10000,
+        }
+        return HTMLResponse(
+            _render_coordinator_dashboard(bootstrap),
+            headers={"Cache-Control": "no-store"},
         )
 
     @app.get("/api/operation/status")

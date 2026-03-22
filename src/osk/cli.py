@@ -196,6 +196,12 @@ def _cmd_logs(args: argparse.Namespace) -> int:
     return show_runtime_logs(tail=args.tail)
 
 
+def _cmd_dashboard(args: argparse.Namespace) -> int:
+    from .hub import show_dashboard_url
+
+    return show_dashboard_url(json_output=args.json_output)
+
+
 def _cmd_members(args: argparse.Namespace) -> int:
     from .hub import show_members
 
@@ -408,6 +414,18 @@ def build_parser() -> argparse.ArgumentParser:
         help="Number of log lines to display.",
     )
     logs_parser.set_defaults(func=_cmd_logs)
+
+    dashboard_parser = subparsers.add_parser(
+        "dashboard",
+        help="Print the local coordinator dashboard URL.",
+    )
+    dashboard_parser.add_argument(
+        "--json",
+        dest="json_output",
+        action="store_true",
+        help="Emit machine-readable JSON output.",
+    )
+    dashboard_parser.set_defaults(func=_cmd_dashboard)
 
     members_parser = subparsers.add_parser("members", help="Show current operation members.")
     members_parser.add_argument(

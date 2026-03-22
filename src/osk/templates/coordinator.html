@@ -1,0 +1,204 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="referrer" content="no-referrer" />
+    <title>Osk Coordinator Review</title>
+    <link rel="stylesheet" href="/static/dashboard.css" />
+  </head>
+  <body>
+    <div class="shell">
+      <header class="topbar">
+        <div class="topbar__identity boot-sequence">
+          <p class="eyebrow">Osk Coordinator Review</p>
+          <h1 id="operation-name">Loading operation</h1>
+          <p class="subtle" id="operation-subtitle">
+            Local review shell for findings, events, and SitReps.
+          </p>
+        </div>
+        <div class="topbar__status boot-sequence boot-sequence--delayed">
+          <div class="status-cluster">
+            <span class="status-dot" id="connection-indicator"></span>
+            <span id="connection-label">Connecting</span>
+          </div>
+          <div class="metric-strip">
+            <div>
+              <span class="metric-label">Started</span>
+              <span class="metric-value" id="started-at">--</span>
+            </div>
+            <div>
+              <span class="metric-label">Uptime</span>
+              <span class="metric-value" id="uptime">--</span>
+            </div>
+            <div>
+              <span class="metric-label">Refresh</span>
+              <span class="metric-value" id="refresh-label">Manual</span>
+            </div>
+          </div>
+          <button class="ghost-button" id="refresh-button" type="button">Refresh</button>
+        </div>
+      </header>
+
+      <main class="workspace">
+        <section class="feed-pane panel boot-sequence boot-sequence--delayed">
+          <div class="panel-head">
+            <div>
+              <p class="eyebrow">Review Feed</p>
+              <h2>Timeline</h2>
+            </div>
+            <div class="panel-meta">
+              <span id="feed-count">0 items</span>
+              <span id="last-sync">Not synced</span>
+            </div>
+          </div>
+
+          <form class="filter-bar" id="filter-form">
+            <fieldset class="type-toggle">
+              <legend>Include</legend>
+              <label><input type="checkbox" name="include" value="finding" checked /> Findings</label>
+              <label><input type="checkbox" name="include" value="event" checked /> Events</label>
+              <label><input type="checkbox" name="include" value="sitrep" checked /> SitReps</label>
+            </fieldset>
+
+            <label class="filter-field">
+              <span>Status</span>
+              <select name="status" id="filter-status">
+                <option value="">All</option>
+                <option value="open">Open</option>
+                <option value="acknowledged">Acknowledged</option>
+                <option value="resolved">Resolved</option>
+              </select>
+            </label>
+
+            <label class="filter-field">
+              <span>Severity</span>
+              <select name="severity" id="filter-severity">
+                <option value="">All</option>
+                <option value="info">Info</option>
+                <option value="advisory">Advisory</option>
+                <option value="warning">Warning</option>
+                <option value="critical">Critical</option>
+              </select>
+            </label>
+
+            <label class="filter-field">
+              <span>Category</span>
+              <select name="category" id="filter-category">
+                <option value="">All</option>
+                <option value="crowd_movement">Crowd movement</option>
+                <option value="police_action">Police action</option>
+                <option value="blocked_route">Blocked route</option>
+                <option value="escalation">Escalation</option>
+                <option value="medical">Medical</option>
+                <option value="weather">Weather</option>
+                <option value="community">Community</option>
+                <option value="manual_report">Manual report</option>
+              </select>
+            </label>
+          </form>
+
+          <div class="status-banner" id="feed-banner" hidden></div>
+          <div class="timeline" id="review-feed" aria-live="polite"></div>
+        </section>
+
+        <section class="detail-pane panel boot-sequence boot-sequence--more">
+          <div class="panel-head">
+            <div>
+              <p class="eyebrow">Selected Item</p>
+              <h2 id="detail-title">Waiting for data</h2>
+            </div>
+            <div class="panel-meta" id="detail-meta">Choose a finding, event, or SitRep.</div>
+          </div>
+
+          <div class="detail-stage" id="detail-stage">
+            <div class="empty-state">
+              <p>Select a review item to inspect its context and triage controls.</p>
+            </div>
+          </div>
+
+          <div class="action-bar" id="finding-actions" hidden>
+            <button class="action-button" data-finding-action="acknowledge" type="button">
+              Acknowledge
+            </button>
+            <button class="action-button" data-finding-action="resolve" type="button">
+              Resolve
+            </button>
+            <button class="action-button" data-finding-action="reopen" type="button">
+              Reopen
+            </button>
+            <button class="action-button action-button--critical" data-finding-action="escalate" type="button">
+              Escalate
+            </button>
+          </div>
+
+          <form class="note-form" id="finding-note-form" hidden>
+            <label for="finding-note-input">Coordinator note</label>
+            <textarea
+              id="finding-note-input"
+              name="note"
+              rows="3"
+              placeholder="Record disposition, route call, or follow-up guidance."
+            ></textarea>
+            <div class="note-form__actions">
+              <span class="subtle" id="note-status">Notes are attached to the selected finding.</span>
+              <button class="ghost-button" type="submit">Add note</button>
+            </div>
+          </form>
+        </section>
+
+        <aside class="context-pane panel boot-sequence boot-sequence--more">
+          <div class="panel-head">
+            <div>
+              <p class="eyebrow">Context</p>
+              <h2>Current Pulse</h2>
+            </div>
+          </div>
+
+          <section class="context-block">
+            <h3>Operation</h3>
+            <dl class="metric-grid" id="operation-metrics">
+              <div>
+                <dt>Members</dt>
+                <dd id="metric-members">--</dd>
+              </div>
+              <div>
+                <dt>Sensors</dt>
+                <dd id="metric-sensors">--</dd>
+              </div>
+              <div>
+                <dt>Connected</dt>
+                <dd id="metric-connected">--</dd>
+              </div>
+            </dl>
+          </section>
+
+          <section class="context-block">
+            <h3>Latest SitRep</h3>
+            <div class="context-copy" id="latest-sitrep">No situation reports yet.</div>
+          </section>
+
+          <section class="context-block">
+            <h3>Pipeline</h3>
+            <div class="stack-list" id="pipeline-status">
+              <div class="stack-row"><span>Transcriber</span><strong>--</strong></div>
+              <div class="stack-row"><span>Vision</span><strong>--</strong></div>
+              <div class="stack-row"><span>Location</span><strong>--</strong></div>
+              <div class="stack-row"><span>Synthesizer</span><strong>--</strong></div>
+            </div>
+          </section>
+
+          <section class="context-block">
+            <h3>Selection Echo</h3>
+            <div class="context-copy" id="selection-echo">
+              The detail pane tracks the current feed selection and refreshes against the live API.
+            </div>
+          </section>
+        </aside>
+      </main>
+    </div>
+
+    <script id="osk-dashboard-bootstrap" type="application/json">__OSK_DASHBOARD_BOOTSTRAP__</script>
+    <script src="/static/dashboard.js" defer></script>
+  </body>
+</html>

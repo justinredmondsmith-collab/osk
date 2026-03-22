@@ -15,8 +15,9 @@ situations where shared awareness matters.
 > compressed audio decode for Whisper mode, duplicate-safe media resubmission
 > hooks, persisted ingest receipts for restart-safe duplicate detection, and a
 > heuristic synthesis layer with reviewable findings, corroboration, sitrep
-> output, and coordinator triage actions. Full dashboard and mobile product
-> work are still planned.
+> output, coordinator triage actions, and a thin local coordinator review shell
+> served by FastAPI. The fuller map/live dashboard and mobile product work are
+> still planned.
 
 ## At a Glance
 
@@ -78,6 +79,7 @@ What exists today:
   `osk stop`
 - Local operator flow: `osk operator login`, `osk operator status`, and
   `osk operator logout`
+- Local dashboard access command: `osk dashboard`
 - Local observability commands: `osk audit`, `osk logs`, `osk members`, and
   `osk findings`
 - Local mixed review feed and correlation commands: `osk review`,
@@ -104,6 +106,8 @@ What exists today:
   acknowledge/resolve/escalate/note actions, and local admin retrieval for
   recent observations, filtered review feeds, sitreps, events, finding
   correlations, and findings
+- Local coordinator review shell at `/coordinator`, backed by the existing
+  admin APIs and served with static CSS/JS from the hub
 - `ffmpeg`-backed decode path for compressed audio uploads such as WebM/Ogg
   when using the real Whisper backend
 
@@ -112,7 +116,9 @@ What is still missing:
 - Higher-quality synthesis beyond the current heuristic correlation model
 - Production-grade media ingest, including broader client compatibility and
   stronger end-to-end resend/session semantics across restarts
-- Coordinator dashboard and mobile PWA user experience
+- Full coordinator dashboard experience, including live map, richer transport,
+  and broader review workflows beyond the current shell
+- Mobile PWA user experience
 - Validated wipe timing and production-grade evidence/export tooling
 
 ## Planned Operating Model
@@ -191,7 +197,7 @@ The initial implementation is split into six phases:
 | [1. Core Hub + Connection](docs/plans/2026-03-21-plan-1-core-hub-connection.md) | Scaffolding, models, DB, auth, server, CLI | Foundational runtime in repo |
 | [2. Intelligence Pipeline](docs/plans/2026-03-21-plan-2-intelligence-pipeline.md) | Whisper, vision, ingest queues, location engine | Live ingest + persistence bridge in repo |
 | [3. Synthesis Layer](docs/plans/2026-03-21-plan-3-synthesis-layer.md) | Events, alerts, SitReps | Planned |
-| [4. Coordinator Dashboard](docs/plans/2026-03-21-plan-4-coordinator-dashboard.md) | Map, timeline, sensor management | Planned |
+| [4. Coordinator Dashboard](docs/plans/2026-03-21-plan-4-coordinator-dashboard.md) | Map, timeline, sensor management | Review shell in repo |
 | [5. Mobile PWA](docs/plans/2026-03-21-plan-5-mobile-pwa.md) | Join flow, alert feed, edge sampling | Planned |
 | [6. Operations Tooling](docs/plans/2026-03-21-plan-6-operations-tooling.md) | Hotspot, evidence, tile caching | Planned |
 
@@ -205,9 +211,12 @@ full architecture, API contract, and threat-model assumptions.
 - Run `PYTHONPATH=src python -m osk doctor --json` locally, or `osk doctor --json`
   after installing the package
 - Use `osk status`, `osk operator status`, `osk audit`, `osk members`,
-  `osk findings`, `osk review`, and `osk logs` to inspect the local foundation runtime
+  `osk findings`, `osk review`, `osk dashboard`, and `osk logs` to inspect the
+  local foundation runtime
 - Use `osk finding show|acknowledge|resolve|reopen|escalate|correlations|note`
-  to triage one reviewable finding locally before any dashboard exists
+  to triage one reviewable finding locally before the fuller dashboard lands
+- Run `osk operator login`, then `osk dashboard`, to open the local
+  coordinator review shell in a browser
 - Use `/api/intelligence/status`, `/api/intelligence/observations`,
   `/api/intelligence/findings`, `/api/intelligence/review-feed`, `/api/events`,
   and `/api/sitreps` from the local coordinator surface to inspect live

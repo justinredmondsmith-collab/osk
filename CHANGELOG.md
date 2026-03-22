@@ -72,6 +72,8 @@ changes manually while the project is in its early public setup phase.
   review-feed queries across findings/events/sitreps, finding reopen and
   correlation flows, and local `osk review` / `osk finding reopen|correlations`
   commands
+- Thin coordinator review shell: local `/coordinator` UI, static dashboard
+  assets, and `osk dashboard` for printing a session-backed local review URL
 
 ### Changed
 
@@ -92,3 +94,5 @@ changes manually while the project is in its early public setup phase.
   that restart-safe ingest dedupe is persisted rather than memory-only
 - Docs now call out the stable coordinator review/query surfaces intended to
   support the next dashboard phase
+- Docs now distinguish the review-focused coordinator shell from the still
+  planned fuller dashboard experience

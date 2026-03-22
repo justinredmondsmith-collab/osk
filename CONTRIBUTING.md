@@ -15,6 +15,7 @@ The repository now includes:
 - Basic tests under `tests/`
 - A lightweight GitHub Actions CI workflow
 - Local hub runtime commands (`install`, `start`, `status`, `stop`)
+- Local dashboard URL command (`dashboard`)
 - Local operator and observability commands (`operator`, `audit`, `logs`,
   `members`, `findings`, `review`)
 - Local finding review commands (`finding show`, `finding acknowledge`,
@@ -26,9 +27,11 @@ The repository now includes:
   compressed audio decode, durable ingest receipts for restart-safe dedupe, and
   a heuristic synthesis layer with corroboration, sitrep output, and
   coordinator review actions
+- A thin local coordinator review shell served from FastAPI with static
+  HTML/CSS/JS under `src/osk/templates/` and `src/osk/static/`
 
 The repository does **not** yet contain the full intelligence pipeline,
-synthesis layer, coordinator dashboard, or mobile client described in the
+synthesis layer, full coordinator dashboard, or mobile client described in the
 design documents.
 
 That means the most useful contributions right now are:

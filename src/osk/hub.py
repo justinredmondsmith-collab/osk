@@ -14,7 +14,7 @@ import subprocess
 import time
 import uuid
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import quote, urlparse
 
 import asyncpg
 import uvicorn
@@ -1205,6 +1205,44 @@ def show_members(*, json_output: bool = False) -> int:
             f"heartbeat={member['heartbeat_state']} last_seen={member['last_seen_at']}"
             f"{coords} id={member['id']}"
         )
+    return 0
+
+
+def show_dashboard_url(*, json_output: bool = False) -> int:
+    state = read_hub_state()
+    if state is None:
+        print("No running Osk hub state found.")
+        return 1
+
+    operation_id = str(state.get("operation_id", "")).strip()
+    port = state.get("port")
+    if not operation_id or not port:
+        print("Hub state is missing operation or port metadata.")
+        return 1
+
+    session = read_operator_session()
+    if session is None or session.get("operation_id") != operation_id:
+        print("No active local operator session. Run `osk operator login` first.")
+        return 1
+
+    session_token = session.get("token")
+    if not isinstance(session_token, str) or not session_token.strip():
+        print("Operator session file is invalid.")
+        return 1
+
+    url = f"https://127.0.0.1:{port}/coordinator?token={quote(session_token, safe='')}"
+    payload = {
+        "operation_id": operation_id,
+        "operation_name": state.get("operation_name"),
+        "url": url,
+        "operator_session_expires_at": session.get("expires_at"),
+    }
+
+    if json_output:
+        print(json.dumps(payload, indent=2, sort_keys=True))
+        return 0
+
+    print(url)
     return 0
 
 

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import datetime as dt
+import json
 import signal
 from pathlib import Path
 from types import SimpleNamespace
@@ -663,6 +664,36 @@ def test_show_findings_formats_rows(mock_asyncio_run: MagicMock, tmp_path: Path,
     assert "Police Action" in out
     assert "corroborated" in out
     assert "severity=warning" in out
+
+
+@patch("osk.hub.read_operator_session")
+def test_show_dashboard_url_formats_link(
+    mock_read_operator_session: MagicMock, tmp_path: Path, capsys
+) -> None:
+    mock_read_operator_session.return_value = {
+        "operation_id": "11111111-1111-1111-1111-111111111111",
+        "token": "session-token",
+        "expires_at": "2026-03-21T19:30:00Z",
+    }
+
+    with patch("osk.hub._config_root", return_value=tmp_path):
+        (tmp_path / "hub-state.json").write_text(
+            json.dumps(
+                {
+                    "operation_id": "11111111-1111-1111-1111-111111111111",
+                    "operation_name": "March",
+                    "port": 18443,
+                }
+            )
+            + "\n"
+        )
+        from osk.hub import show_dashboard_url
+
+        code = show_dashboard_url()
+
+    out = capsys.readouterr().out
+    assert code == 0
+    assert "https://127.0.0.1:18443/coordinator?token=session-token" in out
 
 
 @patch("osk.hub.asyncio.run")

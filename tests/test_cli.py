@@ -77,6 +77,12 @@ def test_parse_logs() -> None:
     assert args.tail == 25
 
 
+def test_parse_dashboard() -> None:
+    args = parse_args(["dashboard", "--json"])
+    assert args.command == "dashboard"
+    assert args.json_output is True
+
+
 def test_parse_members() -> None:
     args = parse_args(["members", "--json"])
     assert args.command == "members"
@@ -318,6 +324,13 @@ def test_logs_command_invokes_hub_helper(mock_show_runtime_logs: MagicMock) -> N
     code = main(["logs", "--tail", "25"])
     assert code == 0
     mock_show_runtime_logs.assert_called_once_with(tail=25)
+
+
+@patch("osk.hub.show_dashboard_url", return_value=0)
+def test_dashboard_command_invokes_hub_helper(mock_show_dashboard_url: MagicMock) -> None:
+    code = main(["dashboard", "--json"])
+    assert code == 0
+    mock_show_dashboard_url.assert_called_once_with(json_output=True)
 
 
 @patch("osk.hub.show_members", return_value=0)
