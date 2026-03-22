@@ -8,9 +8,15 @@ from osk.config import OskConfig, load_config, save_config
 def test_default_config() -> None:
     cfg = OskConfig()
     assert cfg.max_sensors == 10
+    assert cfg.transcriber_backend == "fake"
     assert cfg.whisper_model == "small"
+    assert cfg.vision_backend == "fake"
     assert cfg.sitrep_interval_minutes == 10
     assert cfg.alert_cooldown_seconds == 60
+    assert cfg.audio_queue_size == 128
+    assert cfg.frame_queue_size == 64
+    assert cfg.frame_queue_depth_per_member == 4
+    assert cfg.intelligence_recent_observation_limit == 25
     assert cfg.frame_change_threshold == 0.15
     assert cfg.observer_clip_rate_limit == 3
     assert cfg.luks_volume_size_gb == 1
@@ -24,12 +30,19 @@ def test_load_missing_config(tmp_path: Path) -> None:
 
 
 def test_save_and_load_config(tmp_path: Path) -> None:
-    cfg = OskConfig(max_sensors=5, whisper_model="tiny")
+    cfg = OskConfig(
+        max_sensors=5,
+        transcriber_backend="whisper",
+        whisper_model="tiny",
+        vision_backend="ollama",
+    )
     path = tmp_path / "config.toml"
     save_config(cfg, path)
     loaded = load_config(path)
     assert loaded.max_sensors == 5
+    assert loaded.transcriber_backend == "whisper"
     assert loaded.whisper_model == "tiny"
+    assert loaded.vision_backend == "ollama"
 
 
 def test_config_partial_file(tmp_path: Path) -> None:
@@ -37,4 +50,5 @@ def test_config_partial_file(tmp_path: Path) -> None:
     path.write_text("max_sensors = 3\n")
     cfg = load_config(path)
     assert cfg.max_sensors == 3
+    assert cfg.transcriber_backend == "fake"
     assert cfg.whisper_model == "small"

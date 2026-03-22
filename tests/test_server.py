@@ -61,8 +61,29 @@ def mock_conn_mgr() -> MagicMock:
 
 
 @pytest.fixture
-def app(mock_op_manager: MagicMock, mock_conn_mgr: MagicMock, mock_db: MagicMock):
-    app = create_app(op_manager=mock_op_manager, conn_manager=mock_conn_mgr, db=mock_db)
+def mock_intelligence_service() -> MagicMock:
+    service = MagicMock()
+    service.snapshot.return_value = {
+        "running": True,
+        "transcriber": {"backend": "fake"},
+        "vision": {"backend": "fake"},
+    }
+    return service
+
+
+@pytest.fixture
+def app(
+    mock_op_manager: MagicMock,
+    mock_conn_mgr: MagicMock,
+    mock_db: MagicMock,
+    mock_intelligence_service: MagicMock,
+):
+    app = create_app(
+        op_manager=mock_op_manager,
+        conn_manager=mock_conn_mgr,
+        db=mock_db,
+        intelligence_service=mock_intelligence_service,
+    )
     app.state.mock_operation = mock_op_manager.operation
     return app
 
@@ -149,6 +170,35 @@ def test_list_members(client: TestClient) -> None:
     resp = client.get("/api/members")
     assert resp.status_code == 200
     assert isinstance(resp.json(), list)
+
+
+def test_intelligence_status(client: TestClient, mock_intelligence_service: MagicMock) -> None:
+    resp = client.get("/api/intelligence/status")
+    assert resp.status_code == 200
+    assert resp.json()["running"] is True
+    mock_intelligence_service.snapshot.assert_called_once_with()
+
+
+def test_intelligence_status_rejects_remote_client(remote_client: TestClient) -> None:
+    resp = remote_client.get("/api/intelligence/status")
+    assert resp.status_code == 403
+
+
+def test_intelligence_status_reports_missing_service(
+    mock_op_manager: MagicMock,
+    mock_conn_mgr: MagicMock,
+    mock_db: MagicMock,
+) -> None:
+    app = create_app(op_manager=mock_op_manager, conn_manager=mock_conn_mgr, db=mock_db)
+    client = TestClient(
+        app,
+        headers={"X-Osk-Coordinator-Token": mock_op_manager.operation.coordinator_token},
+    )
+
+    resp = client.get("/api/intelligence/status")
+
+    assert resp.status_code == 503
+    assert resp.json()["error"] == "Intelligence service is not configured"
 
 
 def test_list_audit_events(client: TestClient, mock_db: MagicMock) -> None:

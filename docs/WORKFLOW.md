@@ -50,7 +50,7 @@ Before merging, confirm:
 The repo now has enough Phase 1 foundation to start Phase 2 work, but the next
 stage should still stay disciplined:
 
-- Start with ingest contracts and fake adapters before real model runtimes
+- Keep fake and real adapters behind the same owned service boundary
 - Add operator-visible diagnostics for new subsystems when practical
 - Keep Whisper/Ollama calls behind explicit interfaces rather than wiring them
   directly into route or WebSocket handlers
@@ -60,15 +60,13 @@ stage should still stay disciplined:
 
 For the next implementation stage, follow this order:
 
-1. Ingest contracts and fake adapters
-2. Audio queue and transcriber interface
-3. Frame queue and vision interface
-4. Location engine
-5. Real model runtimes
-6. Synthesis layer
-7. Coordinator dashboard
-8. Mobile client
-9. Operations tooling
+1. Queue and service boundaries
+2. Live member ingest wiring
+3. Location engine
+4. Observation persistence and synthesis layer
+5. Coordinator dashboard
+6. Mobile client
+7. Operations tooling
 
 ## When To Require Extra Human Attention
 

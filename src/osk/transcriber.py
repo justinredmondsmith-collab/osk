@@ -134,6 +134,16 @@ class WhisperTranscriber:
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(None, self._transcribe_sync, chunk)
 
+    def status(self) -> dict[str, Any]:
+        return {
+            "adapter": "whisper-local",
+            "beam_size": self.beam_size,
+            "best_of": self.best_of,
+            "model_size": self.runtime_manager.model_size,
+            "runtime": self.runtime_manager.status(),
+            "vad_filter": self.vad_filter,
+        }
+
     def _transcribe_sync(self, chunk: AudioChunk):
         audio = self.decoder(chunk)
         prompt_parts = []

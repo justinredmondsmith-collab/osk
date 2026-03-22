@@ -58,6 +58,13 @@ class FakeTranscriber:
         self._scripted_text = dict(scripted_text or {})
         self._dropped_chunk_ids = {uuid.UUID(str(chunk_id)) for chunk_id in dropped_chunk_ids}
 
+    def status(self) -> dict[str, object]:
+        return {
+            "adapter": "fake-transcriber",
+            "scripted_chunks": len(self._scripted_text),
+            "dropped_chunks": len(self._dropped_chunk_ids),
+        }
+
     async def transcribe(self, chunk: AudioChunk) -> TranscriptResult | None:
         if chunk.chunk_id in self._dropped_chunk_ids:
             return None
@@ -95,6 +102,13 @@ class FakeVisionAnalyzer:
             for frame_id, (summary, tags) in (scripted_results or {}).items()
         }
         self._dropped_frame_ids = {uuid.UUID(str(frame_id)) for frame_id in dropped_frame_ids}
+
+    def status(self) -> dict[str, object]:
+        return {
+            "adapter": "fake-vision",
+            "scripted_frames": len(self._scripted_results),
+            "dropped_frames": len(self._dropped_frame_ids),
+        }
 
     async def analyze(self, frame: FrameSample) -> VisionResult | None:
         if frame.frame_id in self._dropped_frame_ids:

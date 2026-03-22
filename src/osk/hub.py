@@ -22,6 +22,7 @@ import uvicorn
 from osk.config import OskConfig, load_config, save_config
 from osk.connection_manager import ConnectionManager
 from osk.db import Database
+from osk.intelligence_service import IntelligenceService
 from osk.local_operator import (
     bootstrap_session_path,
     clear_bootstrap_session,
@@ -479,6 +480,7 @@ async def run_hub(name: str) -> None:
     db_connected = False
     db = Database()
     conn_manager = ConnectionManager()
+    intelligence_service: IntelligenceService | None = None
     op_manager: OperationManager | None = None
 
     try:
@@ -496,6 +498,8 @@ async def run_hub(name: str) -> None:
 
         op_manager = OperationManager(db=db)
         operation, resumed = await op_manager.create_or_resume(name)
+        intelligence_service = IntelligenceService(config=config)
+        await intelligence_service.start()
 
         join_url = build_join_url(config.join_host, config.hub_port, operation.token)
         qr_path = _config_root() / "join-qr.png"
@@ -518,13 +522,23 @@ async def run_hub(name: str) -> None:
         print(f"Join URL: {join_url}")
         print(f"Operator bootstrap file: {bootstrap_session_path()}")
         print(f"Operator bootstrap expires: {bootstrap['expires_at']}")
+        print(
+            "Intelligence backends: "
+            f"transcriber={config.transcriber_backend} "
+            f"vision={config.vision_backend}"
+        )
         print(f"Runtime log file: {_runtime_log_path()}")
         print(f"Service mode: {local_service_mode(config)}")
         print(f"Storage backend: {storage.backend}")
         print(generate_qr_ascii(join_url))
         print(f"PNG QR: {qr_path}\n")
 
-        app = create_app(op_manager=op_manager, conn_manager=conn_manager, db=db)
+        app = create_app(
+            op_manager=op_manager,
+            conn_manager=conn_manager,
+            db=db,
+            intelligence_service=intelligence_service,
+        )
         server = uvicorn.Server(
             uvicorn.Config(
                 app,
@@ -557,6 +571,8 @@ async def run_hub(name: str) -> None:
         clear_bootstrap_session()
         clear_operator_session()
         await conn_manager.broadcast({"type": "op_ended"})
+        if intelligence_service is not None:
+            await intelligence_service.stop()
         if db_connected and op_manager is not None and op_manager.operation is not None:
             await op_manager.stop()
         await db.close()

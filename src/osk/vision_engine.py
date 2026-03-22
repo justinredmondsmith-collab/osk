@@ -74,10 +74,19 @@ class OllamaVisionAnalyzer:
             captured_at=frame.captured_at,
         )
 
+    def status(self) -> dict[str, object]:
+        return {
+            "adapter": "ollama-vision",
+            "base_url": self.base_url,
+            "model": self.model,
+            "timeout_seconds": self.timeout_seconds,
+        }
+
     async def close(self) -> None:
         if self._client is None or not self._owns_client:
             return
         await self._client.aclose()
+        self._client = None
 
     async def _get_client(self):
         if self._client is not None:

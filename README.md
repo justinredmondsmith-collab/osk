@@ -9,8 +9,10 @@ situations where shared awareness matters.
 > Status: Osk is currently a public design-and-foundation repository. The repo
 > contains specs, plans, governance documents, and a working Phase 1 host/runtime
 > baseline for local install, start/stop, operator sessions, audit, logs, and
-> member visibility. The intelligence pipeline, synthesis layer, dashboard, and
-> mobile client are still planned.
+> member visibility. Phase 2 now also includes a hub-owned intelligence service
+> with config-selectable fake or real transcript/vision adapters, but live
+> member ingest, synthesis, the dashboard, and the mobile client are still
+> planned.
 
 ## At a Glance
 
@@ -77,15 +79,15 @@ What exists today:
   and heartbeat-based stale-session cleanup
 - Early REST/WebSocket hub surface for the coordinator and member join/runtime
   flow
-- Phase 2 contract-first intelligence surface: shared ingest/result models,
-  fake adapters, bounded audio/frame ingest queues, background audio/vision
-  worker loops, real Whisper/Ollama adapter modules, and a normalization
-  pipeline for audio, frame, and location processing
+- Hub-owned Phase 2 intelligence service: shared ingest/result models,
+  config-selectable fake or real transcript/vision adapters, bounded
+  audio/frame ingest queues, background audio/vision worker loops, and an
+  admin-visible runtime status surface
 
 What is still missing:
 
-- The Whisper/audio ingestion pipeline
-- The vision/key-frame ingestion pipeline
+- Live member audio/frame ingestion into the running hub
+- Observation persistence and synthesis-driven event generation
 - Event synthesis and sitrep generation
 - Coordinator dashboard and mobile PWA user experience
 - Validated wipe timing and production-grade evidence/export tooling
@@ -181,6 +183,9 @@ full architecture, API contract, and threat-model assumptions.
   after installing the package
 - Use `osk status`, `osk operator status`, `osk audit`, `osk members`, and
   `osk logs` to inspect the local foundation runtime
+- Configure `transcriber_backend` / `vision_backend` in `~/.config/osk/config.toml`
+  if you want the hub-owned intelligence service to use real Whisper or Ollama
+  adapters instead of the default fake backends
 - Open a `Design feedback` issue if you see a gap or bad assumption
 - Open a `Bug report` issue for contradictions, broken links, or repo problems
 - Use Discussions for broader proposals and open-ended questions

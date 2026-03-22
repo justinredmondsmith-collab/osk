@@ -17,6 +17,8 @@ The repository now includes:
 - Local hub runtime commands (`install`, `start`, `status`, `stop`)
 - Local operator and observability commands (`operator`, `audit`, `logs`,
   `members`)
+- A hub-owned Phase 2 intelligence service with config-selectable fake or real
+  transcript/vision adapters
 
 The repository does **not** yet contain the full intelligence pipeline,
 synthesis layer, coordinator dashboard, or mobile client described in the
@@ -44,6 +46,13 @@ Install the package and test dependencies:
 
 ```bash
 pip install -e ".[dev]"
+```
+
+If you are working on real Phase 2 runtime adapters instead of the default fake
+backends, install the intelligence extras too:
+
+```bash
+pip install -e ".[dev,intelligence]"
 ```
 
 Run tests:
@@ -96,8 +105,9 @@ Code contributions should:
 - Update user-facing docs when behavior changes
 - Avoid weakening the stated privacy and local-only design goals without an
   explicit design update
-- For Phase 2 work, prefer contract tests and fake adapters before wiring real
-  Whisper/Ollama runtimes into the hub
+- For Phase 2 work, keep fake and real adapters behind the same
+  service-owned interfaces, and do not wire model-specific behavior directly
+  into routes or WebSocket handlers
 
 ## How to Contribute
 

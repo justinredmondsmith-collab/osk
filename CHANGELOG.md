@@ -53,6 +53,9 @@ changes manually while the project is in its early public setup phase.
 - Phase 2 runtime adapters: local Whisper profile fallback manager, transcript
   cleanup heuristics, and an Ollama vision analyzer behind the worker
   interfaces, with provenance recorded for adapted predecessor code
+- Phase 2 hub-owned intelligence service: config-selectable fake or real
+  transcript/vision adapters, worker lifecycle ownership in the hub, and an
+  admin-visible runtime status endpoint
 
 ### Changed
 
@@ -61,3 +64,5 @@ changes manually while the project is in its early public setup phase.
 - Contributor guidance now reflects the presence of the initial code scaffold
 - Public docs and plan headers now reflect the current Phase 1 foundation state
   and the repo's current AI-agent workflow
+- Phase 2 guidance now treats fake and real runtime adapters as interchangeable
+  service-owned implementations instead of standalone experiments

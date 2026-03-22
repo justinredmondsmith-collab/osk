@@ -18,7 +18,9 @@ DEFAULT_CONFIG_PATH = Path.home() / ".config" / "osk" / "config.toml"
 
 class OskConfig(BaseModel):
     max_sensors: int = 10
+    transcriber_backend: Literal["fake", "whisper"] = "fake"
     whisper_model: str = "small"
+    vision_backend: Literal["fake", "ollama"] = "fake"
     vision_model: str = "llama3.2-vision:11b-instruct-q4_K_M"
     summarizer_model: str = "mistral"
     sitrep_interval_minutes: int = 10
@@ -27,6 +29,10 @@ class OskConfig(BaseModel):
     gps_interval_stationary_seconds: int = 60
     member_heartbeat_timeout_seconds: int = 45
     member_heartbeat_check_interval_seconds: int = 15
+    audio_queue_size: int = 128
+    frame_queue_size: int = 64
+    frame_queue_depth_per_member: int = 4
+    intelligence_recent_observation_limit: int = 25
     frame_change_threshold: float = 0.15
     frame_baseline_interval_seconds: int = 30
     frame_sampling_fps: float = 2.0

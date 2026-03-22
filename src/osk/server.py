@@ -83,8 +83,14 @@ def _require_local_admin(request: Request, op_manager: OperationManager) -> JSON
     return JSONResponse({"error": "Local coordinator access only"}, status_code=403)
 
 
-def create_app(op_manager: OperationManager, conn_manager: ConnectionManager, db) -> FastAPI:
+def create_app(
+    op_manager: OperationManager,
+    conn_manager: ConnectionManager,
+    db,
+    intelligence_service=None,
+) -> FastAPI:
     app = FastAPI(title="Osk Hub", docs_url=None, redoc_url=None)
+    app.state.intelligence_service = intelligence_service
 
     @app.get("/join")
     async def join_page(token: str = Query(...)):
@@ -116,6 +122,16 @@ def create_app(op_manager: OperationManager, conn_manager: ConnectionManager, db
             "sensors": op_manager.get_sensor_count(),
             "connected": conn_manager.connected_count,
         }
+
+    @app.get("/api/intelligence/status")
+    async def intelligence_status(request: Request):
+        if response := _require_local_admin(request, op_manager):
+            return response
+        if intelligence_service is None:
+            return JSONResponse(
+                {"error": "Intelligence service is not configured"}, status_code=503
+            )
+        return intelligence_service.snapshot()
 
     @app.get("/api/members")
     async def list_members(request: Request):
