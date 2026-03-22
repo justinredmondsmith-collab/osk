@@ -506,6 +506,8 @@ def test_coordinator_dashboard_state_returns_snapshot(
     assert payload["member_summary"]["fresh"] == 1
     assert payload["member_summary"]["buffered_members"] == 1
     assert payload["member_summary"]["buffered_items"] == 3
+    assert payload["wipe_readiness"]["status"] == "ready"
+    assert payload["wipe_readiness"]["ready"] is True
     assert payload["members"][0]["name"] == "Field Sensor"
     assert payload["members"][0]["buffer_status"]["pending_count"] == 3
     assert payload["members"][0]["buffer_status"]["network"] == "offline"
@@ -520,6 +522,61 @@ def test_coordinator_dashboard_state_returns_snapshot(
     _, kwargs = mock_db.get_review_feed.await_args
     assert kwargs["include_types"] == {"finding"}
     assert kwargs["limit"] == 10
+
+
+def test_coordinator_dashboard_state_surfaces_wipe_readiness_risk(
+    client: TestClient,
+    mock_db: MagicMock,
+    mock_op_manager: MagicMock,
+    mock_intelligence_service: MagicMock,
+) -> None:
+    current = dt.datetime.now(dt.timezone.utc)
+    stale_seen = current - dt.timedelta(seconds=180)
+    disconnected_seen = current - dt.timedelta(seconds=420)
+    mock_db.get_latest_sitrep.return_value = None
+    mock_db.get_review_feed.return_value = []
+    mock_intelligence_service.snapshot.return_value = {"running": True}
+    mock_op_manager.get_member_list.return_value = [
+        {
+            "id": str(uuid.uuid4()),
+            "name": "Observer One",
+            "role": "observer",
+            "connected_at": current,
+            "last_seen_at": stale_seen,
+            "status": "connected",
+            "last_gps_at": None,
+            "latitude": None,
+            "longitude": None,
+            "buffer_status": {},
+        },
+        {
+            "id": str(uuid.uuid4()),
+            "name": "Sensor Two",
+            "role": "sensor",
+            "connected_at": current,
+            "last_seen_at": disconnected_seen,
+            "status": "disconnected",
+            "last_gps_at": None,
+            "latitude": None,
+            "longitude": None,
+            "buffer_status": {},
+        },
+    ]
+
+    with patch(
+        "osk.server.load_config",
+        return_value=OskConfig(member_heartbeat_timeout_seconds=60),
+    ):
+        resp = client.get("/api/coordinator/dashboard-state")
+
+    assert resp.status_code == 200
+    payload = resp.json()
+    assert payload["wipe_readiness"]["status"] == "blocked"
+    assert payload["wipe_readiness"]["ready"] is False
+    assert payload["wipe_readiness"]["stale_members"] == 1
+    assert payload["wipe_readiness"]["disconnected_members"] == 1
+    assert payload["wipe_readiness"]["at_risk_members"] == 2
+    assert payload["wipe_readiness"]["at_risk"][0]["name"] == "Sensor Two"
 
 
 def test_coordinator_dashboard_state_tracks_buffer_history_window(

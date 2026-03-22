@@ -139,6 +139,9 @@ changes manually while the project is in its early public setup phase.
 - Stale `/member` reload hardening: browsers that reopen the member shell
   without a valid member session now self-clear local member state before
   returning to `/join`
+- Live wipe-readiness summaries across the coordinator surfaces: dashboard
+  current pulse, `osk status --json`, and human `osk members` output now show
+  stale/disconnected member browsers that may miss a live wipe
 
 ### Changed
 
@@ -212,3 +215,5 @@ changes manually while the project is in its early public setup phase.
 - Wipe docs and drills now distinguish the stronger connected-browser cleanup
   path from the still-partial disconnected-client and browser-history cleanup
   boundary
+- Dashboard and operations docs now point operators at the live wipe-readiness
+  surfaces before they trigger `osk wipe`

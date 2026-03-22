@@ -20,6 +20,7 @@
     latestSitrep: null,
     members: [],
     memberSummary: null,
+    wipeReadiness: null,
     bufferHistory: null,
     bufferSignal: null,
     mapStatus: null,
@@ -67,6 +68,8 @@
     memberMapStatus: document.getElementById("member-map-status"),
     memberMapViewport: document.getElementById("member-map-viewport"),
     memberSummary: document.getElementById("member-summary"),
+    wipeReadinessSummary: document.getElementById("wipe-readiness-summary"),
+    wipeReadinessDetail: document.getElementById("wipe-readiness-detail"),
     bufferTrendSummary: document.getElementById("buffer-trend-summary"),
     bufferTrendChart: document.getElementById("buffer-trend-chart"),
     ingestPressure: document.getElementById("ingest-pressure"),
@@ -357,6 +360,7 @@
     state.intelligenceStatus = snapshot.intelligence_status || null;
     state.members = snapshot.members || [];
     state.memberSummary = snapshot.member_summary || null;
+    state.wipeReadiness = snapshot.wipe_readiness || null;
     state.bufferHistory = snapshot.buffer_history || null;
     state.bufferSignal = snapshot.buffer_signal || null;
     state.mapStatus = snapshot.map || null;
@@ -901,6 +905,45 @@
           `<div class="stack-row"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`,
       )
       .join("");
+
+    const wipeReadiness = state.wipeReadiness || {};
+    elements.wipeReadinessSummary.innerHTML = [
+      ["Status", String(wipeReadiness.status || "--").toUpperCase()],
+      ["Reachable", wipeReadiness.reachable_members ?? "--"],
+      ["At risk", wipeReadiness.at_risk_members ?? "--"],
+      ["Disconnected", wipeReadiness.disconnected_members ?? "--"],
+    ]
+      .map(
+        ([label, value]) =>
+          `<div class="stack-row"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`,
+      )
+      .join("");
+    const wipeRiskMembers = Array.isArray(wipeReadiness.at_risk) ? wipeReadiness.at_risk : [];
+    if (!wipeRiskMembers.length) {
+      elements.wipeReadinessDetail.innerHTML = `
+        <div class="detail-item">
+          <p>${escapeHtml(wipeReadiness.summary || "Live wipe readiness is clear.")}</p>
+        </div>
+      `;
+    } else {
+      elements.wipeReadinessDetail.innerHTML = [
+        `
+          <div class="detail-item">
+            <p>${escapeHtml(wipeReadiness.summary || "Some member browsers are at risk of missing a live wipe.")}</p>
+          </div>
+        `,
+        ...wipeRiskMembers.slice(0, 4).map((member) => {
+          return `
+            <div class="detail-item">
+              <p>${escapeHtml(member.name)} <span class="pill">${escapeHtml(member.reason)}</span></p>
+              <small>
+                ${escapeHtml(member.role || "member")} • ${escapeHtml(member.status || "unknown")} • last seen ${escapeHtml(member.last_seen_at || "unknown")}
+              </small>
+            </div>
+          `;
+        }),
+      ].join("");
+    }
 
     renderBufferTrend();
 

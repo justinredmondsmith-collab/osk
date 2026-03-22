@@ -19,6 +19,9 @@ The repository now includes:
 - Local dashboard URL command (`dashboard`)
 - Local operator and observability commands (`operator`, `audit`, `logs`,
   `members`, `findings`, `review`)
+- Live wipe-readiness summary in `osk status --json` and the human `osk members`
+  output, so operators can see stale/disconnected member browsers before a
+  live wipe
 - Local finding review commands (`finding show`, `finding acknowledge`,
   `finding resolve`, `finding reopen`, `finding escalate`,
   `finding correlations`, `finding note`)
@@ -35,9 +38,9 @@ The repository now includes:
   it now consumes a same-origin live dashboard stream plus current member
   health/ingest context, a rolling member-buffer trend view, sustained buffer
   warning signals in the local review feed/current pulse, local
-  acknowledge/snooze controls for those transient signals, and a local
-  tile-backed map surface with an explicit relative fallback when the tile
-  cache is empty
+  acknowledge/snooze controls for those transient signals, a live wipe-readiness
+  panel for stale/disconnected member browsers, and a local tile-backed map
+  surface with an explicit relative fallback when the tile cache is empty
 - A first operations-tooling slice for the dashboard map path:
   `osk tiles status` and `osk tiles cache --bbox ... --zoom ...`
 - A standalone hotspot-management slice for NetworkManager environments:

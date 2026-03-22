@@ -831,6 +831,69 @@ def test_show_members_formats_rows(mock_asyncio_run: MagicMock, tmp_path: Path, 
     assert "Jay" in out
     assert "heartbeat=fresh" in out
     assert "gps=39.75,-104.99" in out
+    assert "wipe_readiness = ready" in out
+    assert "All 1 current member browsers are reachable for a live wipe." in out
+
+
+@patch("osk.hub.asyncio.run")
+def test_status_hub_reports_wipe_readiness(
+    mock_asyncio_run: MagicMock,
+    tmp_path: Path,
+    capsys,
+) -> None:
+    member_rows = [
+        {
+            "id": "11111111-1111-1111-1111-111111111111",
+            "name": "Observer One",
+            "role": "observer",
+            "status": "connected",
+            "reconnect_token": "resume-token",
+            "connected_at": dt.datetime(2026, 3, 21, 12, 0, tzinfo=dt.timezone.utc),
+            "last_seen_at": dt.datetime(2026, 3, 21, 12, 0, 30, tzinfo=dt.timezone.utc),
+            "last_gps_at": None,
+            "latitude": None,
+            "longitude": None,
+        },
+        {
+            "id": "22222222-2222-2222-2222-222222222222",
+            "name": "Sensor Two",
+            "role": "sensor",
+            "status": "disconnected",
+            "reconnect_token": "resume-token-2",
+            "connected_at": dt.datetime(2026, 3, 21, 12, 0, tzinfo=dt.timezone.utc),
+            "last_seen_at": dt.datetime(2026, 3, 21, 11, 54, tzinfo=dt.timezone.utc),
+            "last_gps_at": None,
+            "latitude": None,
+            "longitude": None,
+        },
+    ]
+
+    def return_member_rows(coro):
+        coro.close()
+        return member_rows
+
+    mock_asyncio_run.side_effect = return_member_rows
+
+    with (
+        patch("osk.hub._config_root", return_value=tmp_path),
+        patch("osk.hub._pid_is_running", return_value=True),
+        patch("osk.hub.load_config", return_value=OskConfig(member_heartbeat_timeout_seconds=60)),
+        patch("osk.hub.dt.datetime") as mock_datetime,
+    ):
+        mock_datetime.now.return_value = dt.datetime(2026, 3, 21, 12, 1, tzinfo=dt.timezone.utc)
+        mock_datetime.side_effect = lambda *args, **kwargs: dt.datetime(*args, **kwargs)
+        (tmp_path / "hub-state.json").write_text(
+            '{"pid":4321,"operation_name":"March","operation_id":"11111111-1111-1111-1111-111111111111"}\n'
+        )
+
+        from osk.hub import status_hub
+
+        code = status_hub()
+
+    out = capsys.readouterr().out
+    assert code == 0
+    assert "wipe_readiness = blocked" in out
+    assert "wipe_at_risk_members = 1" in out
 
 
 @patch("osk.hub.asyncio.run")

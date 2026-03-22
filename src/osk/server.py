@@ -57,6 +57,7 @@ from osk.models import (
     Pin,
 )
 from osk.operation import OperationManager
+from osk.wipe_readiness import summarize_wipe_readiness
 
 logger = logging.getLogger(__name__)
 ADMIN_TOKEN_HEADER = "X-Osk-Coordinator-Token"
@@ -1051,6 +1052,7 @@ async def _build_dashboard_state(
     )
     generated_at = _utcnow().isoformat().replace("+00:00", "Z")
     member_summary = _member_summary(members)
+    wipe_readiness = summarize_wipe_readiness(members)
     buffer_history = _record_buffer_history(
         buffer_history_store,
         generated_at=generated_at,
@@ -1089,6 +1091,7 @@ async def _build_dashboard_state(
         "review_feed": review_feed_items,
         "members": members,
         "member_summary": member_summary,
+        "wipe_readiness": wipe_readiness,
         "buffer_history": buffer_history,
         "buffer_signal": buffer_signal,
         "map": _map_tile_cache_status(config),

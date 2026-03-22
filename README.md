@@ -92,6 +92,9 @@ What exists today:
 
 - Local hub lifecycle commands: `osk install`, `osk start`, `osk status`, and
   `osk stop`
+- Live wipe-readiness summary in `osk status --json` and human-readable
+  `osk members` output, so operators can see which member browsers are fresh,
+  stale, or disconnected before a live wipe
 - Explicit coordinator wipe command: `osk wipe --yes`, which broadcasts wipe to
   connected members and stops the local hub; preserved evidence remains on disk
   unless `--destroy-evidence` is passed
@@ -166,7 +169,8 @@ What exists today:
   plus operator context panels for member health, ingest pressure, and a
   rolling member-buffer trend window, sustained buffer warning signals in the
   local review feed/current pulse, local acknowledge/snooze controls for those
-  transient signals, and a local tile-backed field map with a relative-position
+  transient signals, a live wipe-readiness panel for stale/disconnected member
+  browsers, and a local tile-backed field map with a relative-position
   fallback when the tile cache is empty
 - `ffmpeg`-backed decode path for compressed audio uploads such as WebM/Ogg
   when using the real Whisper backend
@@ -263,7 +267,7 @@ The initial implementation is split into six phases:
 | [1. Core Hub + Connection](docs/plans/2026-03-21-plan-1-core-hub-connection.md) | Scaffolding, models, DB, auth, server, CLI | Foundational runtime in repo |
 | [2. Intelligence Pipeline](docs/plans/2026-03-21-plan-2-intelligence-pipeline.md) | Whisper, vision, ingest queues, location engine | Live ingest + persistence bridge in repo |
 | [3. Synthesis Layer](docs/plans/2026-03-21-plan-3-synthesis-layer.md) | Events, alerts, SitReps | Heuristic synthesis + review surfaces in repo |
-| [4. Coordinator Dashboard](docs/plans/2026-03-21-plan-4-coordinator-dashboard.md) | Map, timeline, sensor management | Live review shell in repo |
+| [4. Coordinator Dashboard](docs/plans/2026-03-21-plan-4-coordinator-dashboard.md) | Map, timeline, sensor management | Live review shell with member health and wipe-readiness context in repo |
 | [5. Mobile PWA](docs/plans/2026-03-21-plan-5-mobile-pwa.md) | Join flow, alert feed, edge sampling | Join/runtime shell with alerts, GPS, queued manual reports/media, early sensor capture, and first installable/offline behavior in repo |
 | [6. Operations Tooling](docs/plans/2026-03-21-plan-6-operations-tooling.md) | Hotspot, evidence, tile caching | Tile cache CLI + standalone hotspot/evidence tools, hotspot-aware doctor/start guidance, install/wipe drills, and explicit coordinator wipe flow in repo |
 
@@ -279,6 +283,9 @@ full architecture, API contract, and threat-model assumptions.
 - Use `osk status`, `osk operator status`, `osk audit`, `osk members`,
   `osk findings`, `osk review`, `osk dashboard`, and `osk logs` to inspect the
   local foundation runtime
+- `osk status --json` now includes a live wipe-readiness summary, and the
+  human `osk members` output now ends with the same readiness call plus the
+  first few at-risk member browsers
 - Use `osk finding show|acknowledge|resolve|reopen|escalate|correlations|note`
   to triage one reviewable finding locally before the fuller dashboard lands
 - Run `osk operator login`, then `osk dashboard`, to print a local dashboard
@@ -295,6 +302,9 @@ full architecture, API contract, and threat-model assumptions.
   including a rolling trend window and sustained warning signals, so buffered
   notes/media and bounded sensor reconnect backlog are visible in the same
   dashboard pulse instead of being hidden only on the phone
+- The dashboard current pulse now also shows live wipe readiness, so stale or
+  disconnected member browsers that may miss a live wipe are visible before
+  the operator reaches for `osk wipe`
 - Buffer-signal sensitivity and default snooze duration are now config-driven,
   so different field setups can tune coordinator noise without code changes
 - Use `osk tiles status` to inspect the local tile cache root, cached tile

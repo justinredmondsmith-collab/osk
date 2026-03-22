@@ -70,6 +70,11 @@ the device that receives the broadcast. That is still not a full browser wipe.
 Browser history, OS-level caches, disconnected devices, and preserved evidence
 destruction remain outside that one live message.
 
+While an operation is still live, check `osk status --json`, `osk members`, or
+the coordinator dashboard's wipe-readiness panel before running `osk wipe`.
+Those surfaces now call out stale/disconnected member browsers that may miss
+the live broadcast path.
+
 ## Current Safe Sequence
 
 For now, the safe operator sequence is:

@@ -24,7 +24,10 @@ coordinator-side `osk wipe` flow that broadcasts wipe and stops the hub
 without destroying preserved evidence unless the operator opts in. Connected
 member browsers now also clear queued browser state and unregister the cached
 member shell on live wipe, but disconnected browsers and preserved evidence
-destruction remain separate cleanup concerns.
+destruction remain separate cleanup concerns. The repo now also exposes live
+wipe-readiness summaries in `osk status --json`, human `osk members`, and the
+coordinator dashboard so those cleanup gaps are visible before an operator
+triggers `osk wipe`.
 
 **Tech Stack:** Python, nmcli, cryptsetup, keyctl, zipfile, subprocess
 

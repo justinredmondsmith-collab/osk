@@ -58,6 +58,7 @@ from osk.qr import build_join_url, generate_qr_ascii, generate_qr_png
 from osk.server import create_app
 from osk.storage import StorageManager
 from osk.tls import generate_self_signed_cert
+from osk.wipe_readiness import summarize_wipe_readiness
 
 logger = logging.getLogger(__name__)
 LOCAL_DEV_DATABASE_URL = "postgresql://osk:osk@localhost:5432/osk"
@@ -1197,6 +1198,25 @@ def hub_status_snapshot(now: float | None = None) -> tuple[int, dict[str, object
         snapshot["dashboard_session_active"] = False
         snapshot["dashboard_session_expires_at"] = None
 
+    operation_uuid = _parse_operation_id(str(operation_id) if operation_id else None)
+    if operation_uuid is not None:
+        try:
+            cfg = load_config()
+            rows = asyncio.run(_get_members(operation_uuid))
+            members = [
+                _member_snapshot(
+                    row, heartbeat_timeout_seconds=cfg.member_heartbeat_timeout_seconds
+                )
+                for row in rows
+            ]
+            snapshot["wipe_readiness"] = summarize_wipe_readiness(members)
+        except Exception as exc:
+            snapshot["wipe_readiness"] = {
+                "available": False,
+                "error": str(exc),
+                "status": "unknown",
+            }
+
     if pid > 0 and _pid_is_running(pid):
         snapshot["status"] = "running"
         snapshot["message"] = "Osk hub is running."
@@ -1259,6 +1279,14 @@ def status_hub(*, json_output: bool = False) -> int:
         print(f"dashboard_bootstrap_expires_at = {dashboard_bootstrap_expires_at}")
     if runtime_log_path := snapshot.get("runtime_log_path"):
         print(f"runtime_log_file = {runtime_log_path}")
+    wipe_readiness = snapshot.get("wipe_readiness")
+    if isinstance(wipe_readiness, dict):
+        if wipe_readiness.get("available") is False:
+            print(f"wipe_readiness = unknown ({wipe_readiness.get('error')})")
+        else:
+            print(f"wipe_readiness = {wipe_readiness.get('status')}")
+            print(f"wipe_summary = {wipe_readiness.get('summary')}")
+            print(f"wipe_at_risk_members = {wipe_readiness.get('at_risk_members')}")
 
     return code
 
@@ -1518,6 +1546,16 @@ def show_members(*, json_output: bool = False) -> int:
             f"heartbeat={member['heartbeat_state']} last_seen={member['last_seen_at']}"
             f"{coords} id={member['id']}"
         )
+    wipe_readiness = summarize_wipe_readiness(members)
+    print(f"wipe_readiness = {wipe_readiness['status']}")
+    print(f"wipe_summary = {wipe_readiness['summary']}")
+    if wipe_readiness["at_risk"]:
+        for member in wipe_readiness["at_risk"][:5]:
+            print(
+                "wipe_risk "
+                f"name={member['name']} reason={member['reason']} "
+                f"last_seen={member['last_seen_at']}"
+            )
     return 0
 
 
