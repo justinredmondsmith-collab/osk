@@ -83,16 +83,6 @@ def _extract_admin_token(request: Request) -> str | None:
     return None
 
 
-def _extract_dashboard_token(request: Request) -> str | None:
-    if token := _extract_admin_token(request):
-        return token
-
-    query_token = str(request.query_params.get("token") or "").strip()
-    if query_token:
-        return query_token
-    return None
-
-
 def _is_loopback_host(host: str | None) -> bool:
     if host is None:
         return False
@@ -342,23 +332,7 @@ def create_app(
         if operation is None:
             return JSONResponse({"error": "No active operation"}, status_code=503)
 
-        token = _extract_dashboard_token(request)
-        if token is None:
-            return JSONResponse(
-                {"error": "Missing operator credentials"},
-                status_code=401,
-                headers={"WWW-Authenticate": "Bearer"},
-            )
-        if not _validate_local_admin_token(token, op_manager):
-            return JSONResponse({"error": "Invalid operator credentials"}, status_code=403)
-
         bootstrap = {
-            "api_token": token,
-            "operation": {
-                "id": str(operation.id),
-                "name": operation.name,
-                "started_at": operation.started_at.isoformat().replace("+00:00", "Z"),
-            },
             "paths": {
                 "operation_status": "/api/operation/status",
                 "intelligence_status": "/api/intelligence/status",
@@ -373,7 +347,13 @@ def create_app(
         }
         return HTMLResponse(
             _render_coordinator_dashboard(bootstrap),
-            headers={"Cache-Control": "no-store"},
+            headers={
+                "Cache-Control": "no-store",
+                "Pragma": "no-cache",
+                "Referrer-Policy": "no-referrer",
+                "X-Frame-Options": "DENY",
+                "X-Content-Type-Options": "nosniff",
+            },
         )
 
     @app.get("/api/operation/status")

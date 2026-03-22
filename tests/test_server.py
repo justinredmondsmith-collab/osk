@@ -141,39 +141,33 @@ def test_join_page_invalid_token(client: TestClient, mock_op_manager: MagicMock)
     assert resp.status_code == 403
 
 
-def test_coordinator_dashboard_renders_with_header_auth(client: TestClient) -> None:
+def test_coordinator_dashboard_renders_local_shell(client: TestClient) -> None:
     resp = client.get("/coordinator")
 
     assert resp.status_code == 200
     assert "Osk Coordinator Review" in resp.text
     assert "/static/dashboard.js" in resp.text
     assert resp.headers["cache-control"] == "no-store"
+    assert resp.headers["pragma"] == "no-cache"
+    assert resp.headers["referrer-policy"] == "no-referrer"
+    assert resp.headers["x-frame-options"] == "DENY"
+    assert resp.headers["x-content-type-options"] == "nosniff"
+    assert client.headers["X-Osk-Coordinator-Token"] not in resp.text
 
 
-def test_coordinator_dashboard_accepts_query_token(
-    unauthenticated_client: TestClient,
-    operation: Operation,
-) -> None:
-    resp = unauthenticated_client.get(f"/coordinator?token={operation.coordinator_token}")
-
-    assert resp.status_code == 200
-    assert operation.name in resp.text
-
-
-def test_coordinator_dashboard_requires_credentials(
+def test_coordinator_dashboard_allows_local_shell_without_credentials(
     unauthenticated_client: TestClient,
 ) -> None:
     resp = unauthenticated_client.get("/coordinator")
 
-    assert resp.status_code == 401
-    assert resp.json()["error"] == "Missing operator credentials"
+    assert resp.status_code == 200
+    assert "Local review shell for findings, events, and SitReps." in resp.text
 
 
 def test_coordinator_dashboard_rejects_remote_client(
     remote_client: TestClient,
-    operation: Operation,
 ) -> None:
-    resp = remote_client.get(f"/coordinator?token={operation.coordinator_token}")
+    resp = remote_client.get("/coordinator")
 
     assert resp.status_code == 403
     assert resp.json()["error"] == "Local coordinator access only"

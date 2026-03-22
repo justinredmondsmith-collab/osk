@@ -15,8 +15,9 @@ situations where shared awareness matters.
 > compressed audio decode for Whisper mode, duplicate-safe media resubmission
 > hooks, persisted ingest receipts for restart-safe duplicate detection, and a
 > heuristic synthesis layer with reviewable findings, corroboration, sitrep
-> output, coordinator triage actions, and a thin local coordinator review shell
-> served by FastAPI. The fuller map/live dashboard and mobile product work are
+> output, coordinator triage actions, and a thin local-only coordinator review
+> shell served by FastAPI with fragment-based operator bootstrap. The fuller
+> map/live dashboard and mobile product work are
 > still planned.
 
 ## At a Glance
@@ -107,7 +108,8 @@ What exists today:
   recent observations, filtered review feeds, sitreps, events, finding
   correlations, and findings
 - Local coordinator review shell at `/coordinator`, backed by the existing
-  admin APIs and served with static CSS/JS from the hub
+  admin APIs, served with static CSS/JS from the hub, and bootstrapped from a
+  fragment-carried operator token instead of a request query parameter
 - `ffmpeg`-backed decode path for compressed audio uploads such as WebM/Ogg
   when using the real Whisper backend
 
@@ -215,8 +217,12 @@ full architecture, API contract, and threat-model assumptions.
   local foundation runtime
 - Use `osk finding show|acknowledge|resolve|reopen|escalate|correlations|note`
   to triage one reviewable finding locally before the fuller dashboard lands
-- Run `osk operator login`, then `osk dashboard`, to open the local
-  coordinator review shell in a browser
+- Run `osk operator login`, then `osk dashboard`, to print a local dashboard
+  URL; paste that URL into a browser to load the review shell
+- The printed dashboard URL now carries the operator token in the URL fragment
+  (`#token=...`) rather than the HTTP request URL; the shell strips that
+  fragment, caches the token in `sessionStorage`, and keeps it out of normal
+  request logs; still treat that URL as sensitive local access material
 - Use `/api/intelligence/status`, `/api/intelligence/observations`,
   `/api/intelligence/findings`, `/api/intelligence/review-feed`, `/api/events`,
   and `/api/sitreps` from the local coordinator surface to inspect live

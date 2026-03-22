@@ -1,10 +1,12 @@
 (function () {
+  const DASHBOARD_TOKEN_STORAGE_KEY = "osk_operator_token";
   const bootstrapNode = document.getElementById("osk-dashboard-bootstrap");
   if (!bootstrapNode) {
     return;
   }
 
   const bootstrap = JSON.parse(bootstrapNode.textContent || "{}");
+  let apiToken = "";
   const state = {
     filters: {
       include: ["finding", "event", "sitrep"],
@@ -52,11 +54,6 @@
     latestSitrep: document.getElementById("latest-sitrep"),
     pipelineStatus: document.getElementById("pipeline-status"),
     selectionEcho: document.getElementById("selection-echo"),
-  };
-
-  const authHeaders = {
-    Authorization: `Bearer ${bootstrap.api_token}`,
-    "Content-Type": "application/json",
   };
 
   function escapeHtml(value) {
@@ -129,10 +126,14 @@
   }
 
   async function fetchJson(path, options) {
+    if (!apiToken) {
+      throw new Error("Local dashboard token is missing. Run `osk dashboard` again.");
+    }
     const response = await fetch(path, {
       ...options,
       headers: {
-        ...authHeaders,
+        Authorization: `Bearer ${apiToken}`,
+        "Content-Type": "application/json",
         ...(options && options.headers ? options.headers : {}),
       },
       cache: "no-store",
@@ -274,6 +275,14 @@
   }
 
   async function refreshDashboard() {
+    if (!apiToken) {
+      setBanner(
+        "No local dashboard token is available. Run `osk operator login`, then `osk dashboard` again.",
+        "error",
+      );
+      updateConnectionState("error", "Auth required");
+      return;
+    }
     if (state.refreshInFlight) {
       return;
     }
@@ -286,19 +295,15 @@
       const [feedResult, sitrepResult, operationResult, intelligenceResult] = await Promise.allSettled([
         fetchJson(buildReviewFeedPath(), {
           method: "GET",
-          headers: { Authorization: authHeaders.Authorization },
         }),
         fetchJson(bootstrap.paths.latest_sitrep, {
           method: "GET",
-          headers: { Authorization: authHeaders.Authorization },
         }),
         fetchJson(bootstrap.paths.operation_status, {
           method: "GET",
-          headers: { Authorization: authHeaders.Authorization },
         }),
         fetchJson(bootstrap.paths.intelligence_status, {
           method: "GET",
-          headers: { Authorization: authHeaders.Authorization },
         }),
       ]);
 
@@ -380,11 +385,9 @@
     const [detail, correlations] = await Promise.all([
       fetchJson(`${bootstrap.paths.findings}/${item.finding_id}`, {
         method: "GET",
-        headers: { Authorization: authHeaders.Authorization },
       }),
       fetchJson(`${bootstrap.paths.findings}/${item.finding_id}/correlations?limit=6`, {
         method: "GET",
-        headers: { Authorization: authHeaders.Authorization },
       }),
     ]);
     state.detail = detail;
@@ -555,7 +558,6 @@
     try {
       await fetchJson(`${bootstrap.paths.findings}/${item.finding_id}/${action}`, {
         method: "POST",
-        headers: { Authorization: authHeaders.Authorization },
       });
       await refreshDashboard();
     } catch (error) {
@@ -576,7 +578,6 @@
       await fetchJson(`${bootstrap.paths.findings}/${item.finding_id}/notes`, {
         method: "POST",
         body: JSON.stringify({ text: noteText }),
-        headers: { Authorization: authHeaders.Authorization },
       });
       elements.findingNoteInput.value = "";
       elements.noteStatus.textContent = "Note saved.";
@@ -593,13 +594,12 @@
       elements.metricMembers.textContent = state.operationStatus.members ?? "--";
       elements.metricSensors.textContent = state.operationStatus.sensors ?? "--";
       elements.metricConnected.textContent = state.operationStatus.connected ?? "--";
-      elements.operationName.textContent = state.operationStatus.name || bootstrap.operation.name;
+      elements.operationName.textContent = state.operationStatus.name || "Coordinator Review";
       elements.operationSubtitle.textContent =
         `${state.operationStatus.id} • ${state.operationStatus.connected} active connections`;
+      elements.startedAt.textContent = formatLongTimestamp(state.operationStatus.started_at);
+      elements.uptime.textContent = formatUptime(state.operationStatus.started_at);
     }
-
-    elements.startedAt.textContent = formatLongTimestamp(bootstrap.operation.started_at);
-    elements.uptime.textContent = formatUptime(bootstrap.operation.started_at);
 
     if (state.latestSitrep) {
       const prefix = state.latestSitrep.trend ? `${state.latestSitrep.trend.toUpperCase()} • ` : "";
@@ -632,13 +632,20 @@
     void refreshDashboard();
   }
 
-  function stripQueryToken() {
+  function initializeToken() {
     const url = new URL(window.location.href);
-    if (!url.searchParams.has("token")) {
+    const hash = url.hash.startsWith("#") ? url.hash.slice(1) : "";
+    const hashParams = new URLSearchParams(hash);
+    const fragmentToken = (hashParams.get("token") || "").trim();
+    if (fragmentToken) {
+      apiToken = fragmentToken;
+      window.sessionStorage.setItem(DASHBOARD_TOKEN_STORAGE_KEY, fragmentToken);
+      url.hash = "";
+      window.history.replaceState({}, document.title, url.toString());
       return;
     }
-    url.searchParams.delete("token");
-    window.history.replaceState({}, document.title, url.toString());
+
+    apiToken = window.sessionStorage.getItem(DASHBOARD_TOKEN_STORAGE_KEY) || "";
   }
 
   function startPolling() {
@@ -665,15 +672,17 @@
   }
 
   function init() {
-    document.title = `Osk | ${bootstrap.operation.name}`;
-    stripQueryToken();
+    document.title = "Osk | Coordinator Review";
+    initializeToken();
     bindEvents();
     renderContext();
     renderFeed();
     startPolling();
     void refreshDashboard();
     window.setInterval(() => {
-      elements.uptime.textContent = formatUptime(bootstrap.operation.started_at);
+      if (state.operationStatus && state.operationStatus.started_at) {
+        elements.uptime.textContent = formatUptime(state.operationStatus.started_at);
+      }
     }, 1000);
   }
 

@@ -693,7 +693,7 @@ def test_show_dashboard_url_formats_link(
 
     out = capsys.readouterr().out
     assert code == 0
-    assert "https://127.0.0.1:18443/coordinator?token=session-token" in out
+    assert "https://127.0.0.1:18443/coordinator#token=session-token" in out
 
 
 @patch("osk.hub.asyncio.run")

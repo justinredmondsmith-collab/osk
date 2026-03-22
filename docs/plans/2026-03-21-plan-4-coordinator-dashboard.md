@@ -6,7 +6,7 @@
 
 **Architecture:** Single-page Jinja2 template with vanilla JS. WebSocket connection for real-time updates. Leaflet.js for the map with offline tile support. No framework build step — follows bodycam-summarizer's pattern of a monolithic dashboard.html with inline JS.
 
-**Current state:** A thinner review-focused coordinator shell now exists at `/coordinator`, backed by the local review/feed APIs and served with static HTML/CSS/JS. The tasks below describe the fuller dashboard target beyond that shell.
+**Current state:** A thinner review-focused coordinator shell now exists at `/coordinator`, backed by the local review/feed APIs and served with static HTML/CSS/JS. That shell is local-only and uses a fragment-to-`sessionStorage` operator bootstrap rather than embedding auth in the server-rendered HTML or request URL. The tasks below describe the fuller dashboard target beyond that shell.
 
 **Tech Stack:** HTML, vanilla JS, Leaflet.js, Jinja2, WebSocket API
 
@@ -43,7 +43,7 @@ Structure:
 - Center panel: latest SitRep card + scrolling event timeline
 - Right panel: active sensor cards + operation stats
 
-Use Jinja2 template variables for operation name, token, hub URL. Dark theme matching the wireframes (dark navy backgrounds, teal/red/yellow severity colors).
+Use Jinja2 template variables only for non-secret bootstrap such as operation metadata and API paths. Do not embed operator tokens in HTML or request query parameters. Dark theme matching the wireframes (dark navy backgrounds, teal/red/yellow severity colors).
 
 - [ ] **Step 2: Create dashboard.css**
 
@@ -51,7 +51,7 @@ Dark theme CSS. Color variables: `--color-bg: #0d0d1a`, `--color-panel: #1a1a2e`
 
 - [ ] **Step 3: Add coordinator route to server.py**
 
-Add `GET /coordinator` that validates coordinator role and renders the template. Add static file serving for `/static/` directory.
+Add `GET /coordinator` that serves a local-only shell and renders the template. Keep coordinator auth on the data APIs or a dedicated same-origin bootstrap exchange rather than the initial HTML request. Add static file serving for `/static/` directory.
 
 - [ ] **Step 4: Test that the route serves HTML**
 - [ ] **Step 5: Commit**

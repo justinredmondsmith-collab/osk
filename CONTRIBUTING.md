@@ -28,7 +28,9 @@ The repository now includes:
   a heuristic synthesis layer with corroboration, sitrep output, and
   coordinator review actions
 - A thin local coordinator review shell served from FastAPI with static
-  HTML/CSS/JS under `src/osk/templates/` and `src/osk/static/`
+  HTML/CSS/JS under `src/osk/templates/` and `src/osk/static/`; the shell uses
+  a local operator token passed via URL fragment and cached in
+  `sessionStorage`, rather than embedding that token in the HTTP request URL
 
 The repository does **not** yet contain the full intelligence pipeline,
 synthesis layer, full coordinator dashboard, or mobile client described in the
@@ -133,6 +135,9 @@ Code contributions should:
 - Keep coordinator review surfaces aligned: if you change finding/event/sitrep
   retrieval or review semantics, update both the local CLI flow and the admin
   API/query surfaces used by future dashboard work
+- Keep browser auth bootstrap non-secret on the server side: do not put
+  operator/coordinator tokens in request query strings or rendered HTML when
+  extending the dashboard flow
 
 ## How to Contribute
 

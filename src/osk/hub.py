@@ -1230,7 +1230,7 @@ def show_dashboard_url(*, json_output: bool = False) -> int:
         print("Operator session file is invalid.")
         return 1
 
-    url = f"https://127.0.0.1:{port}/coordinator?token={quote(session_token, safe='')}"
+    url = f"https://127.0.0.1:{port}/coordinator#token={quote(session_token, safe='')}"
     payload = {
         "operation_id": operation_id,
         "operation_name": state.get("operation_name"),
