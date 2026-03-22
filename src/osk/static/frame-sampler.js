@@ -113,7 +113,7 @@
         captured_at: new Date(capturedAt).toISOString(),
       };
       if (context.memberId) {
-        payload.ingest_key = `${context.memberId}:frame:${sequenceNo}`;
+        payload.ingest_key = `${context.memberId}:frame:${frameId}`;
       }
       sequenceNo += 1;
       const metadataAccepted = await Promise.resolve(sendJson(payload));

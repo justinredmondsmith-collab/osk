@@ -140,6 +140,9 @@ What exists today:
   same owned service boundary
 - Duplicate-safe ingest acknowledgements when clients resend audio/frame media
   with a stable `chunk_id`, `frame_id`, or `ingest_key`
+- Sensor browser capture now derives media `ingest_key`s from stable per-item
+  IDs instead of tab-local counters, avoiding false duplicate collisions after
+  reload/reconnect inside the retained receipt window
 - Durable ingest receipt tracking so duplicate-safe media resubmission survives
   hub restarts within the configured retention window
 - Heuristic synthesis with cross-source corroboration, alert fan-out, rolling

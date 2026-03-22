@@ -102,7 +102,7 @@
         captured_at: new Date(now).toISOString(),
       };
       if (context.memberId) {
-        payload.ingest_key = `${context.memberId}:audio:${sequenceNo}`;
+        payload.ingest_key = `${context.memberId}:audio:${chunkId}`;
       }
       sequenceNo += 1;
       const metadataAccepted = await Promise.resolve(sendJson(payload));

@@ -148,6 +148,9 @@ changes manually while the project is in its early public setup phase.
 - Durable manual-report replay dedupe: queued field notes resent with the same
   `report_id` now acknowledge as duplicates instead of creating second manual
   report events after reconnect or ack loss
+- Sensor browser media ingest keys now derive from stable per-item IDs rather
+  than tab-local counters, avoiding false duplicate collisions after reloads
+  inside the retained ingest-receipt window
 
 ### Changed
 
