@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="referrer" content="no-referrer" />
+    <title>Osk Member</title>
+    <link rel="stylesheet" href="/static/member.css" />
+  </head>
+  <body class="member-app">
+    <main class="member-shell member-shell--runtime">
+      <header class="member-hero">
+        <p class="member-eyebrow">Osk Member</p>
+        <h1 id="runtime-operation-name">Connecting</h1>
+        <div class="member-status-pill">
+          <span class="member-status-dot" id="runtime-connection-dot"></span>
+          <span id="runtime-connection-label">Checking member session</span>
+        </div>
+      </header>
+
+      <section class="member-panel">
+        <div class="member-grid">
+          <div>
+            <span class="member-label">Display name</span>
+            <strong id="runtime-display-name">--</strong>
+          </div>
+          <div>
+            <span class="member-label">Role</span>
+            <strong id="runtime-role">Pending</strong>
+          </div>
+          <div>
+            <span class="member-label">Member ID</span>
+            <strong id="runtime-member-id">--</strong>
+          </div>
+          <div>
+            <span class="member-label">Session</span>
+            <strong id="runtime-session-state">Authorizing</strong>
+          </div>
+        </div>
+      </section>
+
+      <section class="member-panel member-panel--feed">
+        <div class="member-panel-head">
+          <div>
+            <p class="member-eyebrow">Runtime</p>
+            <h2>Live Status</h2>
+          </div>
+          <button class="member-button member-button--ghost" id="runtime-leave" type="button">
+            Leave
+          </button>
+        </div>
+        <div class="member-feed" id="runtime-feed">
+          <div class="member-empty">
+            <p>Waiting for member connection status.</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="member-panel member-panel--soft">
+        <h2>Current scope</h2>
+        <p class="member-subtle">
+          This runtime shell currently proves cookie-backed member auth and WebSocket bootstrap. Rich alerts, GPS, and media capture still belong to the fuller Phase 5 client work.
+        </p>
+      </section>
+    </main>
+
+    <script id="osk-member-bootstrap" type="application/json">__OSK_MEMBER_BOOTSTRAP__</script>
+    <script src="/static/member.js" defer></script>
+  </body>
+</html>

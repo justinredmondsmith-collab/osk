@@ -198,8 +198,9 @@ Users may face real consequences if their data is accessed by adversaries (law e
 
 - On `osk start`, the hub generates a cryptographically random 32-byte **operation token** (base64url-encoded).
 - The QR code encodes a URL: `http://<hub-ip>:<port>/join?token=<operation-token>`
-- When a member opens this URL, the join page stores the token in `sessionStorage`.
-- On WebSocket upgrade, the token is sent as the first JSON message: `{"type": "auth", "token": "<token>", "name": "<display-name>"}`. The hub validates the token and assigns a member ID. Invalid tokens get an immediate close frame.
+- When a member opens this URL, the hub now exchanges the token into a clean browser session by setting an `HttpOnly` cookie and redirecting back to `/join` without the token in the visible URL.
+- The current thin member shell can bootstrap WebSocket auth from that cookie. It may still keep member-scoped reconnect state in browser session state, but the shared operation token is no longer kept in browser JavaScript storage.
+- On WebSocket upgrade, the first JSON message is still `{"type": "auth", "name": "<display-name>"}` or `{"type": "auth", "token": "<token>", "name": "<display-name>"}` when a non-browser client is used. The hub validates the shared operation token and assigns a member ID. Invalid tokens get an immediate close frame.
 - Tokens are planned to be per-operation shared secrets, with all members in an
   operation using the same token.
 - **Token rotation:** Coordinator can run `osk rotate-token` or tap "New QR" in the dashboard. This generates a new token; existing authenticated members stay connected, but new joins require the new QR code.
@@ -243,10 +244,10 @@ git clone <repo> && cd osk
 ### Member Join Flow
 
 1. Scan QR code shown by coordinator
-2. Browser opens to the Osk join page (served from hub)
-3. Enter a display name
-4. Grant browser permissions: location (required), microphone (optional), camera (optional)
-5. Tap "Join as Observer"
+2. Browser opens to the Osk join page bootstrap URL (served from hub)
+3. Hub exchanges the shared operation token into a clean browser session and redirects back to `/join`
+4. Enter a display name
+5. Continue into the thin member shell
 6. Coordinator can promote to Sensor from dashboard
 
 ### Coordinator Dashboard (Desktop)
@@ -314,6 +315,10 @@ Three-panel layout:
 | Method | Path | Auth | Description |
 |---|---|---|---|
 | GET | `/join?token=<token>` | Token in query | Serves the join page |
+| GET | `/join` | Member session cookie | Serves the clean join page after QR bootstrap |
+| GET | `/member` | Member session cookie | Serves the thin member runtime shell |
+| GET | `/api/member/session` | Member session cookie | Reports current member browser-session status |
+| DELETE | `/api/member/session` | Member session cookie | Clears the current member browser-session cookie |
 | GET | `/api/operation/status` | Coordinator only | Operation metadata and stats |
 | GET | `/api/members` | Coordinator only | List all members with roles and status |
 | POST | `/api/members/<id>/promote` | Coordinator only | Promote observer to sensor |
@@ -334,7 +339,7 @@ Single WebSocket endpoint: `wss://<hub>/ws`
 
 | Type | Format | Roles | Description |
 |---|---|---|---|
-| `auth` | `{"type":"auth", "token":"<token>", "name":"<name>"}` | All | First message after connect. Hub responds with `{"type":"auth_ok", "member_id":"<id>", "role":"observer"}` or closes connection. |
+| `auth` | `{"type":"auth", "name":"<name>"}` or `{"type":"auth", "token":"<token>", "name":"<name>"}` | All | First message after connect. Browser members can authenticate from the cookie-backed join session; non-browser clients can still send the token explicitly. Hub responds with `{"type":"auth_ok", "member_id":"<id>", "role":"observer"}` or closes connection. |
 | `audio` | Binary frame (PCM 16-bit, 16kHz) | Sensor | Audio chunk. Preceded by `{"type":"audio_meta", "duration_ms": N}` JSON frame. |
 | `key_frame` | Binary frame (JPEG) | Sensor | Key frame from edge sampling. Preceded by `{"type":"frame_meta", "change_score": 0.0-1.0}` JSON frame. |
 | `gps` | `{"type":"gps", "lat": N, "lon": N, "accuracy": N}` | All | Location update. |

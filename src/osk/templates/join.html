@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="referrer" content="no-referrer" />
+    <title>Osk Join</title>
+    <link rel="stylesheet" href="/static/member.css" />
+  </head>
+  <body class="member-app">
+    <main class="member-shell member-shell--join">
+      <header class="member-hero">
+        <p class="member-eyebrow">Osk Join</p>
+        <h1 id="join-operation-name">Waiting for join session</h1>
+        <p class="member-subtle" id="join-session-status">
+          Scan the coordinator QR code to create a local member session.
+        </p>
+      </header>
+
+      <section class="member-panel member-panel--primary">
+        <form class="join-form" id="join-form" hidden>
+          <label class="member-field" for="join-display-name">
+            <span>Display name</span>
+            <input
+              id="join-display-name"
+              name="display_name"
+              type="text"
+              autocomplete="nickname"
+              maxlength="40"
+              placeholder="Choose a display name"
+              required
+            />
+          </label>
+          <p class="member-subtle">
+            No real names needed. This is temporary and scoped to the current browser session.
+          </p>
+          <button class="member-button" type="submit">Continue to member shell</button>
+        </form>
+
+        <div class="member-empty" id="join-empty">
+          <p>Open the QR link from the coordinator to create a clean browser session for this operation.</p>
+        </div>
+      </section>
+
+      <section class="member-panel member-panel--soft">
+        <h2>Current scope</h2>
+        <p class="member-subtle">
+          This is a thin join shell. It proves clean-URL join, cookie-backed auth, and member runtime bootstrap without storing the shared join token in browser JavaScript storage.
+        </p>
+        <button class="member-button member-button--ghost" id="join-reset" type="button">
+          Reset member session
+        </button>
+      </section>
+    </main>
+
+    <script id="osk-member-bootstrap" type="application/json">__OSK_MEMBER_BOOTSTRAP__</script>
+    <script src="/static/member.js" defer></script>
+  </body>
+</html>

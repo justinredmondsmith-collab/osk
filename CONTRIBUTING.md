@@ -34,6 +34,10 @@ The repository now includes:
   it now consumes a same-origin live dashboard stream plus current member
   health/ingest context and a local tile-backed map surface with an explicit
   relative fallback when the tile cache is empty
+- A thin member join/runtime shell under `src/osk/templates/join.html`,
+  `src/osk/templates/member.html`, and `src/osk/static/member.*`; it now uses
+  a clean cookie-backed join flow so the shared operation token is not kept in
+  the post-QR URL or browser JavaScript storage
 
 The repository does **not** yet contain the full intelligence pipeline,
 synthesis layer, full coordinator dashboard, or mobile client described in the
@@ -141,6 +145,9 @@ Code contributions should:
 - Keep browser auth bootstrap non-secret on the server side: do not put
   operator/coordinator tokens in request query strings, rendered HTML, or
   long-lived browser-managed JS storage when extending the dashboard flow
+- Keep the member join bootstrap on the same standard: the shared operation
+  token should remain a one-time QR bootstrap input, not a persistent browser
+  storage value
 - Keep dashboard map/status surfaces truthful: the current field map is a
   local cached-tile surface driven by member GPS, with an explicit
   relative-position fallback when no cached tiles cover the current area; docs

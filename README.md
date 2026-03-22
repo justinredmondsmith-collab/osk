@@ -19,8 +19,10 @@ situations where shared awareness matters.
 > shell served by FastAPI with one-time dashboard code exchange into a
 > short-lived local cookie session, a live dashboard stream, right-rail member
 > health and ingest context, and a local tile-backed map that falls back to a
-> relative-position view when cached tiles are unavailable. The fuller
-> dashboard surface and mobile product work are still planned.
+> relative-position view when cached tiles are unavailable. The repo now also
+> has a thin cookie-backed member join/runtime shell that removes the shared
+> join token from the post-QR browser URL and from browser JavaScript storage.
+> The fuller dashboard surface and mobile product work are still planned.
 
 ## At a Glance
 
@@ -93,6 +95,10 @@ What exists today:
   and heartbeat-based stale-session cleanup
 - Early REST/WebSocket hub surface for the coordinator and member join/runtime
   flow
+- Cookie-backed member join bootstrap: `/join?token=...` now exchanges the
+  shared operation token into a clean `/join` browser session, and the thin
+  `/member` shell authenticates WebSocket startup from that cookie instead of
+  from JS-stored operation token state
 - Hub-owned Phase 2 intelligence service: shared ingest/result models,
   config-selectable fake or real transcript/vision adapters, bounded
   audio/frame ingest queues, location processing, background audio/vision
@@ -128,6 +134,8 @@ What is still missing:
   including richer map controls, broader review workflows, and more complete
   operator surfaces
 - Mobile PWA user experience
+  The current thin join/member shell is only bootstrap groundwork, not the full
+  client described in Phase 5
 - Validated wipe timing and production-grade evidence/export tooling
 
 ## Planned Operating Model
@@ -207,7 +215,7 @@ The initial implementation is split into six phases:
 | [2. Intelligence Pipeline](docs/plans/2026-03-21-plan-2-intelligence-pipeline.md) | Whisper, vision, ingest queues, location engine | Live ingest + persistence bridge in repo |
 | [3. Synthesis Layer](docs/plans/2026-03-21-plan-3-synthesis-layer.md) | Events, alerts, SitReps | Planned |
 | [4. Coordinator Dashboard](docs/plans/2026-03-21-plan-4-coordinator-dashboard.md) | Map, timeline, sensor management | Live review shell in repo |
-| [5. Mobile PWA](docs/plans/2026-03-21-plan-5-mobile-pwa.md) | Join flow, alert feed, edge sampling | Planned |
+| [5. Mobile PWA](docs/plans/2026-03-21-plan-5-mobile-pwa.md) | Join flow, alert feed, edge sampling | Thin join/member shell in repo |
 | [6. Operations Tooling](docs/plans/2026-03-21-plan-6-operations-tooling.md) | Hotspot, evidence, tile caching | Planned |
 
 See the [design specification](docs/specs/2026-03-21-osk-design.md) for the
@@ -236,6 +244,11 @@ full architecture, API contract, and threat-model assumptions.
   relative-position fallback instead of a blank panel
 - Seed `map_tile_cache_path` with local PNG tiles if you want the dashboard map
   to render real cached geography instead of the relative fallback view
+- Scan the QR join link into `/join?token=...`; the hub now exchanges that
+  token into a clean `HttpOnly` browser cookie and redirects back to `/join`
+  without leaving the shared operation token in the visible URL
+- Use the thin `/member` shell after join if you want to exercise the current
+  cookie-backed member bootstrap and WebSocket auth path
 - Use `/api/intelligence/status`, `/api/intelligence/observations`,
   `/api/intelligence/findings`, `/api/intelligence/review-feed`, `/api/events`,
   `/api/sitreps`, `/api/coordinator/dashboard-state`, and

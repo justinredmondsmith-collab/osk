@@ -11,6 +11,8 @@
 **Spec:** `docs/specs/2026-03-21-osk-design.md` — "Edge Components" and "Member Mobile UI" sections
 **Depends on:** Plan 1 (server, connection_manager), Plan 3 (alerts)
 
+**Current state:** A thin cookie-backed member join/runtime shell now exists at `/join` and `/member`. The QR token is exchanged into a clean `HttpOnly` browser cookie before the shell loads, and the current WebSocket bootstrap can authenticate from that cookie without exposing the shared operation token to browser JavaScript storage. The tasks below describe the fuller mobile client beyond that bootstrap slice.
+
 ---
 
 ## File Map

@@ -80,6 +80,9 @@ changes manually while the project is in its early public setup phase.
 - Local cached-tile map path for the coordinator shell, including a protected
   `/tiles/{z}/{x}/{y}.png` endpoint, dashboard tile-cache status in the live
   snapshot, and relative-position fallback when cached map coverage is absent
+- Thin member bootstrap shell: clean `/join` redirect flow, cookie-backed
+  member browser session, `/member` runtime shell, and WebSocket auth that can
+  bootstrap from the member cookie instead of JS-stored shared join token
 
 ### Changed
 
@@ -110,3 +113,5 @@ changes manually while the project is in its early public setup phase.
   experience
 - Dashboard docs now reflect the tile-backed map surface more precisely:
   cached local geography when tiles exist, relative fallback when they do not
+- Member join docs now reflect the current clean-URL cookie bootstrap instead
+  of the old `sessionStorage` operation-token flow

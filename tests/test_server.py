@@ -135,12 +135,91 @@ def test_join_page_valid_token(client: TestClient, mock_op_manager: MagicMock) -
     mock_op_manager.validate_token.return_value = True
     resp = client.get("/join?token=valid-token")
     assert resp.status_code == 200
+    assert "Continue to member shell" in resp.text
+    assert "sessionStorage.setItem('osk_token'" not in resp.text
+
+
+def test_join_page_sets_member_cookie_and_redirects_clean_url(
+    unauthenticated_client: TestClient,
+    mock_op_manager: MagicMock,
+) -> None:
+    mock_op_manager.validate_token.return_value = True
+
+    resp = unauthenticated_client.get("/join?token=valid-token", follow_redirects=False)
+
+    assert resp.status_code == 303
+    assert resp.headers["location"] == "/join"
+    assert "osk_member_join=valid-token" in resp.headers["set-cookie"]
 
 
 def test_join_page_invalid_token(client: TestClient, mock_op_manager: MagicMock) -> None:
     mock_op_manager.validate_token.return_value = False
     resp = client.get("/join?token=bad-token")
     assert resp.status_code == 403
+
+
+def test_join_page_without_cookie_renders_rescan_message(
+    unauthenticated_client: TestClient,
+) -> None:
+    resp = unauthenticated_client.get("/join")
+
+    assert resp.status_code == 200
+    assert "Scan the coordinator QR code" in resp.text
+
+
+def test_member_page_requires_cookie_redirect(
+    unauthenticated_client: TestClient,
+) -> None:
+    resp = unauthenticated_client.get("/member", follow_redirects=False)
+
+    assert resp.status_code == 303
+    assert resp.headers["location"] == "/join"
+
+
+def test_member_page_renders_runtime_shell(
+    unauthenticated_client: TestClient,
+) -> None:
+    unauthenticated_client.cookies.set("osk_member_join", "valid-token")
+
+    resp = unauthenticated_client.get("/member")
+
+    assert resp.status_code == 200
+    assert "Osk Member" in resp.text
+    assert "/static/member.js" in resp.text
+    assert "osk_member_join" not in resp.text
+
+
+def test_member_session_status_requires_cookie(
+    unauthenticated_client: TestClient,
+) -> None:
+    resp = unauthenticated_client.get("/api/member/session")
+
+    assert resp.status_code == 401
+    assert "Rescan the coordinator QR code" in resp.json()["error"]
+
+
+def test_member_session_status_accepts_cookie(
+    unauthenticated_client: TestClient,
+) -> None:
+    unauthenticated_client.cookies.set("osk_member_join", "valid-token")
+
+    resp = unauthenticated_client.get("/api/member/session")
+
+    assert resp.status_code == 200
+    assert resp.json()["authenticated"] is True
+    assert resp.json()["operation_name"] == "Test Op"
+
+
+def test_member_session_delete_clears_cookie(
+    unauthenticated_client: TestClient,
+) -> None:
+    unauthenticated_client.cookies.set("osk_member_join", "valid-token")
+
+    resp = unauthenticated_client.delete("/api/member/session")
+
+    assert resp.status_code == 200
+    assert resp.json()["cleared"] is True
+    assert "osk_member_join=" in resp.headers["set-cookie"]
 
 
 def test_coordinator_dashboard_renders_local_shell(client: TestClient) -> None:
@@ -313,6 +392,13 @@ def test_dashboard_static_asset_serves(client: TestClient) -> None:
 
     assert resp.status_code == 200
     assert "--color-bg" in resp.text
+
+
+def test_member_static_asset_serves(client: TestClient) -> None:
+    resp = client.get("/static/member.css")
+
+    assert resp.status_code == 200
+    assert "--member-bg" in resp.text
 
 
 @patch("osk.server.load_config")
@@ -798,6 +884,22 @@ def test_websocket_auth_flow(
     assert message["type"] == "auth_ok"
     assert message["resume_token"]
     assert message["resumed"] is False
+    mock_conn_mgr.register.assert_called_once()
+    mock_op_manager.add_member.assert_called_once()
+
+
+def test_websocket_auth_flow_accepts_member_cookie(
+    unauthenticated_client: TestClient,
+    mock_conn_mgr: MagicMock,
+    mock_op_manager: MagicMock,
+) -> None:
+    unauthenticated_client.cookies.set("osk_member_join", "valid-token")
+
+    with unauthenticated_client.websocket_connect("/ws") as websocket:
+        websocket.send_json({"type": "auth", "name": "Jay"})
+        message = websocket.receive_json()
+
+    assert message["type"] == "auth_ok"
     mock_conn_mgr.register.assert_called_once()
     mock_op_manager.add_member.assert_called_once()
 

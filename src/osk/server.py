@@ -10,10 +10,18 @@ import json
 import logging
 import uuid
 from collections import Counter
+from http.cookies import SimpleCookie
 from pathlib import Path
 
 from fastapi import FastAPI, Query, Request, WebSocket, WebSocketDisconnect
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response, StreamingResponse
+from fastapi.responses import (
+    FileResponse,
+    HTMLResponse,
+    JSONResponse,
+    RedirectResponse,
+    Response,
+    StreamingResponse,
+)
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -52,6 +60,7 @@ logger = logging.getLogger(__name__)
 ADMIN_TOKEN_HEADER = "X-Osk-Coordinator-Token"
 OPERATOR_SESSION_HEADER = "X-Osk-Operator-Session"
 DASHBOARD_SESSION_COOKIE = "osk_dashboard_session"
+MEMBER_SESSION_COOKIE = "osk_member_join"
 LOCAL_ADMIN_TEST_HOSTS = {"testclient", "localhost"}
 MAX_AUDIT_LIMIT = 200
 MAX_OBSERVATION_LIMIT = 200
@@ -63,6 +72,8 @@ PACKAGE_ROOT = Path(__file__).resolve().parent
 STATIC_ROOT = PACKAGE_ROOT / "static"
 TEMPLATE_ROOT = PACKAGE_ROOT / "templates"
 COORDINATOR_TEMPLATE_PATH = TEMPLATE_ROOT / "coordinator.html"
+JOIN_TEMPLATE_PATH = TEMPLATE_ROOT / "join.html"
+MEMBER_TEMPLATE_PATH = TEMPLATE_ROOT / "member.html"
 DASHBOARD_STREAM_INTERVAL_SECONDS = 2.0
 DASHBOARD_STREAM_KEEPALIVE_SECONDS = 15.0
 TRANSPARENT_TILE_PNG = base64.b64decode(
@@ -105,6 +116,21 @@ def _extract_admin_token(request: Request) -> str | None:
     if token := request.cookies.get(DASHBOARD_SESSION_COOKIE):
         return token.strip()
     return None
+
+
+def _cookie_from_header(cookie_header: str | None, cookie_name: str) -> str | None:
+    if not cookie_header:
+        return None
+    jar = SimpleCookie()
+    try:
+        jar.load(cookie_header)
+    except (KeyError, ValueError):
+        return None
+    morsel = jar.get(cookie_name)
+    if morsel is None:
+        return None
+    value = morsel.value.strip()
+    return value or None
 
 
 def _is_loopback_host(host: str | None) -> bool:
@@ -151,6 +177,15 @@ def _dashboard_session_cookie_payload(
     }
 
 
+def _member_session_cookie_payload(request: Request) -> dict[str, object]:
+    return {
+        "httponly": True,
+        "path": "/",
+        "samesite": "strict",
+        "secure": request.url.scheme == "https",
+    }
+
+
 def _set_dashboard_session_cookie(
     response: JSONResponse,
     request: Request,
@@ -166,9 +201,30 @@ def _set_dashboard_session_cookie(
     )
 
 
+def _set_member_session_cookie(
+    response: Response,
+    request: Request,
+    token: str,
+) -> None:
+    response.set_cookie(
+        MEMBER_SESSION_COOKIE,
+        token,
+        **_member_session_cookie_payload(request),
+    )
+
+
 def _clear_dashboard_session_cookie(response: JSONResponse, request: Request) -> None:
     response.delete_cookie(
         DASHBOARD_SESSION_COOKIE,
+        path="/",
+        samesite="strict",
+        secure=request.url.scheme == "https",
+    )
+
+
+def _clear_member_session_cookie(response: Response, request: Request) -> None:
+    response.delete_cookie(
+        MEMBER_SESSION_COOKIE,
         path="/",
         samesite="strict",
         secure=request.url.scheme == "https",
@@ -203,6 +259,12 @@ def _render_coordinator_dashboard(bootstrap: dict[str, object]) -> str:
     template = COORDINATOR_TEMPLATE_PATH.read_text()
     bootstrap_json = json.dumps(bootstrap, sort_keys=True).replace("<", "\\u003c")
     return template.replace("__OSK_DASHBOARD_BOOTSTRAP__", bootstrap_json)
+
+
+def _render_member_shell(template_path: Path, bootstrap: dict[str, object]) -> str:
+    template = template_path.read_text()
+    bootstrap_json = json.dumps(bootstrap, sort_keys=True).replace("<", "\\u003c")
+    return template.replace("__OSK_MEMBER_BOOTSTRAP__", bootstrap_json)
 
 
 def _member_priority(role: MemberRole) -> IngestPriority:
@@ -390,6 +452,26 @@ def _parse_review_feed_types(include: list[str] | None) -> tuple[set[str] | None
     return include_types, invalid_types
 
 
+def _member_session_bootstrap() -> dict[str, object]:
+    return {
+        "paths": {
+            "member_session": "/api/member/session",
+            "member_page": "/member",
+            "join_page": "/join",
+            "websocket": "/ws",
+        }
+    }
+
+
+def _member_session_token_from_request(request: Request) -> str | None:
+    token = str(request.cookies.get(MEMBER_SESSION_COOKIE) or "").strip()
+    return token or None
+
+
+def _member_session_token_from_websocket(ws: WebSocket) -> str | None:
+    return _cookie_from_header(ws.headers.get("cookie"), MEMBER_SESSION_COOKIE)
+
+
 def _map_tile_cache_status(config) -> dict[str, object]:
     tile_root = Path(config.map_tile_cache_path).expanduser()
     available_zooms: list[int] = []
@@ -541,19 +623,104 @@ def create_app(
     app.mount("/static", StaticFiles(directory=str(STATIC_ROOT)), name="static")
 
     @app.get("/join")
-    async def join_page(token: str = Query(...)):
-        if not op_manager.validate_token(token):
-            return JSONResponse({"error": "Invalid token"}, status_code=403)
-
+    async def join_page(request: Request, token: str | None = Query(default=None)):
         operation = op_manager.operation
-        name = operation.name if operation else "Osk"
-        return HTMLResponse(
-            "<html><body>"
-            "<h1>Osk</h1>"
-            f"<p>Join: {name}</p>"
-            f"<script>sessionStorage.setItem('osk_token','{token}');</script>"
-            "</body></html>"
+        if operation is None:
+            return JSONResponse({"error": "No active operation"}, status_code=503)
+
+        if token is not None:
+            if not op_manager.validate_token(token):
+                response = JSONResponse({"error": "Invalid token"}, status_code=403)
+                _clear_member_session_cookie(response, request)
+                return response
+            response = RedirectResponse(url="/join", status_code=303)
+            _set_member_session_cookie(response, request, token.strip())
+            response.headers["Cache-Control"] = "no-store"
+            return response
+
+        join_token = _member_session_token_from_request(request)
+        authenticated = bool(join_token and op_manager.validate_token(join_token))
+        bootstrap = {
+            **_member_session_bootstrap(),
+            "page": "join",
+            "session_authenticated": authenticated,
+        }
+        response = HTMLResponse(
+            _render_member_shell(JOIN_TEMPLATE_PATH, bootstrap),
+            headers={
+                "Cache-Control": "no-store",
+                "Pragma": "no-cache",
+                "Referrer-Policy": "no-referrer",
+                "X-Frame-Options": "DENY",
+                "X-Content-Type-Options": "nosniff",
+            },
         )
+        if not authenticated and join_token is not None:
+            _clear_member_session_cookie(response, request)
+        return response
+
+    @app.get("/member")
+    async def member_page(request: Request):
+        operation = op_manager.operation
+        if operation is None:
+            return JSONResponse({"error": "No active operation"}, status_code=503)
+
+        join_token = _member_session_token_from_request(request)
+        if join_token is None or not op_manager.validate_token(join_token):
+            response = RedirectResponse(url="/join", status_code=303)
+            _clear_member_session_cookie(response, request)
+            return response
+
+        bootstrap = {
+            **_member_session_bootstrap(),
+            "page": "member",
+        }
+        return HTMLResponse(
+            _render_member_shell(MEMBER_TEMPLATE_PATH, bootstrap),
+            headers={
+                "Cache-Control": "no-store",
+                "Pragma": "no-cache",
+                "Referrer-Policy": "no-referrer",
+                "X-Frame-Options": "DENY",
+                "X-Content-Type-Options": "nosniff",
+            },
+        )
+
+    @app.get("/api/member/session")
+    async def get_member_session(request: Request):
+        operation = op_manager.operation
+        if operation is None:
+            return JSONResponse({"error": "No active operation"}, status_code=503)
+
+        join_token = _member_session_token_from_request(request)
+        if join_token is None or not op_manager.validate_token(join_token):
+            response = JSONResponse(
+                {
+                    "authenticated": False,
+                    "error": "Rescan the coordinator QR code to join this operation.",
+                },
+                status_code=401,
+            )
+            _clear_member_session_cookie(response, request)
+            return response
+
+        return JSONResponse(
+            {
+                "authenticated": True,
+                "operation_id": str(operation.id),
+                "operation_name": operation.name,
+            },
+            headers={"Cache-Control": "no-store"},
+        )
+
+    @app.delete("/api/member/session")
+    async def clear_member_session(request: Request):
+        response = JSONResponse(
+            {"authenticated": False, "cleared": True},
+            headers={"Cache-Control": "no-store"},
+        )
+        _clear_member_session_cookie(response, request)
+        return response
 
     @app.get("/coordinator")
     async def coordinator_dashboard(request: Request):
@@ -1301,7 +1468,9 @@ def create_app(
                 await ws.close(code=4001, reason="First message must be auth")
                 return
 
-            token = auth_message.get("token", "")
+            token = str(auth_message.get("token", "")).strip()
+            if not token:
+                token = str(_member_session_token_from_websocket(ws) or "").strip()
             name = auth_message.get("name", "Anonymous")
             if not op_manager.validate_token(token):
                 await ws.close(code=4003, reason="Invalid token")
