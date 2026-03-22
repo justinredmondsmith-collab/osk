@@ -6,6 +6,8 @@ import asyncio
 import logging
 import math
 import re
+import shutil
+import subprocess
 from collections.abc import Callable
 from datetime import timedelta
 from typing import Any
@@ -27,6 +29,21 @@ from osk.worker_runtime import (
 )
 
 logger = logging.getLogger(__name__)
+COMPRESSED_AUDIO_CODECS = {
+    "audio/webm",
+    "video/webm",
+    "audio/ogg",
+    "audio/opus",
+    "audio/oga",
+    "audio/mp4",
+    "audio/aac",
+    "audio/mpeg",
+    "audio/mpga",
+    "audio/wav",
+    "audio/x-wav",
+    "audio/wave",
+    "audio/flac",
+}
 
 
 def normalize_uncertain_tokens(text: str) -> str:
@@ -72,7 +89,7 @@ def collapse_repetition_loops(text: str) -> tuple[str, bool]:
     return " ".join(words), changed
 
 
-def decode_audio_chunk(chunk: AudioChunk) -> Any:
+def decode_audio_chunk(chunk: AudioChunk, *, ffmpeg_binary: str = "ffmpeg") -> Any:
     try:
         import numpy as np
     except ModuleNotFoundError as exc:  # pragma: no cover - environment dependent
@@ -81,7 +98,7 @@ def decode_audio_chunk(chunk: AudioChunk) -> Any:
             "for Whisper."
         ) from exc
 
-    codec = str(chunk.codec or "").strip().lower()
+    codec = _normalize_audio_codec(chunk.codec)
     payload = chunk.payload
     if not payload:
         return np.zeros(0, dtype=np.float32)
@@ -93,10 +110,94 @@ def decode_audio_chunk(chunk: AudioChunk) -> Any:
     if codec in {"audio/pcm-f32le", "audio/float32", "audio/f32le"}:
         return np.frombuffer(payload, dtype=np.float32)
 
+    if codec in COMPRESSED_AUDIO_CODECS or codec.startswith("audio/") or codec.startswith("video/"):
+        return _decode_compressed_audio_with_ffmpeg(
+            payload,
+            codec=codec,
+            ffmpeg_binary=ffmpeg_binary,
+            sample_rate_hz=chunk.sample_rate_hz,
+        )
+
     raise ValueError(
         f"Unsupported audio codec for WhisperTranscriber: {chunk.codec!r}. "
         "Provide a custom decoder for compressed formats."
     )
+
+
+def _normalize_audio_codec(codec: str | None) -> str:
+    raw = str(codec or "").strip().lower()
+    return raw.split(";", 1)[0].strip()
+
+
+def _decode_compressed_audio_with_ffmpeg(
+    payload: bytes,
+    *,
+    codec: str,
+    ffmpeg_binary: str,
+    sample_rate_hz: int,
+):
+    try:
+        import numpy as np
+    except ModuleNotFoundError as exc:  # pragma: no cover - environment dependent
+        raise RuntimeError(
+            "numpy is not installed. Install the intelligence extras to decode audio chunks "
+            "for Whisper."
+        ) from exc
+
+    ffmpeg = shutil.which(ffmpeg_binary)
+    if ffmpeg is None:
+        raise RuntimeError(
+            f"ffmpeg binary '{ffmpeg_binary}' is not installed or not in PATH. Install "
+            "ffmpeg to decode compressed audio such as WebM or Ogg uploads."
+        )
+
+    sample_rate = max(int(sample_rate_hz or 16_000), 8_000)
+    timeout_seconds = 2.0 + min(10.0, max(len(payload), 1) / 500_000.0)
+    cmd = [
+        ffmpeg,
+        "-v",
+        "error",
+        "-nostdin",
+        "-i",
+        "pipe:0",
+        "-ac",
+        "1",
+        "-ar",
+        str(sample_rate),
+        "-f",
+        "f32le",
+        "pipe:1",
+    ]
+    try:
+        result = subprocess.run(
+            cmd,
+            input=payload,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=True,
+            timeout=timeout_seconds,
+        )
+    except FileNotFoundError as exc:  # pragma: no cover - defensive path
+        raise RuntimeError("ffmpeg binary could not be executed.") from exc
+    except subprocess.TimeoutExpired as exc:
+        raise ValueError(
+            f"Timed out decoding compressed audio for codec {codec!r} with ffmpeg."
+        ) from exc
+    except subprocess.CalledProcessError as exc:
+        stderr_text = exc.stderr.decode("utf-8", errors="ignore").strip()
+        detail = f" ({stderr_text})" if stderr_text else ""
+        raise ValueError(f"ffmpeg could not decode codec {codec!r}{detail}") from exc
+
+    if not result.stdout:
+        return np.zeros(0, dtype=np.float32)
+    return np.frombuffer(result.stdout, dtype=np.float32)
+
+
+def build_audio_decoder(*, ffmpeg_binary: str) -> Callable[[AudioChunk], Any]:
+    def _decoder(chunk: AudioChunk) -> Any:
+        return decode_audio_chunk(chunk, ffmpeg_binary=ffmpeg_binary)
+
+    return _decoder
 
 
 class WhisperTranscriber:

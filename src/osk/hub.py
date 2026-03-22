@@ -89,6 +89,10 @@ def installation_issues(config: OskConfig, storage: StorageManager) -> list[str]
         issues.append(f"missing TLS key at {key_path}")
     if storage.backend == "luks" and not storage.luks_image_path.exists():
         issues.append(f"missing encrypted evidence volume at {storage.luks_image_path}")
+    if config.transcriber_backend == "whisper" and shutil.which(config.ffmpeg_binary) is None:
+        issues.append(
+            f"missing ffmpeg binary '{config.ffmpeg_binary}' for compressed audio decoding"
+        )
 
     return issues
 

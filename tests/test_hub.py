@@ -61,6 +61,29 @@ def test_installation_issues_skip_luks_requirement_for_directory_backend(tmp_pat
     assert issues == []
 
 
+@patch("osk.hub.shutil.which", return_value=None)
+def test_installation_issues_require_ffmpeg_for_whisper_backend(
+    mock_which: MagicMock,
+    tmp_path: Path,
+) -> None:
+    cert_path = tmp_path / "cert.pem"
+    key_path = tmp_path / "key.pem"
+    cert_path.write_text("cert")
+    key_path.write_text("key")
+    config = OskConfig(
+        tls_cert_path=str(cert_path),
+        tls_key_path=str(key_path),
+        storage_backend="directory",
+        transcriber_backend="whisper",
+    )
+    storage = default_storage_manager(config)
+
+    issues = installation_issues(config, storage)
+
+    assert any("missing ffmpeg binary" in issue for issue in issues)
+    mock_which.assert_called_once_with("ffmpeg")
+
+
 def test_uses_local_dev_services_for_defaults() -> None:
     config = OskConfig()
     assert uses_local_dev_services(config) is True

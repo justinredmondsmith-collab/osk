@@ -161,6 +161,10 @@ def _build_frame_sample(member, data: dict, payload: bytes) -> FrameSample:
     )
 
 
+def _payload_too_large(payload: bytes, *, limit_bytes: int) -> bool:
+    return len(payload) > max(int(limit_bytes), 1)
+
+
 def _build_location_sample(member, data: dict) -> LocationSample:
     captured_at = _coerce_timestamp(data.get("captured_at"))
     return LocationSample(
@@ -522,6 +526,18 @@ def create_app(
                         pending_audio_meta = None
                     elif msg_type == "audio_chunk":
                         payload = _decode_inline_payload(data)
+                        if intelligence_service is not None and _payload_too_large(
+                            payload,
+                            limit_bytes=intelligence_service.config.max_audio_payload_bytes,
+                        ):
+                            await ws.send_json(
+                                {
+                                    "type": "audio_ack",
+                                    "accepted": False,
+                                    "reason": "audio payload too large",
+                                }
+                            )
+                            continue
                         chunk = _build_audio_chunk(member, data, payload)
                         accepted = (
                             await intelligence_service.submit_audio(chunk)
@@ -537,6 +553,18 @@ def create_app(
                         )
                     elif msg_type == "frame_sample":
                         payload = _decode_inline_payload(data)
+                        if intelligence_service is not None and _payload_too_large(
+                            payload,
+                            limit_bytes=intelligence_service.config.max_frame_payload_bytes,
+                        ):
+                            await ws.send_json(
+                                {
+                                    "type": "frame_ack",
+                                    "accepted": False,
+                                    "reason": "frame payload too large",
+                                }
+                            )
+                            continue
                         frame = _build_frame_sample(member, data, payload)
                         accepted = (
                             await intelligence_service.submit_frame(frame)
@@ -555,6 +583,19 @@ def create_app(
                 elif "bytes" in message:
                     payload = message["bytes"]
                     if pending_audio_meta is not None:
+                        if intelligence_service is not None and _payload_too_large(
+                            payload,
+                            limit_bytes=intelligence_service.config.max_audio_payload_bytes,
+                        ):
+                            pending_audio_meta = None
+                            await ws.send_json(
+                                {
+                                    "type": "audio_ack",
+                                    "accepted": False,
+                                    "reason": "audio payload too large",
+                                }
+                            )
+                            continue
                         chunk = _build_audio_chunk(member, pending_audio_meta, payload)
                         accepted = (
                             await intelligence_service.submit_audio(chunk)
@@ -571,6 +612,19 @@ def create_app(
                         )
                         continue
                     if pending_frame_meta is not None:
+                        if intelligence_service is not None and _payload_too_large(
+                            payload,
+                            limit_bytes=intelligence_service.config.max_frame_payload_bytes,
+                        ):
+                            pending_frame_meta = None
+                            await ws.send_json(
+                                {
+                                    "type": "frame_ack",
+                                    "accepted": False,
+                                    "reason": "frame payload too large",
+                                }
+                            )
+                            continue
                         frame = _build_frame_sample(member, pending_frame_meta, payload)
                         accepted = (
                             await intelligence_service.submit_frame(frame)

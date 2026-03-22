@@ -19,7 +19,8 @@ The repository now includes:
   `members`)
 - A hub-owned Phase 2 intelligence service with config-selectable fake or real
   transcript/vision adapters, live GPS/audio/frame ingest wiring, persisted
-  intelligence observations, and an early heuristic event bridge
+  intelligence observations, `ffmpeg`-backed compressed audio decode, and a
+  heuristic synthesis layer with corroboration and sitrep output
 
 The repository does **not** yet contain the full intelligence pipeline,
 synthesis layer, coordinator dashboard, or mobile client described in the
@@ -55,6 +56,9 @@ backends, install the intelligence extras too:
 ```bash
 pip install -e ".[dev,intelligence]"
 ```
+
+Real Whisper mode also expects `ffmpeg` to be available in `PATH` so compressed
+browser audio uploads can be decoded locally.
 
 Run tests:
 
@@ -111,6 +115,8 @@ Code contributions should:
   into routes or WebSocket handlers
 - Extend the owned service boundary rather than making the server responsible
   for persistence, synthesis, or alert heuristics
+- Treat mobile/browser media formats as first-class inputs; avoid narrowing the
+  runtime back down to raw PCM-only happy paths
 
 ## How to Contribute
 

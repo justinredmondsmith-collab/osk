@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -70,6 +71,10 @@ def mock_intelligence_service() -> MagicMock:
         "transcriber": {"backend": "fake"},
         "vision": {"backend": "fake"},
     }
+    service.config = SimpleNamespace(
+        max_audio_payload_bytes=32,
+        max_frame_payload_bytes=64,
+    )
     service.submit_audio = AsyncMock(return_value=True)
     service.submit_frame = AsyncMock(return_value=True)
     service.submit_location = AsyncMock(return_value=True)
@@ -339,6 +344,30 @@ def test_websocket_submits_audio_frame_and_location_to_intelligence_service(
     assert submitted_frame.payload == b"jpeg-payload"
     assert submitted_location.latitude == 39.75
     assert submitted_location.longitude == -104.99
+
+
+def test_websocket_rejects_oversized_audio_payload(
+    client: TestClient,
+    mock_intelligence_service: MagicMock,
+) -> None:
+    with client.websocket_connect("/ws") as websocket:
+        websocket.send_json({"type": "auth", "token": "valid-token", "name": "Jay"})
+        websocket.receive_json()
+        websocket.send_json(
+            {
+                "type": "audio_meta",
+                "codec": "audio/raw",
+                "sample_rate_hz": 16000,
+                "duration_ms": 250,
+            }
+        )
+        websocket.send_bytes(b"x" * 33)
+        audio_ack = websocket.receive_json()
+
+    assert audio_ack["type"] == "audio_ack"
+    assert audio_ack["accepted"] is False
+    assert audio_ack["reason"] == "audio payload too large"
+    mock_intelligence_service.submit_audio.assert_not_awaited()
 
 
 def test_wipe_rejects_remote_client(remote_client: TestClient) -> None:

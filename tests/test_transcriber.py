@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import asyncio
+import subprocess
 from datetime import datetime, timezone
 from types import SimpleNamespace
+from unittest.mock import patch
 from uuid import uuid4
 
 from osk.audio_ingest import AudioIngest
@@ -13,6 +15,7 @@ from osk.transcriber import (
     TranscriptionWorker,
     WhisperTranscriber,
     collapse_repetition_loops,
+    decode_audio_chunk,
     normalize_uncertain_tokens,
 )
 
@@ -213,3 +216,69 @@ async def test_whisper_transcriber_drops_duplicate_segments() -> None:
 
     assert result is not None
     assert result.text == "stay together stay together"
+
+
+def test_decode_audio_chunk_uses_ffmpeg_for_compressed_codecs() -> None:
+    import numpy as np
+
+    chunk = AudioChunk(
+        source=_source(),
+        codec="audio/webm;codecs=opus",
+        sample_rate_hz=16_000,
+        payload=b"webm-bytes",
+    )
+    pcm = np.array([0.1, -0.2, 0.3], dtype=np.float32).tobytes()
+
+    with (
+        patch("osk.transcriber.shutil.which", return_value="/usr/bin/ffmpeg"),
+        patch(
+            "osk.transcriber.subprocess.run",
+            return_value=SimpleNamespace(stdout=pcm, stderr=b""),
+        ) as mock_run,
+    ):
+        audio = decode_audio_chunk(chunk)
+
+    assert np.allclose(audio, np.array([0.1, -0.2, 0.3], dtype=np.float32))
+    assert mock_run.call_args.kwargs["input"] == b"webm-bytes"
+
+
+def test_decode_audio_chunk_requires_ffmpeg_for_compressed_audio() -> None:
+    chunk = AudioChunk(
+        source=_source(),
+        codec="audio/ogg",
+        sample_rate_hz=16_000,
+        payload=b"ogg-bytes",
+    )
+
+    with patch("osk.transcriber.shutil.which", return_value=None):
+        try:
+            decode_audio_chunk(chunk)
+        except RuntimeError as exc:
+            assert "ffmpeg" in str(exc)
+        else:  # pragma: no cover - assertion guard
+            raise AssertionError("Expected RuntimeError when ffmpeg is missing.")
+
+
+def test_decode_audio_chunk_reports_ffmpeg_decode_failure() -> None:
+    chunk = AudioChunk(
+        source=_source(),
+        codec="audio/mp4",
+        sample_rate_hz=16_000,
+        payload=b"mp4-bytes",
+    )
+    error = subprocess.CalledProcessError(
+        returncode=1,
+        cmd=["ffmpeg"],
+        stderr=b"invalid data found",
+    )
+
+    with (
+        patch("osk.transcriber.shutil.which", return_value="/usr/bin/ffmpeg"),
+        patch("osk.transcriber.subprocess.run", side_effect=error),
+    ):
+        try:
+            decode_audio_chunk(chunk)
+        except ValueError as exc:
+            assert "invalid data found" in str(exc)
+        else:  # pragma: no cover - assertion guard
+            raise AssertionError("Expected ValueError for ffmpeg decode failure.")

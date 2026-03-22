@@ -15,7 +15,8 @@ from osk.intelligence_contracts import (
     LocationSample,
 )
 from osk.intelligence_service import IntelligenceService, build_transcriber, build_vision_analyzer
-from osk.models import EventCategory, EventSeverity, Member, MemberRole, Operation
+from osk.models import EventCategory, EventSeverity, Member, MemberRole, Operation, SitRep
+from osk.synthesis import SynthesisDecision
 
 
 def _source(
@@ -91,16 +92,23 @@ async def test_intelligence_service_processes_audio_and_frames() -> None:
 
 
 def test_build_transcriber_selects_whisper_runtime() -> None:
-    config = OskConfig(transcriber_backend="whisper", whisper_model="medium")
+    config = OskConfig(
+        transcriber_backend="whisper",
+        whisper_model="medium",
+        ffmpeg_binary="ffmpeg-custom",
+    )
     with (
         patch("osk.intelligence_service.WhisperRuntimeManager") as mock_runtime_manager,
         patch("osk.intelligence_service.WhisperTranscriber") as mock_transcriber,
+        patch("osk.intelligence_service.build_audio_decoder") as mock_decoder,
     ):
         runtime_manager = mock_runtime_manager.return_value
+        decoder = mock_decoder.return_value
         built = build_transcriber(config)
 
     mock_runtime_manager.assert_called_once_with(model_size="medium")
-    mock_transcriber.assert_called_once_with(runtime_manager=runtime_manager)
+    mock_decoder.assert_called_once_with(ffmpeg_binary="ffmpeg-custom")
+    mock_transcriber.assert_called_once_with(runtime_manager=runtime_manager, decoder=decoder)
     assert built is mock_transcriber.return_value
 
 
@@ -143,6 +151,7 @@ async def test_intelligence_service_persists_and_synthesizes_audio_observations(
     db.insert_intelligence_observation = AsyncMock()
     db.insert_event = AsyncMock()
     db.insert_alert = AsyncMock()
+    db.insert_sitrep = AsyncMock()
     conn_manager = MagicMock()
     conn_manager.broadcast_alert = AsyncMock()
     source_member = Member(name="Sensor", role=MemberRole.SENSOR)
@@ -199,6 +208,7 @@ async def test_intelligence_service_persists_and_synthesizes_audio_observations(
     insert_event_call = db.insert_event.await_args.args
     assert insert_event_call[2] == EventSeverity.WARNING
     assert insert_event_call[3] == EventCategory.POLICE_ACTION
+    db.insert_sitrep.assert_not_awaited()
 
 
 async def test_intelligence_service_processes_location_clusters() -> None:
@@ -229,3 +239,73 @@ async def test_intelligence_service_processes_location_clusters() -> None:
     assert service.location_metrics.emitted_observations == 1
     assert observed[0].kind.value == "location"
     assert observed[0].details["cluster_size"] == 2
+
+
+async def test_intelligence_service_persists_sitrep_from_synthesizer() -> None:
+    db = MagicMock()
+    db.insert_intelligence_observation = AsyncMock()
+    db.insert_event = AsyncMock()
+    db.insert_alert = AsyncMock()
+    db.insert_sitrep = AsyncMock()
+    source_member = Member(name="Observer", role=MemberRole.OBSERVER)
+    operation_manager = SimpleNamespace(
+        operation=Operation(name="Test Op"),
+        members={source_member.id: source_member},
+    )
+
+    class Synthesizer:
+        async def synthesize(self, observation, *, source_member=None):
+            del observation, source_member
+            return SynthesisDecision(
+                sitrep=SitRep(
+                    id=uuid4(),
+                    text="Recent updates: police action x1.",
+                    trend="active",
+                )
+            )
+
+        def status(self) -> dict[str, object]:
+            return {"backend": "test"}
+
+    transcriber = MagicMock()
+    chunk = AudioChunk(
+        source=IngestSource(
+            member_id=source_member.id,
+            member_role=source_member.role,
+            priority=IngestPriority.OBSERVER,
+            received_at=datetime.now(timezone.utc),
+        ),
+        duration_ms=250,
+    )
+    transcriber.transcribe = AsyncMock(
+        return_value=SimpleNamespace(
+            adapter="fake-transcriber",
+            chunk_id=chunk.chunk_id,
+            source_member_id=source_member.id,
+            text="Police staging nearby.",
+            confidence=0.8,
+            started_at=chunk.source.received_at,
+            ended_at=chunk.source.received_at,
+            model_dump=lambda mode="json": {
+                "adapter": "fake-transcriber",
+                "chunk_id": str(chunk.chunk_id),
+                "source_member_id": str(source_member.id),
+                "text": "Police staging nearby.",
+                "confidence": 0.8,
+            },
+        )
+    )
+    service = IntelligenceService(
+        config=OskConfig(),
+        db=db,
+        operation_manager=operation_manager,
+        synthesizer=Synthesizer(),
+        transcriber=transcriber,
+    )
+
+    await service.start()
+    await service.submit_audio(chunk)
+    await _wait_for(lambda: service.transcription_worker.metrics.emitted_observations == 1)
+    await service.stop()
+
+    db.insert_sitrep.assert_awaited_once()

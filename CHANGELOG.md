@@ -59,6 +59,9 @@ changes manually while the project is in its early public setup phase.
 - Phase 2 live ingest and synthesis bridge: member GPS/audio/frame submission
   into the owned intelligence service, persisted intelligence observations,
   heuristic event synthesis, alert fan-out, and a local admin observations API
+- Phase 2 media/runtime hardening: `ffmpeg`-backed compressed audio decode for
+  real Whisper mode, transport payload ceilings, corroboration-aware synthesis,
+  and rolling sitrep generation
 
 ### Changed
 
@@ -71,3 +74,5 @@ changes manually while the project is in its early public setup phase.
   service-owned implementations instead of standalone experiments
 - README and contributor docs now reflect live Phase 2 ingest wiring and the
   current heuristic synthesis bridge
+- Docs now call out the current `ffmpeg` requirement for real Whisper browser
+  audio ingest and the more stateful heuristic synthesis behavior

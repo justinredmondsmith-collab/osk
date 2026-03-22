@@ -60,9 +60,11 @@ stage should still stay disciplined:
 
 For the next implementation stage, follow this order:
 
-1. Real mobile media decoding and transport hardening
-2. Richer synthesis and cross-observation dedupe
-3. Sitrep generation and coordinator-facing summaries
+1. Better client compatibility and transport hardening beyond the current
+   ffmpeg-backed browser-audio path
+2. Richer synthesis and cross-observation correlation beyond the current
+   heuristic corroboration model
+3. Coordinator-facing sitrep and event review UX
 4. Coordinator dashboard
 5. Mobile client
 6. Operations tooling

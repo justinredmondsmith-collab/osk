@@ -11,9 +11,10 @@ situations where shared awareness matters.
 > baseline for local install, start/stop, operator sessions, audit, logs, and
 > member visibility. Phase 2 now also includes a hub-owned intelligence service
 > with config-selectable fake or real transcript/vision adapters, live
-> member audio/frame/GPS ingest wiring, persisted observations, and an early
-> heuristic event bridge. Full synthesis, the dashboard, and the mobile client
-> are still planned.
+> member audio/frame/GPS ingest wiring, persisted observations, `ffmpeg`-backed
+> compressed audio decode for Whisper mode, and a heuristic synthesis layer with
+> corroboration and sitrep output. Full dashboard and mobile product work are
+> still planned.
 
 ## At a Glance
 
@@ -87,14 +88,17 @@ What exists today:
   runtime status surface
 - Live member WebSocket ingest for GPS, audio, and frame samples using the
   same owned service boundary
-- Early heuristic observation-to-event bridge with alert fan-out and recent
-  intelligence observation retrieval for local admins
+- Heuristic synthesis with cross-source corroboration, alert fan-out, rolling
+  sitrep generation, and recent intelligence observation retrieval for local
+  admins
+- `ffmpeg`-backed decode path for compressed audio uploads such as WebM/Ogg
+  when using the real Whisper backend
 
 What is still missing:
 
-- Richer synthesis, dedupe, and sitrep generation beyond the current heuristic
-  event bridge
-- Mobile-friendly compressed media decoding and production-grade ingest flows
+- Higher-quality synthesis beyond the current heuristic correlation model
+- Production-grade media ingest, including broader client compatibility and
+  stronger transport controls
 - Coordinator dashboard and mobile PWA user experience
 - Validated wipe timing and production-grade evidence/export tooling
 
@@ -194,6 +198,8 @@ full architecture, API contract, and threat-model assumptions.
 - Configure `transcriber_backend` / `vision_backend` in `~/.config/osk/config.toml`
   if you want the hub-owned intelligence service to use real Whisper or Ollama
   adapters instead of the default fake backends
+- Install `ffmpeg` if you want real Whisper mode to accept compressed browser
+  audio uploads such as `audio/webm` / `audio/ogg`
 - Open a `Design feedback` issue if you see a gap or bad assumption
 - Open a `Bug report` issue for contradictions, broken links, or repo problems
 - Use Discussions for broader proposals and open-ended questions

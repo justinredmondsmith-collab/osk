@@ -23,7 +23,7 @@ from osk.intelligence_contracts import (
 )
 from osk.intelligence_pipeline import build_observation
 from osk.synthesis import HeuristicObservationSynthesizer
-from osk.transcriber import TranscriptionWorker, WhisperTranscriber
+from osk.transcriber import TranscriptionWorker, WhisperTranscriber, build_audio_decoder
 from osk.vision_engine import OllamaVisionAnalyzer, VisionWorker
 from osk.whisper_runtime import WhisperRuntimeManager
 from osk.worker_runtime import ProcessingWorkerMetrics
@@ -37,7 +37,8 @@ def build_transcriber(config: OskConfig):
     if config.transcriber_backend == "fake":
         return FakeTranscriber()
     return WhisperTranscriber(
-        runtime_manager=WhisperRuntimeManager(model_size=config.whisper_model)
+        runtime_manager=WhisperRuntimeManager(model_size=config.whisper_model),
+        decoder=build_audio_decoder(ffmpeg_binary=config.ffmpeg_binary),
     )
 
 
@@ -60,6 +61,7 @@ def build_location_analyzer(config: OskConfig):
 def build_synthesizer(config: OskConfig):
     return HeuristicObservationSynthesizer(
         cooldown_seconds=config.synthesis_cooldown_seconds,
+        sitrep_interval_seconds=config.sitrep_interval_minutes * 60,
     )
 
 
@@ -324,6 +326,13 @@ class IntelligenceService:
                 await self.conn_manager.broadcast_alert(
                     self._alert_payload(alert, event),
                 )
+        if decision.sitrep is not None:
+            await self.db.insert_sitrep(
+                decision.sitrep.id,
+                operation.id,
+                decision.sitrep.text,
+                decision.sitrep.trend,
+            )
 
     def _nearby_location_samples(self, sample: LocationSample) -> list[LocationSample]:
         nearby: list[LocationSample] = []
