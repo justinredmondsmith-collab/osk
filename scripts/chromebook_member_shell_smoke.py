@@ -211,6 +211,55 @@ def _write_json(path: Path, payload: Any) -> None:
     path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
 
 
+class SmokeRunState:
+    def __init__(
+        self,
+        *,
+        steps: list[dict[str, Any]] | None = None,
+        console_events: list[dict[str, str]] | None = None,
+        network_failures: list[dict[str, str | None]] | None = None,
+        page_errors: list[str] | None = None,
+        display_name: str | None = None,
+        member_id: str | None = None,
+        operation_name: str | None = None,
+    ) -> None:
+        self.steps = steps or []
+        self.console_events = console_events or []
+        self.network_failures = network_failures or []
+        self.page_errors = page_errors or []
+        self.display_name = display_name
+        self.member_id = member_id
+        self.operation_name = operation_name
+
+    def summary(self) -> dict[str, Any]:
+        return {
+            "display_name": self.display_name,
+            "member_id": self.member_id.strip() if self.member_id else None,
+            "operation_name": self.operation_name.strip() if self.operation_name else None,
+            "console_event_count": len(self.console_events),
+            "network_failure_count": len(self.network_failures),
+            "page_error_count": len(self.page_errors),
+        }
+
+    def result(self) -> dict[str, Any]:
+        return {
+            "steps": self.steps,
+            "summary": self.summary(),
+        }
+
+
+class SmokeRunFailed(RuntimeError):
+    def __init__(self, message: str, state: SmokeRunState):
+        super().__init__(message)
+        self.state = state
+
+
+def write_browser_diagnostics(artifact_dir: Path, state: SmokeRunState) -> None:
+    _write_json(artifact_dir / "console-events.json", state.console_events)
+    _write_json(artifact_dir / "network-failures.json", state.network_failures)
+    _write_json(artifact_dir / "page-errors.json", state.page_errors)
+
+
 MEMBER_ID_READY_JS = """
 () => {
   const value = document.querySelector('#runtime-member-id')?.textContent?.trim();
@@ -223,6 +272,12 @@ OUTBOX_HAS_ITEMS_JS = """
   return Number(
     document.querySelector('#runtime-outbox-count')?.textContent?.trim() || '0'
   ) >= 1;
+}
+""".strip()
+
+OUTBOX_EMPTY_JS = """
+() => {
+  return document.querySelector('#runtime-outbox-count')?.textContent?.trim() === '0';
 }
 """.strip()
 
@@ -240,24 +295,19 @@ def run_smoke_flow(
             "Playwright is not installed in this environment. Install dev dependencies first."
         ) from exc
 
-    console_events: list[dict[str, str]] = []
-    network_failures: list[dict[str, str | None]] = []
-    page_errors: list[str] = []
-    steps: list[dict[str, Any]] = []
+    state = SmokeRunState()
 
     join_url = smoke_metadata["join_url"]
     wipe_url = str(smoke_metadata.get("controls", {}).get("wipe_url") or "").strip()
     if not wipe_url:
         raise RuntimeError("Smoke metadata did not expose a wipe_url control.")
 
-    display_name = f"Chromebook Smoke {int(time.time())}"
-    member_id: str | None = None
-    operation_name: str | None = None
+    state.display_name = f"Chromebook Smoke {int(time.time())}"
 
     def record_step(page, name: str, detail: dict[str, Any] | None = None) -> None:
-        screenshot_name = f"{len(steps) + 1:02d}-{_slugify(name)}.png"
+        screenshot_name = f"{len(state.steps) + 1:02d}-{_slugify(name)}.png"
         page.screenshot(path=str(artifact_dir / screenshot_name))
-        steps.append(
+        state.steps.append(
             {
                 "name": name,
                 "status": "passed",
@@ -267,113 +317,111 @@ def run_smoke_flow(
         )
 
     with sync_playwright() as playwright:
-        browser = playwright.chromium.connect_over_cdp(f"http://127.0.0.1:{local_port}")
-        context = browser.contexts[0] if browser.contexts else browser.new_context()
-        page = context.pages[0] if context.pages else context.new_page()
+        browser = None
+        try:
+            browser = playwright.chromium.connect_over_cdp(f"http://127.0.0.1:{local_port}")
+            context = browser.contexts[0] if browser.contexts else browser.new_context()
+            page = context.pages[0] if context.pages else context.new_page()
 
-        page.on(
-            "console",
-            lambda message: console_events.append({"type": message.type, "text": message.text}),
-        )
-        page.on(
-            "pageerror",
-            lambda error: page_errors.append(str(error)),
-        )
-        page.on(
-            "requestfailed",
-            lambda request: network_failures.append(
-                {
-                    "url": request.url,
-                    "method": request.method,
-                    "failure": request.failure,
-                }
-            ),
-        )
-
-        page.goto(join_url, wait_until="networkidle", timeout=int(timeout_seconds * 1000))
-        record_step(page, "join-loaded", {"url": page.url})
-
-        page.locator("#join-display-name").fill(display_name)
-        page.locator("#join-form").evaluate("(form) => form.requestSubmit()")
-        page.wait_for_url("**/member", timeout=int(timeout_seconds * 1000))
-        page.wait_for_selector("#runtime-report-form", timeout=int(timeout_seconds * 1000))
-        page.wait_for_function(
-            MEMBER_ID_READY_JS,
-            timeout=int(timeout_seconds * 1000),
-        )
-        operation_name = page.locator("#runtime-operation-name").text_content() or ""
-        member_id = page.locator("#runtime-member-id").text_content() or ""
-        record_step(
-            page,
-            "member-loaded",
-            {
-                "url": page.url,
-                "display_name": display_name,
-                "member_id": member_id.strip(),
-                "operation_name": operation_name.strip(),
-            },
-        )
-
-        context.set_offline(True)
-        page.locator("#runtime-report-text").fill("Chromebook offline note")
-        page.locator("#runtime-report-form").evaluate("(form) => form.requestSubmit()")
-        page.wait_for_function(
-            OUTBOX_HAS_ITEMS_JS,
-            timeout=int(timeout_seconds * 1000),
-        )
-        queued_count = page.locator("#runtime-outbox-count").text_content() or "0"
-        queued_state = page.locator("#runtime-outbox-state").text_content() or ""
-        record_step(
-            page,
-            "offline-queue",
-            {
-                "queued_count": queued_count.strip(),
-                "queued_state": queued_state.strip(),
-            },
-        )
-
-        context.set_offline(False)
-        page.wait_for_function(
-            "() => document.querySelector('#runtime-outbox-count')?.textContent?.trim() === '0'",
-            timeout=int(timeout_seconds * 1000),
-        )
-        record_step(page, "reconnect-drain")
-
-        page.reload(wait_until="networkidle", timeout=int(timeout_seconds * 1000))
-        page.wait_for_selector("#runtime-report-form", timeout=int(timeout_seconds * 1000))
-        page.wait_for_function(
-            MEMBER_ID_READY_JS,
-            timeout=int(timeout_seconds * 1000),
-        )
-        reloaded_member_id = (page.locator("#runtime-member-id").text_content() or "").strip()
-        if member_id is None or reloaded_member_id != member_id.strip():
-            raise RuntimeError(
-                f"Reloaded member session did not resume correctly: {reloaded_member_id!r}"
+            page.on(
+                "console",
+                lambda message: state.console_events.append(
+                    {"type": message.type, "text": message.text}
+                ),
             )
-        record_step(page, "reload-resume", {"member_id": reloaded_member_id})
+            page.on(
+                "pageerror",
+                lambda error: state.page_errors.append(str(error)),
+            )
+            page.on(
+                "requestfailed",
+                lambda request: state.network_failures.append(
+                    {
+                        "url": request.url,
+                        "method": request.method,
+                        "failure": request.failure,
+                    }
+                ),
+            )
 
-        response = httpx.post(wipe_url, timeout=5.0)
-        response.raise_for_status()
-        page.wait_for_function(
-            "() => document.body.innerText.includes('Local session cleared')",
-            timeout=int(timeout_seconds * 1000),
-        )
-        record_step(page, "wipe-clear", {"wipe_status_code": response.status_code})
+            page.goto(join_url, wait_until="networkidle", timeout=int(timeout_seconds * 1000))
+            record_step(page, "join-loaded", {"url": page.url})
 
-        _write_json(artifact_dir / "console-events.json", console_events)
-        _write_json(artifact_dir / "network-failures.json", network_failures)
-        _write_json(artifact_dir / "page-errors.json", page_errors)
-        browser.close()
+            page.locator("#join-display-name").fill(state.display_name)
+            page.locator("#join-form").evaluate("(form) => form.requestSubmit()")
+            page.wait_for_url("**/member", timeout=int(timeout_seconds * 1000))
+            page.wait_for_selector("#runtime-report-form", timeout=int(timeout_seconds * 1000))
+            page.wait_for_function(
+                MEMBER_ID_READY_JS,
+                timeout=int(timeout_seconds * 1000),
+            )
+            state.operation_name = page.locator("#runtime-operation-name").text_content() or ""
+            state.member_id = page.locator("#runtime-member-id").text_content() or ""
+            record_step(
+                page,
+                "member-loaded",
+                {
+                    "url": page.url,
+                    "display_name": state.display_name,
+                    "member_id": state.member_id.strip(),
+                    "operation_name": state.operation_name.strip(),
+                },
+            )
 
-    return {
-        "steps": steps,
-        "display_name": display_name,
-        "member_id": member_id.strip() if member_id else None,
-        "operation_name": operation_name.strip() if operation_name else None,
-        "console_event_count": len(console_events),
-        "network_failure_count": len(network_failures),
-        "page_error_count": len(page_errors),
-    }
+            context.set_offline(True)
+            page.locator("#runtime-report-text").fill("Chromebook offline note")
+            page.locator("#runtime-report-form").evaluate("(form) => form.requestSubmit()")
+            page.wait_for_function(
+                OUTBOX_HAS_ITEMS_JS,
+                timeout=int(timeout_seconds * 1000),
+            )
+            queued_count = page.locator("#runtime-outbox-count").text_content() or "0"
+            queued_state = page.locator("#runtime-outbox-state").text_content() or ""
+            record_step(
+                page,
+                "offline-queue",
+                {
+                    "queued_count": queued_count.strip(),
+                    "queued_state": queued_state.strip(),
+                },
+            )
+
+            context.set_offline(False)
+            page.wait_for_function(
+                OUTBOX_EMPTY_JS,
+                timeout=int(timeout_seconds * 1000),
+            )
+            record_step(page, "reconnect-drain")
+
+            page.reload(wait_until="networkidle", timeout=int(timeout_seconds * 1000))
+            page.wait_for_selector("#runtime-report-form", timeout=int(timeout_seconds * 1000))
+            page.wait_for_function(
+                MEMBER_ID_READY_JS,
+                timeout=int(timeout_seconds * 1000),
+            )
+            reloaded_member_id = (page.locator("#runtime-member-id").text_content() or "").strip()
+            if state.member_id is None or reloaded_member_id != state.member_id.strip():
+                raise RuntimeError(
+                    f"Reloaded member session did not resume correctly: {reloaded_member_id!r}"
+                )
+            record_step(page, "reload-resume", {"member_id": reloaded_member_id})
+
+            response = httpx.post(wipe_url, timeout=5.0)
+            response.raise_for_status()
+            page.wait_for_function(
+                "() => document.body.innerText.includes('Local session cleared')",
+                timeout=int(timeout_seconds * 1000),
+            )
+            record_step(page, "wipe-clear", {"wipe_status_code": response.status_code})
+        except Exception as exc:
+            raise SmokeRunFailed(str(exc), state) from exc
+        finally:
+            write_browser_diagnostics(artifact_dir, state)
+            if browser is not None:
+                with contextlib.suppress(Exception):
+                    browser.close()
+
+    return state.result()
 
 
 def build_result_payload(
@@ -390,8 +438,9 @@ def build_result_payload(
     cdp_version: dict[str, Any] | None = None,
     steps: list[dict[str, Any]] | None = None,
     failure: dict[str, Any] | None = None,
+    summary: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    return {
+    payload = {
         "status": status,
         "chromebook_host": chromebook_host,
         "ssh_target": ssh_target,
@@ -405,6 +454,9 @@ def build_result_payload(
         "steps": steps or [],
         "failure": failure,
     }
+    if summary is not None:
+        payload["summary"] = summary
+    return payload
 
 
 def write_result(result_path: Path, payload: dict[str, Any]) -> None:
@@ -444,6 +496,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     local_debug_port = args.local_debug_port or choose_local_port()
+    smoke_result: dict[str, Any] | None = None
     try:
         with managed_ssh_tunnel(
             args.ssh_target,
@@ -461,6 +514,11 @@ def main(argv: list[str] | None = None) -> int:
                 args.timeout_seconds,
             )
     except Exception as exc:
+        if isinstance(exc, SmokeRunFailed):
+            smoke_result = exc.state.result()
+        failure_type = exc.__class__.__name__
+        if isinstance(exc, SmokeRunFailed) and exc.__cause__ is not None:
+            failure_type = exc.__cause__.__class__.__name__
         payload = build_result_payload(
             status="failed",
             chromebook_host=args.chromebook_host,
@@ -472,10 +530,12 @@ def main(argv: list[str] | None = None) -> int:
             smoke_metadata=smoke_metadata,
             artifact_dir=artifact_dir,
             cdp_version=locals().get("cdp_version"),
+            steps=(smoke_result or {}).get("steps"),
             failure={
                 "message": str(exc),
-                "type": exc.__class__.__name__,
+                "type": failure_type,
             },
+            summary=(smoke_result or {}).get("summary"),
         )
         write_result(result_path, payload)
         print(f"Chromebook smoke failed: {exc}", file=sys.stderr)
@@ -493,15 +553,8 @@ def main(argv: list[str] | None = None) -> int:
         artifact_dir=artifact_dir,
         cdp_version=cdp_version,
         steps=smoke_result["steps"],
+        summary=smoke_result["summary"],
     )
-    payload["summary"] = {
-        "display_name": smoke_result["display_name"],
-        "member_id": smoke_result["member_id"],
-        "operation_name": smoke_result["operation_name"],
-        "console_event_count": smoke_result["console_event_count"],
-        "network_failure_count": smoke_result["network_failure_count"],
-        "page_error_count": smoke_result["page_error_count"],
-    }
     write_result(result_path, payload)
     return 0
 

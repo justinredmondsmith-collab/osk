@@ -345,7 +345,7 @@ case "${ACTION}" in
     run_preflight
     write_service_unit "${SCRIPT_PATH}"
     systemctl --user daemon-reload
-    systemctl --user enable --now "${SERVICE_NAME}"
+    systemctl --user enable --now "${SERVICE_PATH}"
     ;;
   uninstall-user-service)
     systemctl --user disable --now "${SERVICE_NAME}" >/dev/null 2>&1 || true

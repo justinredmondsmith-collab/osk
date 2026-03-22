@@ -116,6 +116,17 @@ def test_cleanup_dry_run_emits_browser_stop_plan() -> None:
     assert "/var/tmp/osk-chromebook-lab.pid" in payload["steps"][0]["command"]
 
 
+def test_cleanup_dry_run_matches_by_binary_name_for_wrapper_browsers() -> None:
+    result = _run_script("cleanup", "--ssh-target", "lab-book", "--dry-run", "--json")
+
+    assert result.returncode == 0
+    payload = json.loads(result.stdout)
+    kill_command = payload["steps"][0]["command"]
+    assert "resolved_bin:-chromium" in kill_command
+    assert "bin_name" in kill_command
+    assert "--user-data-dir=/var/tmp/osk-chromebook-lab" in kill_command
+
+
 def test_missing_action_fails_with_usage() -> None:
     result = _run_script("--dry-run", "--json")
 

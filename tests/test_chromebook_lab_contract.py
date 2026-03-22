@@ -249,3 +249,90 @@ def test_non_dry_run_writes_failure_result_contract(
     assert payload["local_debug_port"] == 9333
     assert payload["cdp_version"]["Browser"] == "Chrome/146"
     assert payload["failure"]["message"] == "smoke flow failed"
+
+
+def test_non_dry_run_preserves_partial_steps_and_summary_on_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    smoke = _load_module()
+    metadata_path = tmp_path / "metadata.json"
+    metadata_path.write_text(
+        json.dumps(
+            {
+                "join_url": "http://192.168.1.10:8123/join?token=test",
+                "operation_name": "Smoke Test",
+                "controls": {"wipe_url": "http://192.168.1.10:8123/__smoke/wipe"},
+            }
+        )
+        + "\n"
+    )
+    artifact_root = tmp_path / "artifacts"
+
+    @contextmanager
+    def fake_tunnel(*_args, **_kwargs):
+        yield
+
+    monkeypatch.setattr(smoke, "choose_local_port", lambda: 9333)
+    monkeypatch.setattr(smoke, "managed_ssh_tunnel", fake_tunnel)
+    monkeypatch.setattr(
+        smoke,
+        "fetch_cdp_version",
+        lambda *_args, **_kwargs: {"Browser": "Chrome/146"},
+    )
+
+    state = smoke.SmokeRunState(
+        steps=[
+            {
+                "name": "join-loaded",
+                "status": "passed",
+                "screenshot": "01-join-loaded.png",
+                "detail": {"url": "http://192.168.1.10:8123/join?token=test"},
+            }
+        ],
+        console_events=[{"type": "warning", "text": "late console event"}],
+        network_failures=[{"url": "http://example.test", "method": "GET", "failure": "net::ERR"}],
+        page_errors=["runtime exploded"],
+        display_name="Chromebook Smoke 123",
+        member_id="member-123",
+        operation_name="Smoke Test",
+    )
+
+    def fail_flow(*_args, **_kwargs):
+        try:
+            raise RuntimeError("checkpoint failed")
+        except RuntimeError as exc:
+            raise smoke.SmokeRunFailed(str(exc), state) from exc
+
+    monkeypatch.setattr(smoke, "run_smoke_flow", fail_flow)
+
+    code = smoke.main(
+        [
+            "--chromebook-host",
+            "lab-book",
+            "--ssh-target",
+            "chromebook-user@192.0.2.25",
+            "--smoke-metadata",
+            str(metadata_path),
+            "--artifact-root",
+            str(artifact_root),
+            "--timestamp",
+            "20260322T190405Z",
+        ]
+    )
+
+    result_path = artifact_root / "20260322T190405Z" / "result.json"
+    payload = json.loads(result_path.read_text())
+
+    assert code == 1
+    assert payload["status"] == "failed"
+    assert payload["failure"]["message"] == "checkpoint failed"
+    assert payload["failure"]["type"] == "RuntimeError"
+    assert payload["steps"] == state.steps
+    assert payload["summary"] == {
+        "display_name": "Chromebook Smoke 123",
+        "member_id": "member-123",
+        "operation_name": "Smoke Test",
+        "console_event_count": 1,
+        "network_failure_count": 1,
+        "page_error_count": 1,
+    }

@@ -63,10 +63,14 @@ build_check_chrome_remote() {
 build_kill_lab_browser_remote() {
   local remote
   printf -v remote \
-    'set -euo pipefail; if [ -f %q ]; then kill "$(cat %q)" >/dev/null 2>&1 || true; rm -f %q; fi; resolved_bin="$(readlink -f "$(command -v %q)")"; if [ -n "$resolved_bin" ]; then pkill -u "$(id -un)" -f "^${resolved_bin} .*--user-data-dir=%q" >/dev/null 2>&1 || true; fi' \
+    'set -euo pipefail; if [ -f %q ]; then kill "$(cat %q)" >/dev/null 2>&1 || true; rm -f %q; fi; resolved_bin=""; if command -v %q >/dev/null 2>&1; then resolved_bin="$(readlink -f "$(command -v %q)")"; elif [ -x %q ]; then resolved_bin="$(readlink -f %q)"; fi; bin_name="$(basename "${resolved_bin:-%q}")"; if [ -n "$bin_name" ]; then pkill -u "$(id -un)" -f "^([^[:space:]]+/)?${bin_name}([^[:space:]]*)? .*--user-data-dir=%q" >/dev/null 2>&1 || true; fi' \
     "${PID_FILE}" \
     "${PID_FILE}" \
     "${PID_FILE}" \
+    "${CHROME_BINARY}" \
+    "${CHROME_BINARY}" \
+    "${CHROME_BINARY}" \
+    "${CHROME_BINARY}" \
     "${CHROME_BINARY}" \
     "${PROFILE_DIR}"
   printf '%s\n' "${remote}"

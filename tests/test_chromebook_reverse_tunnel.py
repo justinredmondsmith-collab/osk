@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
+import textwrap
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -114,3 +116,79 @@ def test_missing_host_target_fails() -> None:
 
     assert result.returncode == 1
     assert "--host-target is required for run" in result.stderr
+
+
+def _write_executable(path: Path, content: str) -> Path:
+    path.write_text(content)
+    path.chmod(0o755)
+    return path
+
+
+def test_install_user_service_enables_absolute_service_path_for_custom_dir(
+    tmp_path: Path,
+) -> None:
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    home_dir = tmp_path / "home"
+    home_dir.mkdir()
+    systemctl_log = tmp_path / "systemctl.log"
+    ssh_log = tmp_path / "ssh.log"
+
+    _write_executable(
+        fake_bin / "systemctl",
+        textwrap.dedent(
+            """\
+            #!/usr/bin/env bash
+            printf '%s\n' "$*" >> "${OSK_SYSTEMCTL_LOG:?missing systemctl log}"
+            exit 0
+            """
+        ),
+    )
+    _write_executable(
+        fake_bin / "ssh",
+        textwrap.dedent(
+            """\
+            #!/usr/bin/env bash
+            printf '%s\n' "$*" >> "${OSK_SSH_LOG:?missing ssh log}"
+            if [[ "$*" == *"/dev/tcp/127.0.0.1/"* ]]; then
+              exit 1
+            fi
+            exit 0
+            """
+        ),
+    )
+
+    env = os.environ.copy()
+    env.update(
+        {
+            "HOME": str(home_dir),
+            "PATH": f"{fake_bin}:{env['PATH']}",
+            "OSK_SYSTEMCTL_LOG": str(systemctl_log),
+            "OSK_SSH_LOG": str(ssh_log),
+        }
+    )
+    service_dir = tmp_path / "custom-systemd-user"
+    result = subprocess.run(
+        [
+            "bash",
+            str(SCRIPT_PATH),
+            "install-user-service",
+            "--host-target",
+            "host-user@198.51.100.42",
+            "--service-dir",
+            str(service_dir),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+        env=env,
+    )
+
+    service_path = service_dir / "osk-chromebook-reverse-tunnel.service"
+
+    assert result.returncode == 0
+    assert service_path.exists()
+    assert any(
+        f"--user enable --now {service_path}" in line
+        for line in systemctl_log.read_text().splitlines()
+    )

@@ -28,6 +28,13 @@ EOF
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+PYTHON_BIN="${OSK_PYTHON_BIN:-python}"
+CURL_BIN="${OSK_CURL_BIN:-curl}"
+LAB_CONTROL_SCRIPT="${OSK_LAB_CONTROL_SCRIPT:-${SCRIPT_DIR}/chromebook_lab_control.sh}"
+CDP_RUNNER_SCRIPT="${OSK_CDP_RUNNER_SCRIPT:-${SCRIPT_DIR}/chromebook_member_shell_smoke.py}"
+MEMBER_SMOKE_SCRIPT="${OSK_MEMBER_SMOKE_SCRIPT:-scripts/member_shell_smoke.py}"
+HELPER_READY_ATTEMPTS="${OSK_HELPER_READY_ATTEMPTS:-40}"
+HELPER_READY_SLEEP_SECONDS="${OSK_HELPER_READY_SLEEP_SECONDS:-1}"
 CHROMEBOOK_HOST=""
 SSH_TARGET=""
 SSH_PORT=""
@@ -123,6 +130,7 @@ mkdir -p "${RUN_DIR}"
 METADATA_PATH="${RUN_DIR}/metadata.json"
 HELPER_LOG="${RUN_DIR}/helper.log"
 HELPER_PID=""
+RESULT_PATH="${RUN_DIR}/result.json"
 LAB_CONTROL_ARGS=(
   --ssh-target "${SSH_TARGET}"
   --chrome-binary "${CHROME_BINARY}"
@@ -147,13 +155,107 @@ if [[ -n "${SSH_IDENTITY}" ]]; then
   PYTHON_SMOKE_ARGS+=(--ssh-identity "${SSH_IDENTITY}")
 fi
 
+write_failure_result() {
+  local stage="$1"
+  local message="$2"
+  local failure_type="${3:-ShellStageFailure}"
+
+  if [[ -f "${RESULT_PATH}" ]]; then
+    return 0
+  fi
+
+  "${PYTHON_BIN}" - <<'PY' \
+    "${RESULT_PATH}" \
+    "${RUN_DIR}" \
+    "${CHROMEBOOK_HOST}" \
+    "${SSH_TARGET}" \
+    "${SSH_PORT}" \
+    "${SSH_IDENTITY}" \
+    "${DEBUG_PORT}" \
+    "${METADATA_PATH}" \
+    "${stage}" \
+    "${message}" \
+    "${failure_type}"
+import json
+import sys
+from pathlib import Path
+
+(
+    result_path,
+    artifact_dir,
+    chromebook_host,
+    ssh_target,
+    ssh_port,
+    ssh_identity,
+    debug_port,
+    metadata_path,
+    stage,
+    message,
+    failure_type,
+) = sys.argv[1:]
+
+smoke_metadata: dict[str, object] = {}
+metadata_file = Path(metadata_path)
+if metadata_file.exists():
+    try:
+        payload = json.loads(metadata_file.read_text())
+        controls = payload.get("controls")
+        smoke_metadata = {
+            "join_url": str(payload.get("join_url") or "").strip(),
+            "operation_name": str(payload.get("operation_name") or "").strip() or None,
+            "controls": controls if isinstance(controls, dict) else {},
+        }
+    except Exception:
+        smoke_metadata = {}
+
+result_payload = {
+    "status": "failed",
+    "chromebook_host": chromebook_host,
+    "ssh_target": ssh_target,
+    "ssh_port": int(ssh_port) if ssh_port else None,
+    "ssh_identity": ssh_identity or None,
+    "debug_port": int(debug_port),
+    "local_debug_port": None,
+    "artifact_dir": artifact_dir,
+    "smoke_metadata": smoke_metadata,
+    "cdp_version": None,
+    "steps": [],
+    "failure": {
+        "message": message,
+        "type": failure_type,
+        "stage": stage,
+    },
+}
+
+Path(result_path).write_text(json.dumps(result_payload, indent=2, sort_keys=True) + "\n")
+PY
+}
+
+run_stage() {
+  local stage="$1"
+  local description="$2"
+  shift 2
+
+  set +e
+  "$@"
+  local exit_code="$?"
+  set -e
+
+  if [[ "${exit_code}" -eq 0 ]]; then
+    return 0
+  fi
+
+  write_failure_result "${stage}" "${description} (exit ${exit_code})"
+  return "${exit_code}"
+}
+
 cleanup() {
   local cleanup_args=(
     "${LAB_CONTROL_ARGS[@]}"
   )
 
   if [[ "${KEEP_BROWSER}" != "1" ]]; then
-    bash "${SCRIPT_DIR}/chromebook_lab_control.sh" cleanup \
+    bash "${LAB_CONTROL_SCRIPT}" cleanup \
       "${cleanup_args[@]}" \
       >/dev/null 2>&1 || true
   fi
@@ -167,7 +269,7 @@ trap cleanup EXIT
 
 (
   cd "${REPO_ROOT}"
-  PYTHONPATH=src python scripts/member_shell_smoke.py \
+  PYTHONPATH=src "${PYTHON_BIN}" "${MEMBER_SMOKE_SCRIPT}" \
     --host "${HOST}" \
     --port "${PORT}" \
     --advertise-host "${ADVERTISE_HOST}" \
@@ -178,9 +280,10 @@ trap cleanup EXIT
 HELPER_PID="$!"
 
 JOIN_URL=""
-for _ in $(seq 1 40); do
+HELPER_READY="0"
+for _ in $(seq 1 "${HELPER_READY_ATTEMPTS}"); do
   if [[ -f "${METADATA_PATH}" ]]; then
-    JOIN_URL="$(python - <<'PY' "${METADATA_PATH}"
+    JOIN_URL="$("${PYTHON_BIN}" - <<'PY' "${METADATA_PATH}"
 import json
 import sys
 from pathlib import Path
@@ -189,27 +292,44 @@ payload = json.loads(Path(sys.argv[1]).read_text())
 print(payload.get("join_url", ""))
 PY
 )"
-    if [[ -n "${JOIN_URL}" ]] && curl -sS -I "${JOIN_URL}" >/dev/null; then
+    if [[ -n "${JOIN_URL}" ]] && "${CURL_BIN}" -sS -I "${JOIN_URL}" >/dev/null; then
+      HELPER_READY="1"
       break
     fi
   fi
-  sleep 1
+  sleep "${HELPER_READY_SLEEP_SECONDS}"
 done
 
-if [[ -z "${JOIN_URL}" ]]; then
-  echo "Failed to resolve join URL from ${METADATA_PATH}" >&2
+if [[ "${HELPER_READY}" != "1" ]]; then
+  write_failure_result \
+    "helper-ready" \
+    "Smoke helper never became reachable at ${JOIN_URL:-<missing join_url>}."
+  if [[ -z "${JOIN_URL}" ]]; then
+    echo "Failed to resolve join URL from ${METADATA_PATH}" >&2
+  else
+    echo "Smoke helper never became reachable at ${JOIN_URL}" >&2
+  fi
   cat "${HELPER_LOG}" >&2 || true
   exit 1
 fi
 
-bash "${SCRIPT_DIR}/chromebook_lab_control.sh" prepare \
+run_stage \
+  "prepare" \
+  "Chromebook prepare step failed." \
+  bash "${LAB_CONTROL_SCRIPT}" prepare \
   "${LAB_CONTROL_ARGS[@]}"
 
-bash "${SCRIPT_DIR}/chromebook_lab_control.sh" launch \
+run_stage \
+  "launch" \
+  "Chromebook launch step failed." \
+  bash "${LAB_CONTROL_SCRIPT}" launch \
   "${LAB_CONTROL_ARGS[@]}" \
   --start-url "about:blank"
 
-python "${SCRIPT_DIR}/chromebook_member_shell_smoke.py" \
+run_stage \
+  "smoke-runner" \
+  "Chromebook smoke runner failed." \
+  "${PYTHON_BIN}" "${CDP_RUNNER_SCRIPT}" \
   "${PYTHON_SMOKE_ARGS[@]}"
 
 echo
