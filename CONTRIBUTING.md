@@ -15,6 +15,7 @@ The repository now includes:
 - Basic tests under `tests/`
 - A lightweight GitHub Actions CI workflow
 - Local hub runtime commands (`install`, `start`, `status`, `stop`)
+- Explicit coordinator wipe command (`wipe`)
 - Local dashboard URL command (`dashboard`)
 - Local operator and observability commands (`operator`, `audit`, `logs`,
   `members`, `findings`, `review`)
@@ -181,6 +182,16 @@ osk drill install
 osk drill wipe
 ```
 
+Run the explicit coordinator wipe flow:
+
+```bash
+osk operator login
+osk wipe --yes
+```
+
+Add `--destroy-evidence` only if permanent preserved-evidence removal is also
+intended.
+
 The drill outputs are also documented in
 [docs/runbooks/operations-drills.md](docs/runbooks/operations-drills.md). Keep
 that runbook aligned with the actual CLI behavior when you change operational
@@ -249,6 +260,9 @@ Code contributions should:
 - Keep wipe semantics brutally accurate: if a cleanup path is only partial,
   disconnected clients miss it, or preserved evidence requires a separate
   destroy step, the docs and drill outputs should say that plainly
+- Keep the integrated wipe flow explicit: `osk wipe` may stop the hub and
+  broadcast to connected members, but permanent preserved-evidence destruction
+  must remain a separate opt-in flag unless the design changes
 - Keep browser media capture modular: add mic/camera/client-side analysis work
   behind dedicated static modules instead of folding codec/capture logic
   directly into the main member runtime script

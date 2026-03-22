@@ -122,6 +122,15 @@ def test_parse_install() -> None:
     assert args.command == "install"
 
 
+def test_parse_wipe() -> None:
+    args = parse_args(["wipe", "--services", "--timeout", "12", "--destroy-evidence", "--yes"])
+    assert args.command == "wipe"
+    assert args.services is True
+    assert args.timeout == 12.0
+    assert args.destroy_evidence is True
+    assert args.yes is True
+
+
 def test_parse_drill_install() -> None:
     args = parse_args(["drill", "install", "--json"])
     assert args.command == "drill"
@@ -326,6 +335,46 @@ def test_evidence_export_prints_summary(mock_manager_factory: MagicMock, capsys)
     assert code == 0
     assert "output_path = /tmp/export.zip" in out
     assert "file_count = 2" in out
+
+
+@patch("osk.hub.wipe_hub", return_value=0)
+def test_wipe_command_invokes_hub_helper(mock_wipe_hub: MagicMock) -> None:
+    code = main(["wipe", "--services", "--timeout", "7", "--destroy-evidence", "--yes", "--json"])
+    assert code == 0
+    mock_wipe_hub.assert_called_once_with(
+        wait_seconds=7.0,
+        stop_services=True,
+        destroy_evidence=True,
+        json_output=True,
+    )
+
+
+@patch("osk.hub.wipe_hub")
+@patch("osk.hub.default_storage_manager")
+@patch("osk.local_operator.read_operator_session")
+@patch("osk.hub.read_hub_state")
+@patch("osk.cli.load_config")
+@patch("builtins.input", return_value="n")
+def test_wipe_command_respects_confirmation(
+    _mock_input: MagicMock,
+    mock_load_config: MagicMock,
+    mock_read_hub_state: MagicMock,
+    mock_read_operator_session: MagicMock,
+    mock_default_storage_manager: MagicMock,
+    mock_wipe_hub: MagicMock,
+    capsys,
+) -> None:
+    mock_load_config.return_value = MagicMock()
+    mock_read_hub_state.return_value = {"operation_id": "op-123", "port": 8443}
+    mock_read_operator_session.return_value = {"operation_id": "op-123", "token": "operator-token"}
+    mock_default_storage_manager.return_value = MagicMock(luks_image_path="/tmp/evidence.luks")
+
+    code = main(["wipe"])
+    out = capsys.readouterr().out
+
+    assert code == 1
+    assert "Wipe cancelled." in out
+    mock_wipe_hub.assert_not_called()
 
 
 @patch(

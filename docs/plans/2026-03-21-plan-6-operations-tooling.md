@@ -19,7 +19,9 @@ repo now also has conservative hotspot-aware guidance in `osk doctor` and
 automatically changing host networking. The missing work in this phase is
 deeper hub orchestration, validated wipe/install operations, and field
 validation. The repo now also has read-only `osk drill install|wipe` reports
-to make the current install and wipe boundaries explicit.
+to make the current install and wipe boundaries explicit, plus an explicit
+coordinator-side `osk wipe` flow that broadcasts wipe and stops the hub
+without destroying preserved evidence unless the operator opts in.
 
 **Tech Stack:** Python, nmcli, cryptsetup, keyctl, zipfile, subprocess
 

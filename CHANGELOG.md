@@ -129,6 +129,9 @@ changes manually while the project is in its early public setup phase.
   including `join_host` mismatch warnings and field-network next-step hints
 - Read-only `osk drill install|wipe` reports plus an operations runbook for
   install readiness and the current partial wipe boundary
+- Explicit coordinator `osk wipe` flow that broadcasts wipe to connected
+  members, stops the local hub, and keeps preserved evidence unless the
+  operator also opts into `--destroy-evidence`
 
 ### Changed
 
@@ -197,3 +200,5 @@ changes manually while the project is in its early public setup phase.
   networking up for the operator
 - Operations docs now include explicit install/wipe drill guidance and a
   runbook rather than leaving those paths implicit
+- Operations docs now distinguish the integrated `osk wipe` flow from the
+  still-separate preserved-evidence destruction step

@@ -20,6 +20,7 @@ from osk.local_operator import (
     dashboard_bootstrap_path,
     dashboard_session_path,
     operator_session_path,
+    read_operator_session,
 )
 
 
@@ -114,6 +115,13 @@ def wipe_drill_report(config: OskConfig | None = None) -> dict[str, object]:
     storage = default_storage_manager(cfg)
     hub_state = read_hub_state()
     hub_running = hub_state is not None
+    operation_id = (
+        str(hub_state.get("operation_id")) if hub_state and hub_state.get("operation_id") else None
+    )
+    operator_session = read_operator_session()
+    operator_session_active = bool(
+        operator_session and operation_id and operator_session.get("operation_id") == operation_id
+    )
 
     paths = [
         {
@@ -165,6 +173,14 @@ def wipe_drill_report(config: OskConfig | None = None) -> dict[str, object]:
 
     capabilities = [
         {
+            "name": "coordinator_wipe_command",
+            "available": hub_running and operator_session_active,
+            "details": (
+                "The explicit `osk wipe --yes` flow uses the local operator "
+                "session to broadcast wipe and then stop the hub."
+            ),
+        },
+        {
             "name": "member_broadcast",
             "available": hub_running,
             "details": (
@@ -198,7 +214,6 @@ def wipe_drill_report(config: OskConfig | None = None) -> dict[str, object]:
     ]
 
     gaps = [
-        "No integrated `osk wipe` CLI command is wired yet for the coordinator host.",
         "Disconnected member browsers will not receive a live wipe broadcast until they reconnect.",
         "The preserved evidence image is not removed by the runtime wipe primitive.",
     ]
@@ -208,13 +223,16 @@ def wipe_drill_report(config: OskConfig | None = None) -> dict[str, object]:
             "No running hub state was found, so the live member wipe broadcast "
             "path cannot be exercised here.",
         )
+    elif not operator_session_active:
+        gaps.insert(
+            0,
+            "No active local operator session is available for this operation, "
+            "so `osk wipe` would be blocked until you run `osk operator login`.",
+        )
 
     next_steps = [
         "Export preserved evidence first if you need to retain pinned material before cleanup.",
-        "Use the authenticated local coordinator surface to trigger `/api/wipe` "
-        "while the hub is running.",
-        "Stop the hub to clear local operator/dashboard session files and "
-        "runtime state on the host.",
+        "Run `osk wipe --yes` from the coordinator host while a local operator session is active.",
         "Run `osk evidence destroy --yes` only if you want permanent removal "
         "of preserved evidence storage.",
     ]
@@ -228,7 +246,8 @@ def wipe_drill_report(config: OskConfig | None = None) -> dict[str, object]:
         "drill": "wipe",
         "status": "partial",
         "hub_running": hub_running,
-        "operation_id": hub_state.get("operation_id") if hub_state else None,
+        "operation_id": operation_id,
+        "operator_session_active": operator_session_active,
         "storage_backend": storage.backend,
         "capabilities": capabilities,
         "paths": paths,

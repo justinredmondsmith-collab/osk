@@ -15,6 +15,7 @@ from osk.hub import (
     HubBootstrapError,
     _compose_environment,
     _find_compose_command,
+    _trigger_live_wipe_broadcast,
     default_storage_manager,
     ensure_hub_not_running,
     ensure_local_services,
@@ -31,6 +32,7 @@ from osk.hub import (
     wait_for_database,
     watch_for_stop_request,
     watch_member_heartbeats,
+    wipe_hub,
 )
 from osk.local_operator import create_bootstrap_session, create_operator_session
 
@@ -389,6 +391,127 @@ def test_stop_hub_cleans_stale_state(tmp_path: Path) -> None:
     assert not state_path.exists()
     assert not bootstrap_path.exists()
     assert not session_path.exists()
+
+
+@patch("osk.hub.read_operator_session", return_value=None)
+def test_trigger_live_wipe_broadcast_requires_operator_session(
+    _mock_read_operator_session: MagicMock,
+) -> None:
+    result = _trigger_live_wipe_broadcast(8443, "op-123")
+
+    assert result["ok"] is False
+    assert "osk operator login" in str(result["error"])
+
+
+@patch("osk.hub.read_operator_session")
+@patch("osk.hub.urllib.request.urlopen")
+def test_trigger_live_wipe_broadcast_uses_local_operator_session(
+    mock_urlopen: MagicMock,
+    mock_read_operator_session: MagicMock,
+) -> None:
+    mock_read_operator_session.return_value = {
+        "operation_id": "op-123",
+        "token": "operator-token",
+        "expires_at": "2026-03-22T12:00:00+00:00",
+    }
+    response = MagicMock()
+    response.status = 200
+    response.read.return_value = b'{"status":"wipe_initiated"}'
+    mock_urlopen.return_value.__enter__.return_value = response
+
+    result = _trigger_live_wipe_broadcast(8443, "op-123")
+
+    assert result["ok"] is True
+    assert result["response"]["status"] == "wipe_initiated"
+    request = mock_urlopen.call_args.args[0]
+    assert request.full_url == "https://127.0.0.1:8443/api/wipe"
+    assert dict(request.header_items())["X-osk-operator-session"] == "operator-token"
+
+
+@patch("osk.hub.stop_hub", return_value=0)
+@patch(
+    "osk.hub._trigger_live_wipe_broadcast",
+    return_value={"ok": True, "response": {"status": "wipe_initiated"}},
+)
+def test_wipe_hub_triggers_broadcast_and_stop(
+    mock_trigger_live_wipe: MagicMock,
+    mock_stop_hub: MagicMock,
+    capsys,
+) -> None:
+    with patch(
+        "osk.hub.read_hub_state",
+        return_value={"operation_id": "op-123", "operation_name": "March", "port": 8443},
+    ):
+        code = wipe_hub(wait_seconds=4.0, stop_services=True)
+
+    out = capsys.readouterr().out
+    assert code == 0
+    assert "Live wipe broadcast sent" in out
+    assert "Preserved evidence retained" in out
+    mock_trigger_live_wipe.assert_called_once_with(8443, "op-123")
+    mock_stop_hub.assert_called_once_with(wait_seconds=4.0, stop_services=True)
+
+
+@patch("osk.evidence.EvidenceManager.from_storage")
+@patch("osk.hub.default_storage_manager")
+@patch("osk.hub.load_config", return_value=OskConfig())
+@patch("osk.hub.stop_hub", return_value=0)
+@patch(
+    "osk.hub._trigger_live_wipe_broadcast",
+    return_value={"ok": True, "response": {"status": "wipe_initiated"}},
+)
+def test_wipe_hub_can_destroy_evidence(
+    mock_trigger_live_wipe: MagicMock,
+    mock_stop_hub: MagicMock,
+    _mock_load_config: MagicMock,
+    mock_default_storage_manager: MagicMock,
+    mock_from_storage: MagicMock,
+    capsys,
+) -> None:
+    manager = MagicMock()
+    manager.destroy.return_value = {
+        "ok": True,
+        "destroyed_path": "/tmp/evidence.luks",
+        "backend": "luks",
+    }
+    mock_from_storage.return_value = manager
+    mock_default_storage_manager.return_value = MagicMock()
+
+    with patch(
+        "osk.hub.read_hub_state",
+        return_value={"operation_id": "op-123", "operation_name": "March", "port": 8443},
+    ):
+        code = wipe_hub(destroy_evidence=True)
+
+    out = capsys.readouterr().out
+    assert code == 0
+    assert "Preserved evidence destroyed at /tmp/evidence.luks." in out
+    mock_trigger_live_wipe.assert_called_once_with(8443, "op-123")
+    mock_stop_hub.assert_called_once_with(wait_seconds=10.0, stop_services=False)
+    manager.destroy.assert_called_once_with()
+
+
+@patch("osk.hub.stop_hub", return_value=0)
+@patch(
+    "osk.hub._trigger_live_wipe_broadcast",
+    return_value={"ok": False, "error": "No active local operator session."},
+)
+def test_wipe_hub_stops_on_broadcast_failure(
+    mock_trigger_live_wipe: MagicMock,
+    mock_stop_hub: MagicMock,
+    capsys,
+) -> None:
+    with patch(
+        "osk.hub.read_hub_state",
+        return_value={"operation_id": "op-123", "operation_name": "March", "port": 8443},
+    ):
+        code = wipe_hub()
+
+    out = capsys.readouterr().out
+    assert code == 1
+    assert "Failed to trigger live wipe" in out
+    mock_trigger_live_wipe.assert_called_once_with(8443, "op-123")
+    mock_stop_hub.assert_not_called()
 
 
 def test_status_hub_reports_running(tmp_path: Path, capsys) -> None:

@@ -145,6 +145,51 @@ def _cmd_install(_: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_wipe(args: argparse.Namespace) -> int:
+    from .hub import default_storage_manager, read_hub_state, wipe_hub
+    from .local_operator import read_operator_session
+
+    state = read_hub_state()
+    operation_id = str(state.get("operation_id")) if state and state.get("operation_id") else None
+    session = read_operator_session()
+    if (
+        state is None
+        or not operation_id
+        or session is None
+        or session.get("operation_id") != operation_id
+    ):
+        return wipe_hub(
+            wait_seconds=args.timeout,
+            stop_services=args.services,
+            destroy_evidence=args.destroy_evidence,
+            json_output=args.json_output,
+        )
+
+    if not args.yes:
+        storage = default_storage_manager(load_config())
+        if args.destroy_evidence:
+            prompt = (
+                "Trigger wipe broadcast, stop the hub, and permanently destroy preserved "
+                f"evidence at {storage.luks_image_path}? [y/N]: "
+            )
+        else:
+            prompt = (
+                "Trigger wipe broadcast and stop the hub? Preserved evidence will remain on "
+                "disk. [y/N]: "
+            )
+        confirmation = input(prompt).strip().lower()
+        if confirmation not in {"y", "yes"}:
+            print("Wipe cancelled.")
+            return 1
+
+    return wipe_hub(
+        wait_seconds=args.timeout,
+        stop_services=args.services,
+        destroy_evidence=args.destroy_evidence,
+        json_output=args.json_output,
+    )
+
+
 def _cmd_drill(args: argparse.Namespace) -> int:
     from .drills import install_drill_report, wipe_drill_report
 
@@ -592,6 +637,39 @@ def build_parser() -> argparse.ArgumentParser:
         "install", help="Install local prerequisites and assets."
     )
     install_parser.set_defaults(func=_cmd_install)
+
+    wipe_parser = subparsers.add_parser(
+        "wipe",
+        help="Broadcast a wipe to members and stop the local hub.",
+    )
+    wipe_parser.add_argument(
+        "--services",
+        action="store_true",
+        help="Also stop local Compose-managed services after the hub stops.",
+    )
+    wipe_parser.add_argument(
+        "--timeout",
+        type=float,
+        default=10.0,
+        help="Seconds to wait for the hub to stop cleanly.",
+    )
+    wipe_parser.add_argument(
+        "--destroy-evidence",
+        action="store_true",
+        help="Also permanently remove preserved evidence after the hub stops.",
+    )
+    wipe_parser.add_argument(
+        "--yes",
+        action="store_true",
+        help="Skip the interactive confirmation prompt.",
+    )
+    wipe_parser.add_argument(
+        "--json",
+        dest="json_output",
+        action="store_true",
+        help="Emit machine-readable JSON output.",
+    )
+    wipe_parser.set_defaults(func=_cmd_wipe)
 
     drill_parser = subparsers.add_parser(
         "drill",

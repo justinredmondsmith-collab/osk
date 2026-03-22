@@ -91,6 +91,9 @@ What exists today:
 
 - Local hub lifecycle commands: `osk install`, `osk start`, `osk status`, and
   `osk stop`
+- Explicit coordinator wipe command: `osk wipe --yes`, which broadcasts wipe to
+  connected members and stops the local hub; preserved evidence remains on disk
+  unless `--destroy-evidence` is passed
 - Local operator flow: `osk operator login`, `osk operator status`, and
   `osk operator logout`
 - Local dashboard access command: `osk dashboard`
@@ -315,6 +318,10 @@ full architecture, API contract, and threat-model assumptions.
   currently visible preserved-evidence files into a zip archive
 - Use `osk evidence destroy --yes` if you need to permanently remove the local
   preserved-evidence store
+- Use `osk wipe --yes` from the coordinator host after `osk operator login` if
+  you need to broadcast wipe to connected members and stop the local hub
+- Add `--destroy-evidence` to `osk wipe` only when you also want permanent
+  removal of preserved evidence after the hub stops
 - Use `osk drill install` for a read-only operations-focused install/start
   report that includes Compose/runtime readiness and hotspot/join-host guidance
 - Use `osk drill wipe` for a read-only report of the current wipe boundary,

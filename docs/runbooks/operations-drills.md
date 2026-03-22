@@ -60,17 +60,17 @@ osk drill wipe --json
 ```
 
 Today this drill is expected to report `partial`, because Osk does not yet have
-a single integrated `osk wipe` command and the preserved evidence image is not
-destroyed by the runtime wipe primitive.
+a fully validated one-shot wipe across disconnected members and preserved
+evidence destruction.
 
 ## Current Safe Sequence
 
 For now, the safe operator sequence is:
 
 1. Export preserved evidence first if you need to keep pinned material.
-2. Trigger the authenticated local coordinator wipe path while the hub is
-   running.
-3. Stop the hub so local runtime and operator session files are cleared.
+2. Run `osk operator login` if no active local operator session exists.
+3. Run `osk wipe --yes` from the coordinator host. That broadcasts wipe to
+   connected members and stops the hub.
 4. Run `osk evidence destroy --yes` only if permanent removal of preserved
    evidence storage is intended.
 

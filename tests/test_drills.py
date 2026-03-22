@@ -108,6 +108,7 @@ def test_wipe_drill_report_surfaces_current_partial_state(tmp_path: Path) -> Non
     with (
         patch("osk.drills.default_storage_manager") as mock_storage,
         patch("osk.drills.read_hub_state", return_value=None),
+        patch("osk.drills.read_operator_session", return_value=None),
         patch(
             "osk.drills.bootstrap_session_path",
             return_value=tmp_path / "operator-bootstrap.json",
@@ -136,5 +137,10 @@ def test_wipe_drill_report_surfaces_current_partial_state(tmp_path: Path) -> Non
 
     assert report["status"] == "partial"
     assert report["hub_running"] is False
-    assert any("No integrated `osk wipe` CLI command" in gap for gap in report["gaps"])
+    assert report["operator_session_active"] is False
+    assert any("No running hub state was found" in gap for gap in report["gaps"])
+    assert any(
+        capability["name"] == "coordinator_wipe_command" for capability in report["capabilities"]
+    )
+    assert any("Run `osk wipe --yes`" in step for step in report["next_steps"])
     assert any("directory-backed development storage" in step for step in report["next_steps"])

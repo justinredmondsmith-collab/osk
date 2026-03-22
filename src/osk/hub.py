@@ -10,8 +10,11 @@ import logging
 import os
 import shutil
 import signal
+import ssl
 import subprocess
 import time
+import urllib.error
+import urllib.request
 import uuid
 from pathlib import Path
 from urllib.parse import urlparse
@@ -61,6 +64,7 @@ LOCAL_DEV_DATABASE_URL = "postgresql://osk:osk@localhost:5432/osk"
 LOCAL_DEV_OLLAMA_URL = "http://localhost:11434"
 DEFAULT_LOCAL_SERVICE_NAMES = ("db",)
 LOOPBACK_JOIN_HOSTS = {"127.0.0.1", "localhost", "::1", "0.0.0.0"}
+LOCAL_OPERATOR_SESSION_HEADER = "X-Osk-Operator-Session"
 
 
 def _repo_root() -> Path:
@@ -932,6 +936,166 @@ def stop_hub(wait_seconds: float = 10.0, *, stop_services: bool = False) -> int:
     if stop_services:
         stop_local_services(config)
     print("Osk hub stopped.")
+    return 0
+
+
+def _active_operator_session_for_operation(operation_id: str) -> dict[str, object] | None:
+    session = read_operator_session()
+    if session is None or session.get("operation_id") != operation_id:
+        return None
+    token = session.get("token")
+    if not isinstance(token, str) or not token.strip():
+        return None
+    return session
+
+
+def _trigger_live_wipe_broadcast(port: int, operation_id: str) -> dict[str, object]:
+    session = _active_operator_session_for_operation(operation_id)
+    if session is None:
+        return {
+            "ok": False,
+            "error": "No active local operator session. Run `osk operator login` first.",
+        }
+
+    request = urllib.request.Request(
+        f"https://127.0.0.1:{port}/api/wipe",
+        method="POST",
+        headers={LOCAL_OPERATOR_SESSION_HEADER: str(session["token"])},
+        data=b"{}",
+    )
+    context = ssl._create_unverified_context()
+
+    try:
+        with urllib.request.urlopen(request, context=context, timeout=5.0) as response:
+            body = response.read()
+            payload = json.loads(body.decode("utf-8")) if body else {}
+            return {
+                "ok": True,
+                "status_code": getattr(response, "status", 200),
+                "response": payload,
+                "operator_session_expires_at": session.get("expires_at"),
+            }
+    except urllib.error.HTTPError as exc:
+        try:
+            detail_text = exc.read().decode("utf-8")
+        except Exception:
+            detail_text = ""
+        return {
+            "ok": False,
+            "status_code": exc.code,
+            "error": detail_text or str(exc),
+        }
+    except Exception as exc:
+        return {"ok": False, "error": str(exc)}
+
+
+def wipe_hub(
+    *,
+    wait_seconds: float = 10.0,
+    stop_services: bool = False,
+    destroy_evidence: bool = False,
+    json_output: bool = False,
+) -> int:
+    state = read_hub_state()
+    if state is None:
+        message = (
+            "No running Osk hub state found. Run `osk drill wipe` for the current cleanup boundary."
+        )
+        if json_output:
+            print(json.dumps({"error": message, "status": "not_running"}, indent=2, sort_keys=True))
+        else:
+            print(message)
+        return 1
+
+    operation_id = str(state.get("operation_id", "")).strip()
+    port = state.get("port")
+    if not operation_id or not isinstance(port, int):
+        message = "Hub state is missing operation or port metadata."
+        if json_output:
+            print(
+                json.dumps(
+                    {
+                        "error": message,
+                        "operation_id": operation_id or None,
+                        "status": "invalid_state",
+                    },
+                    indent=2,
+                    sort_keys=True,
+                )
+            )
+        else:
+            print(message)
+        return 1
+
+    wipe_result = _trigger_live_wipe_broadcast(port, operation_id)
+    if not wipe_result["ok"]:
+        message = f"Failed to trigger live wipe: {wipe_result['error']}"
+        if json_output:
+            print(
+                json.dumps(
+                    {
+                        "broadcast": None,
+                        "error": str(wipe_result["error"]),
+                        "operation_id": operation_id,
+                        "status": "broadcast_failed",
+                    },
+                    indent=2,
+                    sort_keys=True,
+                )
+            )
+        else:
+            print(message)
+        return 1
+
+    stop_code = stop_hub(wait_seconds=wait_seconds, stop_services=stop_services)
+    evidence_result: dict[str, object] | None = None
+
+    if stop_code == 0 and destroy_evidence:
+        from osk.evidence import EvidenceManager
+
+        try:
+            manager = EvidenceManager.from_storage(default_storage_manager(load_config()))
+            evidence_result = manager.destroy()
+        except Exception as exc:
+            evidence_result = {"ok": False, "error": str(exc)}
+
+    payload = {
+        "broadcast": wipe_result.get("response") or {"status": "wipe_initiated"},
+        "destroy_evidence_requested": destroy_evidence,
+        "evidence": evidence_result,
+        "hub_stopped": stop_code == 0,
+        "operation_id": operation_id,
+        "stop_services": stop_services,
+    }
+
+    if json_output:
+        print(json.dumps(payload, indent=2, sort_keys=True, default=str))
+        if stop_code != 0:
+            return 1
+        if destroy_evidence and evidence_result is not None and not evidence_result.get("ok"):
+            return 1
+        return 0
+
+    print("Live wipe broadcast sent to connected members.")
+    print(f"operation_id = {operation_id}")
+    if stop_code != 0:
+        print("Hub stop did not complete cleanly after the wipe broadcast.")
+        return 1
+
+    print("Hub stopped.")
+    if destroy_evidence:
+        if evidence_result is None:
+            print("Preserved evidence destroy was requested but no result was captured.")
+            return 1
+        if evidence_result.get("ok"):
+            print(f"Preserved evidence destroyed at {evidence_result['destroyed_path']}.")
+        else:
+            print(f"Failed to destroy preserved evidence: {evidence_result['error']}")
+            return 1
+    else:
+        print(
+            "Preserved evidence retained. Use `osk evidence destroy --yes` for permanent removal."
+        )
     return 0
 
 
