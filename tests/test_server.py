@@ -594,6 +594,69 @@ def test_coordinator_dashboard_state_surfaces_wipe_readiness_risk(
     assert payload["wipe_readiness"]["follow_up"][0]["name"] == "Sensor Two"
     assert payload["wipe_readiness"]["follow_up"][0]["resolution"] == "verified"
     assert payload["wipe_readiness"]["follow_up"][0]["verified_at"] is not None
+    assert payload["wipe_readiness"]["follow_up_history_count"] == 1
+    assert payload["wipe_readiness"]["follow_up_history_summary"].startswith(
+        "Recent verification trail:"
+    )
+    assert payload["wipe_readiness"]["follow_up_history"][0]["member_name"] == "Sensor Two"
+    assert payload["wipe_readiness"]["follow_up_history"][0]["status"] == "current"
+    assert payload["wipe_readiness"]["follow_up_history"][0]["verified_at"] is not None
+
+
+def test_coordinator_dashboard_state_marks_reopened_follow_up_history(
+    client: TestClient,
+    mock_db: MagicMock,
+    mock_op_manager: MagicMock,
+    mock_intelligence_service: MagicMock,
+) -> None:
+    current = dt.datetime.now(dt.timezone.utc)
+    stale_seen = current - dt.timedelta(seconds=180)
+    member_id = uuid.uuid4()
+    mock_db.get_latest_sitrep.return_value = None
+    mock_db.get_review_feed.return_value = []
+    mock_intelligence_service.snapshot.return_value = {"running": True}
+    mock_db.get_audit_events.return_value = [
+        {
+            "action": "wipe_follow_up_verified",
+            "actor_type": "coordinator",
+            "timestamp": current - dt.timedelta(seconds=420),
+            "details": {
+                "member_id": str(member_id),
+                "member_name": "Observer One",
+                "reason": "stale",
+                "last_seen_at": (current - dt.timedelta(seconds=540)).isoformat(),
+            },
+        }
+    ]
+    mock_op_manager.get_member_list.return_value = [
+        {
+            "id": str(member_id),
+            "name": "Observer One",
+            "role": "observer",
+            "connected_at": current,
+            "last_seen_at": stale_seen,
+            "status": "connected",
+            "last_gps_at": None,
+            "latitude": None,
+            "longitude": None,
+            "buffer_status": {},
+        },
+    ]
+
+    with patch(
+        "osk.server.load_config",
+        return_value=OskConfig(member_heartbeat_timeout_seconds=60),
+    ):
+        resp = client.get("/api/coordinator/dashboard-state")
+
+    assert resp.status_code == 200
+    payload = resp.json()
+    assert payload["wipe_readiness"]["follow_up_required"] is True
+    assert payload["wipe_readiness"]["follow_up"][0]["resolution"] == "unresolved"
+    assert payload["wipe_readiness"]["follow_up_history_count"] == 1
+    assert payload["wipe_readiness"]["follow_up_history"][0]["member_name"] == "Observer One"
+    assert payload["wipe_readiness"]["follow_up_history"][0]["status"] == "reopened"
+    assert "Reopened" in payload["wipe_readiness"]["follow_up_history"][0]["status_detail"]
 
 
 def test_verify_wipe_follow_up_records_audit_and_returns_closed_item(
@@ -634,6 +697,9 @@ def test_verify_wipe_follow_up_records_audit_and_returns_closed_item(
     assert payload["follow_up"]["verified_at"] is not None
     assert payload["wipe_readiness"]["follow_up_required"] is False
     assert payload["wipe_readiness"]["verified_follow_up_count"] == 1
+    assert payload["wipe_readiness"]["follow_up_history_count"] == 1
+    assert payload["wipe_readiness"]["follow_up_history"][0]["member_id"] == str(member_id)
+    assert payload["wipe_readiness"]["follow_up_history"][0]["status"] == "current"
     mock_db.insert_audit_event.assert_awaited_once()
     assert mock_db.insert_audit_event.await_args.args[2] == "wipe_follow_up_verified"
     audit_details = mock_db.insert_audit_event.await_args.kwargs["details"]
