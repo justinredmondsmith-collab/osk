@@ -1087,6 +1087,15 @@ def wipe_hub(
         if isinstance(wipe_readiness, dict):
             print(f"wipe_readiness = {wipe_readiness.get('status')}")
             print(f"wipe_summary = {wipe_readiness.get('summary')}")
+            follow_up_required = str(wipe_readiness.get("follow_up_required")).lower()
+            print(f"wipe_follow_up_required = {follow_up_required}")
+            print(f"wipe_follow_up_summary = {wipe_readiness.get('follow_up_summary')}")
+            for member in list(wipe_readiness.get("follow_up") or [])[:5]:
+                print(
+                    "wipe_follow_up "
+                    f"name={member['name']} reason={member['reason']} "
+                    f"last_seen={member['last_seen_at']} action={member['required_action']}"
+                )
     if stop_code != 0:
         print("Hub stop did not complete cleanly after the wipe broadcast.")
         return 1
@@ -1295,6 +1304,9 @@ def status_hub(*, json_output: bool = False) -> int:
             print(f"wipe_readiness = {wipe_readiness.get('status')}")
             print(f"wipe_summary = {wipe_readiness.get('summary')}")
             print(f"wipe_at_risk_members = {wipe_readiness.get('at_risk_members')}")
+            follow_up_required = str(wipe_readiness.get("follow_up_required")).lower()
+            print(f"wipe_follow_up_required = {follow_up_required}")
+            print(f"wipe_follow_up_summary = {wipe_readiness.get('follow_up_summary')}")
 
     return code
 
@@ -1546,6 +1558,7 @@ def show_members(*, json_output: bool = False) -> int:
         print("No members recorded.")
         print(f"wipe_readiness = {wipe_readiness['status']}")
         print(f"wipe_summary = {wipe_readiness['summary']}")
+        print(f"wipe_follow_up_summary = {wipe_readiness['follow_up_summary']}")
         return 0
 
     for member in members:
@@ -1559,12 +1572,13 @@ def show_members(*, json_output: bool = False) -> int:
         )
     print(f"wipe_readiness = {wipe_readiness['status']}")
     print(f"wipe_summary = {wipe_readiness['summary']}")
+    print(f"wipe_follow_up_summary = {wipe_readiness['follow_up_summary']}")
     if wipe_readiness["at_risk"]:
-        for member in wipe_readiness["at_risk"][:5]:
+        for member in wipe_readiness["follow_up"][:5]:
             print(
-                "wipe_risk "
+                "wipe_follow_up "
                 f"name={member['name']} reason={member['reason']} "
-                f"last_seen={member['last_seen_at']}"
+                f"last_seen={member['last_seen_at']} action={member['required_action']}"
             )
     return 0
 

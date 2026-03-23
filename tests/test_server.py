@@ -1456,11 +1456,18 @@ def test_wipe_returns_and_records_coverage(
     assert payload["wipe_readiness"]["status"] == "blocked"
     assert payload["wipe_readiness"]["stale_members"] == 1
     assert payload["wipe_readiness"]["disconnected_members"] == 1
+    assert payload["wipe_readiness"]["follow_up_required"] is True
+    assert payload["wipe_readiness"]["follow_up_count"] == 2
+    assert payload["wipe_readiness"]["follow_up"][0]["name"] == "Sensor Two"
+    assert payload["wipe_readiness"]["follow_up"][0]["resolution"] == "unresolved"
     mock_conn_mgr.broadcast.assert_awaited_once_with({"type": "wipe"})
     mock_db.insert_audit_event.assert_awaited_once()
     audit_details = mock_db.insert_audit_event.await_args.kwargs["details"]
     assert audit_details["broadcast_target_count"] == 1
     assert audit_details["wipe_readiness"]["at_risk"][0]["name"] == "Sensor Two"
+    assert audit_details["wipe_readiness"]["follow_up"][0]["required_action"].startswith(
+        "Reconnect this member browser and confirm wipe"
+    )
 
 
 def test_websocket_auth_flow(

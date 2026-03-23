@@ -349,6 +349,10 @@ flows on real devices and tightening the gaps those exercises expose.
 - A real wipe now records coverage at trigger time in the audit trail, including
   the live broadcast target count and the stale/disconnected member browsers
   that were already at risk of missing the wipe
+- When wipe readiness is degraded or blocked, the same coverage payload now
+  includes explicit unresolved follow-up entries so operators can see which
+  member browsers still need reconnect-or-manual-verification before the
+  cleanup boundary is considered closed
 - Connected member browsers now clear queued notes/media, current member
   cookies, IndexedDB outbox state, and the cached member-shell registration
   when they receive a live wipe or `op_ended` message, but disconnected
