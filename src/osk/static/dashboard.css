@@ -594,6 +594,10 @@ textarea {
   color: #d4e3f9;
 }
 
+.detail-item__button {
+  margin-top: 0.7rem;
+}
+
 .action-bar,
 .note-form {
   display: grid;

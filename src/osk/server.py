@@ -113,6 +113,12 @@ class SignalSnoozeRequest(BaseModel):
     minutes: int | None = None
 
 
+def _isoformat_utc(timestamp: dt.datetime | None) -> str | None:
+    if timestamp is None:
+        return None
+    return timestamp.astimezone(dt.timezone.utc).isoformat().replace("+00:00", "Z")
+
+
 def _utcnow() -> dt.datetime:
     return dt.datetime.now(dt.timezone.utc)
 
@@ -572,6 +578,47 @@ def _member_summary(members: list[dict[str, object]]) -> dict[str, int]:
         "sensor_buffered_items": sensor_buffered_items,
         "manual_buffered_items": manual_buffered_items,
     }
+
+
+async def _dashboard_members(
+    *,
+    op_manager: OperationManager,
+    db,
+    heartbeat_timeout_seconds: int,
+) -> list[dict[str, object]]:
+    operation = op_manager.operation
+    if operation is None:
+        raise RuntimeError("No active operation")
+    member_rows = op_manager.get_member_list()
+    if not member_rows:
+        member_rows = await db.get_members(operation.id)
+    return [
+        _member_dashboard_snapshot(
+            row,
+            heartbeat_timeout_seconds=heartbeat_timeout_seconds,
+        )
+        for row in member_rows
+    ]
+
+
+def _wipe_follow_up_resolutions(
+    audit_events: list[dict[str, object]],
+) -> dict[str, dict[str, object]]:
+    resolutions: dict[str, dict[str, object]] = {}
+    for event in audit_events:
+        if str(event.get("action") or "") != "wipe_follow_up_verified":
+            continue
+        details = event.get("details") or {}
+        if not isinstance(details, dict):
+            continue
+        member_id = str(details.get("member_id") or "").strip()
+        if not member_id or member_id in resolutions:
+            continue
+        verified_at = _isoformat_utc(event.get("timestamp"))
+        if verified_at is None:
+            continue
+        resolutions[member_id] = {"verified_at": verified_at}
+    return resolutions
 
 
 def _wipe_coverage_snapshot(
@@ -1051,16 +1098,11 @@ async def _build_dashboard_state(
     if operation is None:
         raise RuntimeError("No active operation")
     config = load_config()
-    member_rows = op_manager.get_member_list()
-    if not member_rows:
-        member_rows = await db.get_members(operation.id)
-    members = [
-        _member_dashboard_snapshot(
-            row,
-            heartbeat_timeout_seconds=config.member_heartbeat_timeout_seconds,
-        )
-        for row in member_rows
-    ]
+    members = await _dashboard_members(
+        op_manager=op_manager,
+        db=db,
+        heartbeat_timeout_seconds=config.member_heartbeat_timeout_seconds,
+    )
     latest_sitrep = await db.get_latest_sitrep(operation.id)
     review_feed = await db.get_review_feed(
         operation.id,
@@ -1077,7 +1119,11 @@ async def _build_dashboard_state(
     )
     generated_at = _utcnow().isoformat().replace("+00:00", "Z")
     member_summary = _member_summary(members)
-    wipe_readiness = summarize_wipe_readiness(members)
+    audit_events = await db.get_audit_events(operation.id, limit=MAX_AUDIT_LIMIT)
+    wipe_readiness = summarize_wipe_readiness(
+        members,
+        follow_up_resolutions=_wipe_follow_up_resolutions(audit_events),
+    )
     buffer_history = _record_buffer_history(
         buffer_history_store,
         generated_at=generated_at,
@@ -1386,10 +1432,11 @@ def create_app(
                 "dashboard_session": "/api/operator/dashboard-session",
                 "dashboard_state": "/api/coordinator/dashboard-state",
                 "dashboard_stream": "/api/coordinator/dashboard-stream",
-                "signals": "/api/coordinator/signals",
-                "operation_status": "/api/operation/status",
-                "intelligence_status": "/api/intelligence/status",
-                "review_feed": "/api/intelligence/review-feed",
+            "signals": "/api/coordinator/signals",
+            "wipe_follow_up": "/api/coordinator/wipe-follow-up",
+            "operation_status": "/api/operation/status",
+            "intelligence_status": "/api/intelligence/status",
+            "review_feed": "/api/intelligence/review-feed",
                 "findings": "/api/intelligence/findings",
                 "events": "/api/events",
                 "members": "/api/members",
@@ -1622,6 +1669,72 @@ def create_app(
             },
         )
         return JSONResponse(_public_dashboard_signal(signal), headers={"Cache-Control": "no-store"})
+
+    @app.post("/api/coordinator/wipe-follow-up/{member_id}/verify")
+    async def verify_wipe_follow_up(member_id: uuid.UUID, request: Request):
+        if response := _require_local_admin(request, op_manager):
+            return response
+        operation = op_manager.operation
+        if operation is None:
+            return JSONResponse({"error": "No active operation"}, status_code=503)
+
+        config = load_config()
+        members = await _dashboard_members(
+            op_manager=op_manager,
+            db=db,
+            heartbeat_timeout_seconds=config.member_heartbeat_timeout_seconds,
+        )
+        current_wipe_readiness = summarize_wipe_readiness(members)
+        current_follow_up = next(
+            (
+                item
+                for item in current_wipe_readiness["follow_up"]
+                if item.get("id") == str(member_id)
+            ),
+            None,
+        )
+        if current_follow_up is None:
+            return JSONResponse({"error": "Wipe follow-up item not found"}, status_code=404)
+
+        verified_at = _utcnow()
+        verified_at_iso = _isoformat_utc(verified_at)
+        await db.insert_audit_event(
+            operation.id,
+            "coordinator",
+            "wipe_follow_up_verified",
+            details={
+                "member_id": str(member_id),
+                "member_name": current_follow_up.get("name"),
+                "reason": current_follow_up.get("reason"),
+                "last_seen_at": current_follow_up.get("last_seen_at"),
+            },
+        )
+
+        audit_events = await db.get_audit_events(operation.id, limit=MAX_AUDIT_LIMIT)
+        resolutions = _wipe_follow_up_resolutions(audit_events)
+        resolutions[str(member_id)] = {"verified_at": verified_at_iso}
+        updated_wipe_readiness = summarize_wipe_readiness(
+            members,
+            follow_up_resolutions=resolutions,
+        )
+        updated_follow_up = next(
+            (
+                item
+                for item in updated_wipe_readiness["follow_up"]
+                if item.get("id") == str(member_id)
+            ),
+            None,
+        )
+        return JSONResponse(
+            {
+                "status": "verified",
+                "member_id": str(member_id),
+                "verified_at": verified_at_iso,
+                "follow_up": updated_follow_up,
+                "wipe_readiness": updated_wipe_readiness,
+            },
+            headers={"Cache-Control": "no-store"},
+        )
 
     @app.get("/api/operator/dashboard-session")
     async def get_dashboard_session(request: Request):

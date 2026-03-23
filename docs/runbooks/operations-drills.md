@@ -98,12 +98,14 @@ Those surfaces now call out stale/disconnected member browsers that may miss
 the live broadcast path, plus unresolved follow-up entries that stay open until
 the affected browsers are rechecked or manually verified. The dashboard panel
 now renders the required action for each unresolved member directly in that
-view.
+view, and you can mark an item verified there once the browser has been
+manually checked.
 
 When you do run `osk wipe`, the audit trail now records the same trigger-time
 coverage snapshot: broadcast target count plus the stale/disconnected member
 browsers already at risk. Use `osk audit --limit ... --json` if you need that
-history after the fact.
+history after the fact. Manual follow-up verification now records its own audit
+event as well.
 
 ## Current Safe Sequence
 

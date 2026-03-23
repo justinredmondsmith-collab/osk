@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import datetime as dt
+
 
 def _follow_up_action_for_reason(reason: str) -> str:
     if reason == "disconnected":
@@ -15,7 +17,61 @@ def _follow_up_action_for_reason(reason: str) -> str:
     )
 
 
-def summarize_wipe_readiness(members: list[dict[str, object]]) -> dict[str, object]:
+def _parse_timestamp(value: object) -> dt.datetime | None:
+    if isinstance(value, dt.datetime):
+        return value.astimezone(dt.timezone.utc)
+    if not isinstance(value, str):
+        return None
+    normalized = value.strip()
+    if not normalized:
+        return None
+    if normalized.endswith("Z"):
+        normalized = normalized[:-1] + "+00:00"
+    try:
+        parsed = dt.datetime.fromisoformat(normalized)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=dt.timezone.utc)
+    return parsed.astimezone(dt.timezone.utc)
+
+
+def _isoformat_utc(timestamp: dt.datetime | None) -> str | None:
+    if timestamp is None:
+        return None
+    return timestamp.astimezone(dt.timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def _resolved_follow_up(
+    member: dict[str, object],
+    follow_up_resolution: dict[str, object] | None,
+) -> dict[str, object] | None:
+    if not follow_up_resolution:
+        return None
+    verified_at = _parse_timestamp(follow_up_resolution.get("verified_at"))
+    if verified_at is None:
+        return None
+    last_seen_at = _parse_timestamp(member.get("last_seen_at"))
+    if last_seen_at is not None and verified_at < last_seen_at:
+        return None
+    verified_at_iso = _isoformat_utc(verified_at)
+    return {
+        "resolution": "verified",
+        "verified_at": verified_at_iso,
+        "required_action": None,
+        "resolution_detail": (
+            f"Verified after the member's last recorded activity at {verified_at_iso}."
+            if verified_at_iso
+            else "Verified after the member's last recorded activity."
+        ),
+    }
+
+
+def summarize_wipe_readiness(
+    members: list[dict[str, object]],
+    *,
+    follow_up_resolutions: dict[str, dict[str, object]] | None = None,
+) -> dict[str, object]:
     fresh_members = 0
     stale_members = 0
     disconnected_members = 0
@@ -62,15 +118,28 @@ def summarize_wipe_readiness(members: list[dict[str, object]]) -> dict[str, obje
     )
 
     at_risk_members = len(at_risk)
-    follow_up = [
-        {
+    resolution_index = follow_up_resolutions or {}
+    follow_up = []
+    for member in at_risk:
+        follow_up_item = {
             **member,
             "resolution": "unresolved",
             "required_action": _follow_up_action_for_reason(str(member["reason"])),
+            "verified_at": None,
         }
-        for member in at_risk
-    ]
-    follow_up_required = at_risk_members > 0
+        resolved = _resolved_follow_up(
+            member,
+            resolution_index.get(str(member.get("id") or "").strip()),
+        )
+        if resolved is None:
+            follow_up_item["resolution_detail"] = follow_up_item["required_action"]
+        else:
+            follow_up_item.update(resolved)
+        follow_up.append(follow_up_item)
+
+    verified_follow_up_count = sum(1 for item in follow_up if item["resolution"] == "verified")
+    unresolved_follow_up_count = len(follow_up) - verified_follow_up_count
+    follow_up_required = unresolved_follow_up_count > 0
     if considered_members == 0:
         status = "idle"
         summary = "No member browsers are currently joined."
@@ -94,10 +163,16 @@ def summarize_wipe_readiness(members: list[dict[str, object]]) -> dict[str, obje
         summary = f"All {fresh_members} current member browsers are reachable for a live wipe."
         ready = True
 
-    if follow_up_required:
+    if unresolved_follow_up_count > 0:
         follow_up_summary = (
-            f"Resolve {at_risk_members} unresolved member wipe follow-up item"
-            f"{'' if at_risk_members == 1 else 's'} before closing the cleanup boundary."
+            f"Resolve {unresolved_follow_up_count} unresolved member wipe follow-up item"
+            f"{'' if unresolved_follow_up_count == 1 else 's'} before closing the cleanup boundary."
+        )
+    elif verified_follow_up_count > 0:
+        follow_up_summary = (
+            f"All {verified_follow_up_count} member wipe follow-up item"
+            f"{'' if verified_follow_up_count == 1 else 's'} are verified "
+            "for the current cleanup boundary."
         )
     else:
         follow_up_summary = "No unresolved member wipe follow-up remains."
@@ -115,5 +190,7 @@ def summarize_wipe_readiness(members: list[dict[str, object]]) -> dict[str, obje
         "follow_up_required": follow_up_required,
         "follow_up_summary": follow_up_summary,
         "follow_up_count": len(follow_up),
+        "unresolved_follow_up_count": unresolved_follow_up_count,
+        "verified_follow_up_count": verified_follow_up_count,
         "follow_up": follow_up,
     }
