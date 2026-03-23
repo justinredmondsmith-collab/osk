@@ -95,7 +95,8 @@ browser variant are now fully validated.
 While an operation is still live, check `osk status --json`, `osk members`, or
 the coordinator dashboard's wipe-readiness panel before running `osk wipe`.
 Those surfaces now call out stale/disconnected member browsers that may miss
-the live broadcast path.
+the live broadcast path, plus unresolved follow-up entries that stay open until
+the affected browsers are rechecked or manually verified.
 
 When you do run `osk wipe`, the audit trail now records the same trigger-time
 coverage snapshot: broadcast target count plus the stale/disconnected member

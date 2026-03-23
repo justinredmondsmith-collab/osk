@@ -450,6 +450,22 @@ def test_wipe_hub_triggers_broadcast_and_stop(
             "wipe_readiness": {
                 "status": "blocked",
                 "summary": "1 member browser may miss a live wipe.",
+                "follow_up_required": True,
+                "follow_up_summary": (
+                    "Resolve 1 unresolved member wipe follow-up item before closing the "
+                    "cleanup boundary."
+                ),
+                "follow_up": [
+                    {
+                        "name": "Sensor Two",
+                        "reason": "disconnected",
+                        "last_seen_at": "2026-03-21T12:00:00Z",
+                        "required_action": (
+                            "Reconnect this member browser and confirm wipe, or record a "
+                            "manual cleanup verification before closing the cleanup boundary."
+                        ),
+                    }
+                ],
             },
         },
     }
@@ -464,6 +480,9 @@ def test_wipe_hub_triggers_broadcast_and_stop(
     assert "Live wipe broadcast sent" in out
     assert "broadcast_target_count = 2" in out
     assert "wipe_readiness = blocked" in out
+    assert "wipe_follow_up_required = true" in out
+    assert "Resolve 1 unresolved member wipe follow-up item" in out
+    assert "wipe_follow_up name=Sensor Two reason=disconnected" in out
     assert "Preserved evidence retained" in out
     mock_trigger_live_wipe.assert_called_once_with(8443, "op-123")
     mock_stop_hub.assert_called_once_with(wait_seconds=4.0, stop_services=True)
@@ -942,6 +961,8 @@ def test_status_hub_reports_wipe_readiness(
     assert code == 0
     assert "wipe_readiness = blocked" in out
     assert "wipe_at_risk_members = 1" in out
+    assert "wipe_follow_up_required = true" in out
+    assert "Resolve 1 unresolved member wipe follow-up item" in out
 
 
 @patch("osk.hub.asyncio.run")

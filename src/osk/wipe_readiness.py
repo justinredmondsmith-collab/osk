@@ -3,6 +3,18 @@
 from __future__ import annotations
 
 
+def _follow_up_action_for_reason(reason: str) -> str:
+    if reason == "disconnected":
+        return (
+            "Reconnect this member browser and confirm wipe, or record a manual cleanup "
+            "verification before closing the cleanup boundary."
+        )
+    return (
+        "Confirm this stale member browser recovers and receives wipe, or record a manual "
+        "cleanup verification before closing the cleanup boundary."
+    )
+
+
 def summarize_wipe_readiness(members: list[dict[str, object]]) -> dict[str, object]:
     fresh_members = 0
     stale_members = 0
@@ -50,6 +62,15 @@ def summarize_wipe_readiness(members: list[dict[str, object]]) -> dict[str, obje
     )
 
     at_risk_members = len(at_risk)
+    follow_up = [
+        {
+            **member,
+            "resolution": "unresolved",
+            "required_action": _follow_up_action_for_reason(str(member["reason"])),
+        }
+        for member in at_risk
+    ]
+    follow_up_required = at_risk_members > 0
     if considered_members == 0:
         status = "idle"
         summary = "No member browsers are currently joined."
@@ -73,6 +94,14 @@ def summarize_wipe_readiness(members: list[dict[str, object]]) -> dict[str, obje
         summary = f"All {fresh_members} current member browsers are reachable for a live wipe."
         ready = True
 
+    if follow_up_required:
+        follow_up_summary = (
+            f"Resolve {at_risk_members} unresolved member wipe follow-up item"
+            f"{'' if at_risk_members == 1 else 's'} before closing the cleanup boundary."
+        )
+    else:
+        follow_up_summary = "No unresolved member wipe follow-up remains."
+
     return {
         "status": status,
         "ready": ready,
@@ -83,4 +112,8 @@ def summarize_wipe_readiness(members: list[dict[str, object]]) -> dict[str, obje
         "members_considered": considered_members,
         "summary": summary,
         "at_risk": at_risk,
+        "follow_up_required": follow_up_required,
+        "follow_up_summary": follow_up_summary,
+        "follow_up_count": len(follow_up),
+        "follow_up": follow_up,
     }
