@@ -854,9 +854,7 @@ def _wipe_follow_up_history(
                     else details.get("last_seen_at")
                 ),
                 "reopened_at": (reopened_event or {}).get("reopened_at"),
-                "reopened_activity_kind": (reopened_event or {}).get(
-                    "reopened_activity_kind"
-                ),
+                "reopened_activity_kind": (reopened_event or {}).get("reopened_activity_kind"),
                 "status": status,
                 "status_detail": status_detail,
             }
