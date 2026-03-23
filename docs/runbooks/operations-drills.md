@@ -63,6 +63,17 @@ If you want machine-readable output:
 osk drill wipe --json
 ```
 
+If you already exported preserved evidence and want the drill to verify that
+bundle before cleanup planning, include the archive:
+
+```bash
+osk drill wipe --export-bundle osk-evidence-export.zip
+```
+
+You can optionally point the drill at explicit sidecar paths with `--manifest`
+and `--checksum`. Otherwise it checks for adjacent `.manifest.json` and
+`.sha256` files next to the archive.
+
 Today this drill is expected to report `partial`, because Osk does not yet have
 a fully validated one-shot wipe across disconnected members and preserved
 evidence destruction.
@@ -100,7 +111,9 @@ For now, the safe operator sequence is:
    `.sha256` files so you retain file inventory and integrity metadata with the
    archive.
 2. Run `osk evidence verify --input <bundle.zip>` against that archive before
-   you hand it off or rely on it elsewhere.
+   you hand it off or rely on it elsewhere, or pass the same archive to
+   `osk drill wipe --export-bundle <bundle.zip>` so the wipe drill includes
+   export verification in the same report.
 3. Run `osk operator login` if no active local operator session exists.
 4. Run `osk wipe --yes` from the coordinator host. That broadcasts wipe to
    connected members and stops the hub.

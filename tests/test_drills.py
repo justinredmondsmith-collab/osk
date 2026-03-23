@@ -138,6 +138,7 @@ def test_wipe_drill_report_surfaces_current_partial_state(tmp_path: Path) -> Non
     assert report["status"] == "partial"
     assert report["hub_running"] is False
     assert report["operator_session_active"] is False
+    assert report["evidence_bundle"]["status"] == "not_provided"
     assert any("No running hub state was found" in gap for gap in report["gaps"])
     assert any("Browser history and OS-level caches" in gap for gap in report["gaps"])
     assert any(
@@ -145,3 +146,52 @@ def test_wipe_drill_report_surfaces_current_partial_state(tmp_path: Path) -> Non
     )
     assert any("Run `osk wipe --yes`" in step for step in report["next_steps"])
     assert any("directory-backed development storage" in step for step in report["next_steps"])
+
+
+def test_wipe_drill_report_verifies_supplied_bundle(tmp_path: Path) -> None:
+    config = OskConfig(storage_backend="directory")
+    bundle_path = tmp_path / "evidence-export.zip"
+
+    with (
+        patch("osk.drills.default_storage_manager") as mock_storage,
+        patch("osk.drills.read_hub_state", return_value=None),
+        patch("osk.drills.read_operator_session", return_value=None),
+        patch(
+            "osk.drills.bootstrap_session_path",
+            return_value=tmp_path / "operator-bootstrap.json",
+        ),
+        patch(
+            "osk.drills.operator_session_path",
+            return_value=tmp_path / "operator-session.json",
+        ),
+        patch(
+            "osk.drills.dashboard_bootstrap_path",
+            return_value=tmp_path / "dashboard-bootstrap.json",
+        ),
+        patch(
+            "osk.drills.dashboard_session_path",
+            return_value=tmp_path / "dashboard-session.json",
+        ),
+        patch("osk.drills.EvidenceManager.verify_export_bundle") as mock_verify,
+    ):
+        storage = MagicMock()
+        storage.backend = "directory"
+        storage.tmpfs_path = tmp_path / "runtime"
+        storage.luks_mount_path = tmp_path / "evidence"
+        storage.luks_image_path = tmp_path / "unused.luks"
+        mock_storage.return_value = storage
+        mock_verify.return_value = {
+            "ok": True,
+            "archive_path": str(bundle_path),
+            "file_count": 2,
+            "manifest_status": "verified",
+            "checksum_status": "verified",
+            "warnings": [],
+        }
+
+        report = wipe_drill_report(config, export_bundle=bundle_path)
+
+    assert report["evidence_bundle"]["status"] == "verified"
+    assert report["evidence_bundle"]["archive_path"] == str(bundle_path)
+    assert report["evidence_bundle"]["verification"]["file_count"] == 2
+    assert any("verified cleanly" in step for step in report["next_steps"])
