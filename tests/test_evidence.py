@@ -78,6 +78,72 @@ def test_export_creates_zip(evidence: EvidenceManager, tmp_path: Path) -> None:
     assert checksum_path.read_text() == f"{archive_sha256}  export.zip\n"
 
 
+def test_verify_export_bundle_succeeds(evidence: EvidenceManager, tmp_path: Path) -> None:
+    evidence.luks_mount_path.mkdir(parents=True, exist_ok=True)
+    (evidence.luks_mount_path / "event_001.json").write_text('{"text":"test"}')
+    (evidence.luks_mount_path / "frames").mkdir()
+    (evidence.luks_mount_path / "frames" / "frame_001.jpg").write_bytes(b"jpeg")
+    output = tmp_path / "export.zip"
+
+    export_result = evidence.export(output)
+    result = EvidenceManager.verify_export_bundle(output)
+
+    assert export_result["ok"] is True
+    assert result["ok"] is True
+    assert result["archive_path"] == str(output)
+    assert result["archive_sha256"] == export_result["archive_sha256"]
+    assert result["embedded_manifest_status"] == "verified"
+    assert result["manifest_status"] == "verified"
+    assert result["checksum_status"] == "verified"
+    assert result["warnings"] == []
+
+
+def test_verify_export_bundle_detects_embedded_manifest_tamper(
+    evidence: EvidenceManager, tmp_path: Path
+) -> None:
+    evidence.luks_mount_path.mkdir(parents=True, exist_ok=True)
+    (evidence.luks_mount_path / "event_001.json").write_text('{"text":"test"}')
+    output = tmp_path / "export.zip"
+
+    evidence.export(output)
+    entries: dict[str, bytes] = {}
+    with zipfile.ZipFile(output) as archive:
+        for name in archive.namelist():
+            entries[name] = archive.read(name)
+
+    entries["event_001.json"] = b'{"text":"tesu"}'
+    with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        for name, payload in entries.items():
+            archive.writestr(name, payload)
+
+    (tmp_path / "export.zip.manifest.json").unlink()
+    (tmp_path / "export.zip.sha256").unlink()
+
+    result = EvidenceManager.verify_export_bundle(output)
+
+    assert result["ok"] is False
+    assert "hash mismatch" in str(result["error"])
+
+
+def test_verify_export_bundle_warns_when_sidecars_missing(
+    evidence: EvidenceManager, tmp_path: Path
+) -> None:
+    evidence.luks_mount_path.mkdir(parents=True, exist_ok=True)
+    (evidence.luks_mount_path / "event_001.json").write_text('{"text":"test"}')
+    output = tmp_path / "export.zip"
+
+    evidence.export(output)
+    (tmp_path / "export.zip.manifest.json").unlink()
+    (tmp_path / "export.zip.sha256").unlink()
+
+    result = EvidenceManager.verify_export_bundle(output)
+
+    assert result["ok"] is True
+    assert result["manifest_status"] == "missing"
+    assert result["checksum_status"] == "missing"
+    assert len(result["warnings"]) == 2
+
+
 @patch("os.path.expanduser", side_effect=lambda path: path)
 @patch("os.getcwd", return_value="/tmp")
 @patch("builtins.input", return_value="yes")

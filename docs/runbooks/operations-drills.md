@@ -99,10 +99,12 @@ For now, the safe operator sequence is:
    The export now emits the zip bundle plus adjacent `.manifest.json` and
    `.sha256` files so you retain file inventory and integrity metadata with the
    archive.
-2. Run `osk operator login` if no active local operator session exists.
-3. Run `osk wipe --yes` from the coordinator host. That broadcasts wipe to
+2. Run `osk evidence verify --input <bundle.zip>` against that archive before
+   you hand it off or rely on it elsewhere.
+3. Run `osk operator login` if no active local operator session exists.
+4. Run `osk wipe --yes` from the coordinator host. That broadcasts wipe to
    connected members and stops the hub.
-4. Run `osk evidence destroy --yes` only if permanent removal of preserved
+5. Run `osk evidence destroy --yes` only if permanent removal of preserved
    evidence storage is intended.
 
 If you know member devices were offline or disconnected during step 3, treat

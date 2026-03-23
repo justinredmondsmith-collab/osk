@@ -98,8 +98,9 @@ What exists today:
   so field-network readiness and `join_host` mismatches are visible without
   automatically mutating host networking
 - Standalone preserved-evidence commands: `osk evidence unlock`,
-  `osk evidence export`, and `osk evidence destroy`, with export-side manifest
-  and SHA-256 integrity artifacts for the bundled evidence archive
+  `osk evidence export`, `osk evidence verify`, and `osk evidence destroy`,
+  with export-side manifest and SHA-256 integrity artifacts for the bundled
+  evidence archive
 - Read-only operator drill commands: `osk drill install` and `osk drill wipe`,
   plus an operations drill runbook under [docs/runbooks](docs/runbooks/operations-drills.md)
 - Database migrations, coordinator auth boundary, member reconnect handling,
@@ -332,6 +333,9 @@ flows on real devices and tightening the gaps those exercises expose.
 - Use `osk evidence export --output osk-evidence-export.zip` to bundle the
   currently visible preserved-evidence files into a zip archive plus adjacent
   `.manifest.json` and `.sha256` integrity metadata
+- Use `osk evidence verify --input osk-evidence-export.zip` to verify the
+  archive against its embedded manifest and any adjacent sidecar integrity
+  files
 - Use `osk evidence destroy --yes` if you need to permanently remove the local
   preserved-evidence store
 - Use `osk wipe --yes` from the coordinator host after `osk operator login` if
