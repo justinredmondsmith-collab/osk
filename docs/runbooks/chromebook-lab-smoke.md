@@ -520,7 +520,9 @@ launch, verify the Crostini GUI session still exposes Wayland sockets under
 before launching Chromium over SSH, but a dead or missing Crostini GUI session
 will still prevent CDP from coming up. Check `launch-preflight.json` in the
 artifact directory to confirm which runtime values the wrapper captured before
-it tried to start Chromium.
+it tried to start Chromium. The wrapper also echoes the same preflight summary
+to stderr for `launch` and `smoke-runner` failures, so CI logs and failed local
+runs show the resolved runtime values without opening the artifact directory.
 
 ### `Smoke metadata file does not exist`
 
