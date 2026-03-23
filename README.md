@@ -359,6 +359,9 @@ flows on real devices and tightening the gaps those exercises expose.
 - Operators can now mark a wipe follow-up item verified from that dashboard
   panel, which records a closure event in the audit trail and keeps the item
   closed until that member shows newer activity
+- When newer member activity invalidates that manual closure, the hub now
+  records a `wipe_follow_up_reopened` audit event so the reopened boundary is
+  durable in the audit trail instead of only inferred from current state
 - That same wipe-readiness panel now shows a short recent verification trail so
   operators can see which closures still hold for the current boundary and
   which earlier verifications have since reopened

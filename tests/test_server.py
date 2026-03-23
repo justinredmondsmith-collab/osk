@@ -1703,6 +1703,110 @@ def test_websocket_resume_flow(
     mock_op_manager.resume_member.assert_called_once()
 
 
+def test_websocket_activity_records_wipe_follow_up_reopened_once(
+    client: TestClient,
+    mock_db: MagicMock,
+    mock_op_manager: MagicMock,
+) -> None:
+    member_id = uuid.uuid4()
+    verified_at = dt.datetime(2026, 3, 23, 3, 0, tzinfo=dt.timezone.utc)
+    activity_at = dt.datetime(2026, 3, 23, 3, 5, tzinfo=dt.timezone.utc)
+    member = MagicMock(
+        id=member_id,
+        name="Jay",
+        role=MemberRole.OBSERVER,
+        status=MemberStatus.CONNECTED,
+        reconnect_token="resume-secret",
+        last_seen_at=verified_at - dt.timedelta(seconds=30),
+    )
+    mock_op_manager.add_member = AsyncMock(return_value=member)
+    mock_op_manager.members = {member_id: member}
+
+    async def touch_heartbeat(member_uuid: uuid.UUID) -> None:
+        assert member_uuid == member_id
+        member.last_seen_at = activity_at
+
+    mock_op_manager.touch_member_heartbeat = AsyncMock(side_effect=touch_heartbeat)
+    mock_db.get_audit_events.return_value = [
+        {
+            "action": "wipe_follow_up_verified",
+            "timestamp": verified_at,
+            "details": {
+                "member_id": str(member_id),
+                "member_name": "Jay",
+                "reason": "stale",
+            },
+        }
+    ]
+
+    with client.websocket_connect("/ws") as websocket:
+        websocket.send_json({"type": "auth", "token": "valid-token", "name": "Jay"})
+        websocket.receive_json()
+        websocket.send_json({"type": "buffer_status", "pending_count": 1})
+        websocket.send_json({"type": "buffer_status", "pending_count": 2})
+
+    assert mock_db.insert_audit_event.await_count == 1
+    assert mock_db.insert_audit_event.await_args.args[2] == "wipe_follow_up_reopened"
+    assert mock_db.insert_audit_event.await_args.kwargs["actor_member_id"] == member_id
+    details = mock_db.insert_audit_event.await_args.kwargs["details"]
+    assert details["member_id"] == str(member_id)
+    assert details["activity_kind"] == "message"
+    assert details["verified_at"] == "2026-03-23T03:00:00Z"
+    assert details["last_seen_at"] == "2026-03-23T03:05:00Z"
+
+
+def test_websocket_resume_records_wipe_follow_up_reopened(
+    client: TestClient,
+    mock_db: MagicMock,
+    mock_op_manager: MagicMock,
+) -> None:
+    member_id = uuid.uuid4()
+    verified_at = dt.datetime(2026, 3, 23, 3, 0, tzinfo=dt.timezone.utc)
+    resumed_at = dt.datetime(2026, 3, 23, 3, 8, tzinfo=dt.timezone.utc)
+    resumed_member = MagicMock(
+        id=member_id,
+        name="Jay",
+        role=MemberRole.OBSERVER,
+        status=MemberStatus.CONNECTED,
+        reconnect_token="resume-secret",
+        last_seen_at=resumed_at,
+    )
+    mock_op_manager.resume_member = AsyncMock(return_value=resumed_member)
+    mock_op_manager.members = {member_id: resumed_member}
+    mock_db.get_audit_events.return_value = [
+        {
+            "action": "wipe_follow_up_verified",
+            "timestamp": verified_at,
+            "details": {
+                "member_id": str(member_id),
+                "member_name": "Jay",
+                "reason": "disconnected",
+            },
+        }
+    ]
+
+    with client.websocket_connect("/ws") as websocket:
+        websocket.send_json(
+            {
+                "type": "auth",
+                "token": "valid-token",
+                "name": "Jay",
+                "resume_member_id": str(member_id),
+                "resume_token": "resume-secret",
+            }
+        )
+        message = websocket.receive_json()
+
+    assert message["type"] == "auth_ok"
+    assert mock_db.insert_audit_event.await_count == 1
+    assert mock_db.insert_audit_event.await_args.args[2] == "wipe_follow_up_reopened"
+    details = mock_db.insert_audit_event.await_args.kwargs["details"]
+    assert details["member_id"] == str(member_id)
+    assert details["activity_kind"] == "resume"
+    assert details["verified_at"] == "2026-03-23T03:00:00Z"
+    assert details["last_seen_at"] == "2026-03-23T03:08:00Z"
+
+
 def test_websocket_manual_report_ack(
     client: TestClient,
     mock_db: MagicMock,
