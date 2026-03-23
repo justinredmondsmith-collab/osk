@@ -590,6 +590,10 @@ textarea {
   color: var(--color-muted);
 }
 
+.detail-item__action {
+  color: #d4e3f9;
+}
+
 .action-bar,
 .note-form {
   display: grid;

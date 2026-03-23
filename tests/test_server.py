@@ -577,6 +577,13 @@ def test_coordinator_dashboard_state_surfaces_wipe_readiness_risk(
     assert payload["wipe_readiness"]["disconnected_members"] == 1
     assert payload["wipe_readiness"]["at_risk_members"] == 2
     assert payload["wipe_readiness"]["at_risk"][0]["name"] == "Sensor Two"
+    assert payload["wipe_readiness"]["follow_up_required"] is True
+    assert payload["wipe_readiness"]["follow_up_count"] == 2
+    assert payload["wipe_readiness"]["follow_up_summary"].startswith("Resolve 2 unresolved")
+    assert payload["wipe_readiness"]["follow_up"][0]["name"] == "Sensor Two"
+    assert payload["wipe_readiness"]["follow_up"][0]["required_action"].startswith(
+        "Reconnect this member browser and confirm wipe"
+    )
 
 
 def test_coordinator_dashboard_state_tracks_buffer_history_window(
