@@ -353,6 +353,9 @@ flows on real devices and tightening the gaps those exercises expose.
   includes explicit unresolved follow-up entries so operators can see which
   member browsers still need reconnect-or-manual-verification before the
   cleanup boundary is considered closed
+- The coordinator dashboard now renders those unresolved wipe follow-up items
+  directly in the wipe-readiness panel, including the required action for each
+  affected member browser
 - Connected member browsers now clear queued notes/media, current member
   cookies, IndexedDB outbox state, and the cached member-shell registration
   when they receive a live wipe or `op_ended` message, but disconnected

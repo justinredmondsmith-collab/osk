@@ -533,6 +533,15 @@
     return `<span class="${classMap[value] || "pill"}">${escapeHtml(value)}</span>`;
   }
 
+  function wipeReasonPill(reason) {
+    const value = String(reason || "unknown");
+    const classMap = {
+      disconnected: "pill pill--critical",
+      stale: "pill pill--warning",
+    };
+    return `<span class="${classMap[value] || "pill"}">${escapeHtml(value)}</span>`;
+  }
+
   function findingActionEnabled(action, status) {
     if (action === "acknowledge") {
       return status === "open";
@@ -912,33 +921,36 @@
       ["Reachable", wipeReadiness.reachable_members ?? "--"],
       ["At risk", wipeReadiness.at_risk_members ?? "--"],
       ["Disconnected", wipeReadiness.disconnected_members ?? "--"],
+      ["Follow-up", wipeReadiness.follow_up_count ?? "--"],
     ]
       .map(
         ([label, value]) =>
           `<div class="stack-row"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`,
       )
       .join("");
-    const wipeRiskMembers = Array.isArray(wipeReadiness.at_risk) ? wipeReadiness.at_risk : [];
-    if (!wipeRiskMembers.length) {
+    const wipeFollowUp = Array.isArray(wipeReadiness.follow_up) ? wipeReadiness.follow_up : [];
+    if (!wipeFollowUp.length) {
       elements.wipeReadinessDetail.innerHTML = `
         <div class="detail-item">
-          <p>${escapeHtml(wipeReadiness.summary || "Live wipe readiness is clear.")}</p>
+          <p>${escapeHtml(wipeReadiness.follow_up_summary || wipeReadiness.summary || "Live wipe readiness is clear.")}</p>
         </div>
       `;
     } else {
       elements.wipeReadinessDetail.innerHTML = [
         `
           <div class="detail-item">
-            <p>${escapeHtml(wipeReadiness.summary || "Some member browsers are at risk of missing a live wipe.")}</p>
+            <p>${escapeHtml(wipeReadiness.follow_up_summary || "Resolve unresolved member cleanup before closing the wipe boundary.")}</p>
+            <small>${escapeHtml(wipeReadiness.summary || "Some member browsers are at risk of missing a live wipe.")}</small>
           </div>
         `,
-        ...wipeRiskMembers.slice(0, 4).map((member) => {
+        ...wipeFollowUp.slice(0, 4).map((member) => {
           return `
             <div class="detail-item">
-              <p>${escapeHtml(member.name)} <span class="pill">${escapeHtml(member.reason)}</span></p>
+              <p>${escapeHtml(member.name)} ${wipeReasonPill(member.reason)}</p>
               <small>
                 ${escapeHtml(member.role || "member")} • ${escapeHtml(member.status || "unknown")} • last seen ${escapeHtml(member.last_seen_at || "unknown")}
               </small>
+              <small class="detail-item__action">${escapeHtml(member.required_action || "Manual verification still required.")}</small>
             </div>
           `;
         }),
