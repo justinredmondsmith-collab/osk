@@ -286,6 +286,9 @@ flows on real devices and tightening the gaps those exercises expose.
 - Use `osk status`, `osk operator status`, `osk audit`, `osk members`,
   `osk findings`, `osk review`, `osk dashboard`, and `osk logs` to inspect the
   local foundation runtime
+- Add `--action <audit_action>` to `osk audit` when you only need a narrow
+  slice of the audit trail, or `--wipe-follow-up-only` when you only need wipe
+  verification and reopen transitions for operator follow-up
 - `osk status --json` now includes a live wipe-readiness summary, and the
   human `osk members` output now ends with the same readiness call plus the
   first few at-risk member browsers

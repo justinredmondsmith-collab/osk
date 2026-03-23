@@ -235,16 +235,34 @@ class Database:
             json.dumps(details or {}),
         )
 
-    async def get_audit_events(self, operation_id: uuid.UUID, limit: int = 50) -> list[dict]:
+    async def get_audit_events(
+        self,
+        operation_id: uuid.UUID,
+        limit: int = 50,
+        *,
+        actions: list[str] | None = None,
+    ) -> list[dict]:
         pool = self._require_pool()
-        rows = await pool.fetch(
-            """SELECT * FROM audit_events
-               WHERE operation_id = $1
-               ORDER BY timestamp DESC
-               LIMIT $2""",
-            operation_id,
-            limit,
-        )
+        if actions:
+            rows = await pool.fetch(
+                """SELECT * FROM audit_events
+                   WHERE operation_id = $1
+                   AND action = ANY($2::text[])
+                   ORDER BY timestamp DESC
+                   LIMIT $3""",
+                operation_id,
+                actions,
+                limit,
+            )
+        else:
+            rows = await pool.fetch(
+                """SELECT * FROM audit_events
+                   WHERE operation_id = $1
+                   ORDER BY timestamp DESC
+                   LIMIT $2""",
+                operation_id,
+                limit,
+            )
         return [dict(row) for row in rows]
 
     async def insert_event(

@@ -1466,6 +1466,26 @@ def test_list_audit_events(client: TestClient, mock_db: MagicMock) -> None:
     mock_db.get_audit_events.assert_called_once()
 
 
+def test_list_audit_events_filters_actions(client: TestClient, mock_db: MagicMock) -> None:
+    mock_db.get_audit_events.return_value = [{"action": "wipe_follow_up_verified"}]
+
+    resp = client.get(
+        "/api/audit?limit=25&action=operator_session_created&wipe_follow_up_only=true"
+    )
+
+    assert resp.status_code == 200
+    assert resp.json() == [{"action": "wipe_follow_up_verified"}]
+    mock_db.get_audit_events.assert_called_once_with(
+        client.app.state.mock_operation.id,
+        25,
+        actions=[
+            "operator_session_created",
+            "wipe_follow_up_verified",
+            "wipe_follow_up_reopened",
+        ],
+    )
+
+
 def test_promote_member(
     client: TestClient, mock_op_manager: MagicMock, mock_conn_mgr: MagicMock
 ) -> None:

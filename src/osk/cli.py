@@ -337,7 +337,12 @@ def _cmd_operator_logout(_: argparse.Namespace) -> int:
 def _cmd_audit(args: argparse.Namespace) -> int:
     from .hub import show_audit_events
 
-    return show_audit_events(limit=args.limit, json_output=args.json_output)
+    return show_audit_events(
+        limit=args.limit,
+        actions=args.actions,
+        wipe_follow_up_only=args.wipe_follow_up_only,
+        json_output=args.json_output,
+    )
 
 
 def _cmd_logs(args: argparse.Namespace) -> int:
@@ -830,6 +835,17 @@ def build_parser() -> argparse.ArgumentParser:
         type=int,
         default=20,
         help="Maximum number of audit events to display.",
+    )
+    audit_parser.add_argument(
+        "--action",
+        dest="actions",
+        action="append",
+        help="Filter to a specific audit action. Repeat to include multiple actions.",
+    )
+    audit_parser.add_argument(
+        "--wipe-follow-up-only",
+        action="store_true",
+        help="Limit results to wipe follow-up verification and reopen audit events.",
     )
     audit_parser.add_argument(
         "--json",

@@ -4,6 +4,7 @@ import asyncio
 import datetime as dt
 import json
 import signal
+import uuid
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -779,6 +780,42 @@ def test_show_audit_events_formats_rows(
     assert code == 0
     assert "operator_session_created" in out
     assert '"issued_from": "bootstrap"' in out
+
+
+def test_show_audit_events_filters_actions(tmp_path: Path) -> None:
+    audit_events = [{"action": "wipe_follow_up_verified"}]
+
+    def return_audit_events(coro):
+        coro.close()
+        return audit_events
+
+    with (
+        patch("osk.hub._config_root", return_value=tmp_path),
+        patch("osk.hub._get_audit_events", new_callable=AsyncMock) as mock_get_audit_events,
+        patch("osk.hub.asyncio.run", side_effect=return_audit_events),
+    ):
+        mock_get_audit_events.return_value = audit_events
+        (tmp_path / "hub-state.json").write_text(
+            '{"operation_id":"11111111-1111-1111-1111-111111111111"}\n'
+        )
+        from osk.hub import show_audit_events
+
+        code = show_audit_events(
+            limit=5,
+            actions=["operator_session_created"],
+            wipe_follow_up_only=True,
+        )
+
+    assert code == 0
+    mock_get_audit_events.assert_called_once_with(
+        uuid.UUID("11111111-1111-1111-1111-111111111111"),
+        5,
+        actions=[
+            "operator_session_created",
+            "wipe_follow_up_verified",
+            "wipe_follow_up_reopened",
+        ],
+    )
 
 
 def test_show_runtime_logs_returns_tail(tmp_path: Path, capsys) -> None:

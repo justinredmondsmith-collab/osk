@@ -65,9 +65,21 @@ def test_parse_operator_logout() -> None:
 
 
 def test_parse_audit() -> None:
-    args = parse_args(["audit", "--limit", "5", "--json"])
+    args = parse_args(
+        [
+            "audit",
+            "--limit",
+            "5",
+            "--action",
+            "operator_session_created",
+            "--wipe-follow-up-only",
+            "--json",
+        ]
+    )
     assert args.command == "audit"
     assert args.limit == 5
+    assert args.actions == ["operator_session_created"]
+    assert args.wipe_follow_up_only is True
     assert args.json_output is True
 
 
@@ -781,9 +793,24 @@ def test_operator_logout_command_invokes_hub_helper(
 
 @patch("osk.hub.show_audit_events", return_value=0)
 def test_audit_command_invokes_hub_helper(mock_show_audit_events: MagicMock) -> None:
-    code = main(["audit", "--limit", "5", "--json"])
+    code = main(
+        [
+            "audit",
+            "--limit",
+            "5",
+            "--action",
+            "operator_session_created",
+            "--wipe-follow-up-only",
+            "--json",
+        ]
+    )
     assert code == 0
-    mock_show_audit_events.assert_called_once_with(limit=5, json_output=True)
+    mock_show_audit_events.assert_called_once_with(
+        limit=5,
+        actions=["operator_session_created"],
+        wipe_follow_up_only=True,
+        json_output=True,
+    )
 
 
 @patch("osk.hub.show_runtime_logs", return_value=0)
