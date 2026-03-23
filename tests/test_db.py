@@ -515,6 +515,28 @@ async def test_get_audit_events(db: Database, mock_pool: MagicMock) -> None:
     assert result == [{"action": "started"}]
 
 
+async def test_get_audit_events_filters_actions(db: Database, mock_pool: MagicMock) -> None:
+    db._pool = mock_pool
+    operation_id = uuid.uuid4()
+    mock_pool.fetch = AsyncMock(return_value=[{"action": "wipe_follow_up_verified"}])
+
+    result = await db.get_audit_events(
+        operation_id,
+        25,
+        actions=["wipe_follow_up_verified", "wipe_follow_up_reopened"],
+    )
+
+    assert result == [{"action": "wipe_follow_up_verified"}]
+    mock_pool.fetch.assert_awaited_once()
+    sql = mock_pool.fetch.await_args.args[0]
+    assert "AND action = ANY($2::text[])" in sql
+    assert mock_pool.fetch.await_args.args[1:] == (
+        operation_id,
+        ["wipe_follow_up_verified", "wipe_follow_up_reopened"],
+        25,
+    )
+
+
 async def test_run_migrations_applies_only_pending(
     db: Database,
     mock_pool: MagicMock,

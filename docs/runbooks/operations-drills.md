@@ -111,7 +111,9 @@ event as well, and newer member activity that invalidates a prior manual
 verification now records `wipe_follow_up_reopened` so the reopened boundary is
 captured explicitly in the audit trail. The coordinator wipe-readiness panel
 also surfaces that reopen timestamp and activity source in the recent
-verification trail.
+verification trail. If you only need those follow-up transitions later, use
+`osk audit --wipe-follow-up-only --json` or filter to explicit actions with
+`osk audit --action wipe_follow_up_verified --action wipe_follow_up_reopened`.
 
 ## Current Safe Sequence
 

@@ -22,6 +22,7 @@ from urllib.parse import urlparse
 import asyncpg
 import uvicorn
 
+from osk.audit import build_audit_action_filter
 from osk.config import OskConfig, load_config, save_config
 from osk.connection_manager import ConnectionManager
 from osk.db import Database
@@ -421,12 +422,17 @@ async def watch_member_heartbeats(
         await asyncio.sleep(poll_seconds)
 
 
-async def _get_audit_events(operation_id: uuid.UUID, limit: int) -> list[dict]:
+async def _get_audit_events(
+    operation_id: uuid.UUID,
+    limit: int,
+    *,
+    actions: list[str] | None = None,
+) -> list[dict]:
     config = load_config()
     db = Database()
     await db.connect(config.database_url)
     try:
-        return await db.get_audit_events(operation_id, limit)
+        return await db.get_audit_events(operation_id, limit, actions=actions)
     finally:
         await db.close()
 
@@ -1450,7 +1456,13 @@ def logout_operator_session() -> int:
     return 0
 
 
-def show_audit_events(*, limit: int = 20, json_output: bool = False) -> int:
+def show_audit_events(
+    *,
+    limit: int = 20,
+    actions: list[str] | None = None,
+    wipe_follow_up_only: bool = False,
+    json_output: bool = False,
+) -> int:
     state = read_hub_state()
     if state is None:
         print("No running Osk hub state found.")
@@ -1462,7 +1474,17 @@ def show_audit_events(*, limit: int = 20, json_output: bool = False) -> int:
         return 1
 
     try:
-        events = asyncio.run(_get_audit_events(uuid.UUID(operation_id_raw), max(1, limit)))
+        filter_actions = build_audit_action_filter(
+            actions,
+            wipe_follow_up_only=wipe_follow_up_only,
+        )
+        events = asyncio.run(
+            _get_audit_events(
+                uuid.UUID(operation_id_raw),
+                max(1, limit),
+                actions=filter_actions,
+            )
+        )
     except Exception as exc:
         print(f"Failed to load audit events: {exc}")
         return 1

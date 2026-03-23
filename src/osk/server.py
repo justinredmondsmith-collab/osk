@@ -28,6 +28,7 @@ from fastapi.responses import (
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+from osk.audit import build_audit_action_filter
 from osk.config import load_config
 from osk.connection_manager import ConnectionManager
 from osk.intelligence_contracts import (
@@ -2349,14 +2350,22 @@ def create_app(
         return op_manager.get_member_list()
 
     @app.get("/api/audit")
-    async def list_audit_events(request: Request, limit: int = 50):
+    async def list_audit_events(
+        request: Request,
+        limit: int = 50,
+        wipe_follow_up_only: bool = False,
+    ):
         if response := _require_local_admin(request, op_manager):
             return response
         operation = op_manager.operation
         if operation is None:
             return JSONResponse({"error": "No active operation"}, status_code=503)
         clamped_limit = max(1, min(limit, MAX_AUDIT_LIMIT))
-        return await db.get_audit_events(operation.id, clamped_limit)
+        actions = build_audit_action_filter(
+            request.query_params.getlist("action"),
+            wipe_follow_up_only=wipe_follow_up_only,
+        )
+        return await db.get_audit_events(operation.id, clamped_limit, actions=actions)
 
     @app.post("/api/members/{member_id}/promote")
     async def promote_member(member_id: uuid.UUID, request: Request):
