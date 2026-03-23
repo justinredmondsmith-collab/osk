@@ -377,6 +377,13 @@ flows on real devices and tightening the gaps those exercises expose.
   finding-triage events open the linked finding detail in the main review pane,
   and wipe follow-up events open the member-scoped follow-up record plus its
   verification history
+- Audit-driven finding drill-down is not read-only: once that finding detail
+  is open in the main pane, the same acknowledge / resolve / reopen / escalate
+  and note controls remain available there
+- Historical wipe follow-up drill-down is also intentional: if a member no
+  longer has an open follow-up item, the detail view can still show
+  `follow_up: null` with retained verification history so operators can answer
+  "what changed?" without reconstructing that boundary by hand
 - Connected member browsers now clear queued notes/media, current member
   cookies, IndexedDB outbox state, and the cached member-shell registration
   when they receive a live wipe or `op_ended` message, but disconnected
@@ -427,6 +434,10 @@ flows on real devices and tightening the gaps those exercises expose.
   `/api/coordinator/dashboard-stream` from the local coordinator surface to
   inspect live runtime state and build dashboard review flows against stable
   query surfaces
+- Use `/api/coordinator/wipe-follow-up/{member_id}` when you need the current
+  plus historical follow-up record for one member, including cases where the
+  current follow-up item has already cleared but its verification trail should
+  still remain visible to the operator
 - Reuse the same `chunk_id`, `frame_id`, or `ingest_key` when retransmitting
   media from a reconnecting client if you want duplicate-safe local acks
 - Configure `transcriber_backend` / `vision_backend` in `~/.config/osk/config.toml`
@@ -437,6 +448,25 @@ flows on real devices and tightening the gaps those exercises expose.
 - Open a `Design feedback` issue if you see a gap or bad assumption
 - Open a `Bug report` issue for contradictions, broken links, or repo problems
 - Use Discussions for broader proposals and open-ended questions
+
+## Dashboard Audit Workflow
+
+Use the coordinator dashboard Audit Trail when you need to move from an audit
+event back into the object it changed without reconstructing context by hand.
+
+1. Start with the filter chip that matches the operator question:
+   `Wipe follow-up` for cleanup-boundary verification, `Operator auth` for
+   local session activity, or `Finding triage` for status and note changes.
+2. Click a wipe follow-up audit row to open the member-specific detail view in
+   the main pane. That view can show either the active follow-up record or a
+   historical-only record where `follow_up` is `null` but the verification
+   trail still remains available for review.
+3. Click a finding-triage audit row to open the linked finding detail in the
+   same main pane. Once open, the normal finding actions and note form still
+   apply there; audit selection is a navigation path, not a read-only fork.
+4. Use `Copy CLI` when you need the shell equivalent of the currently visible
+   audit slice. The copied `osk audit` command should mirror the active
+   dashboard filter so browser review and terminal verification stay aligned.
 
 ## Hardware Assumptions
 

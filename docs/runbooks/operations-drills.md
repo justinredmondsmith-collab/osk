@@ -121,6 +121,32 @@ drill-down entry points too: wipe follow-up events open the member-specific
 follow-up record and finding-triage events open the linked finding detail in
 the main review pane.
 
+## Dashboard Audit Workflow
+
+Use the dashboard Audit Trail block as the operator bridge between "what is
+true now" and "why did it change":
+
+1. Start on the wipe follow-up slice when you are validating cleanup
+   boundaries. That keeps reopen and verification transitions together instead
+   of mixing them with broader triage noise.
+2. Click a wipe follow-up audit row to open the member-specific detail card in
+   the main review pane. If the member still has unresolved follow-up, the
+   card shows the current record and lets you mark it verified there. If the
+   boundary has already cleared, the card can still show the retained
+   verification trail with `follow_up: null`; treat that as historical context,
+   not an active task.
+3. Click a finding-triage audit row when you need to move from a status change
+   back into the underlying finding. The finding opens in the same main pane
+   with the normal acknowledge / resolve / reopen / escalate and note actions.
+4. Use the `Copy CLI` button when you need to reproduce the currently visible
+   audit slice in the terminal. The copied command should match the active
+   dashboard group, so operators can move between browser review and shell
+   verification without rebuilding the filter by hand.
+
+Prefer the dashboard for audit-to-detail navigation, and use the copied
+`osk audit` command when you need a terminal transcript or JSON artifact for
+handoff.
+
 ## Current Safe Sequence
 
 For now, the safe operator sequence is:
