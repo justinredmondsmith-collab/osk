@@ -102,7 +102,8 @@ What exists today:
   with export-side manifest and SHA-256 integrity artifacts for the bundled
   evidence archive
 - Read-only operator drill commands: `osk drill install` and `osk drill wipe`,
-  plus an operations drill runbook under [docs/runbooks](docs/runbooks/operations-drills.md)
+  including optional evidence-bundle verification in the wipe drill, plus an
+  operations drill runbook under [docs/runbooks](docs/runbooks/operations-drills.md)
 - Database migrations, coordinator auth boundary, member reconnect handling,
   and heartbeat-based stale-session cleanup
 - Early REST/WebSocket hub surface for the coordinator and member join/runtime
@@ -336,6 +337,9 @@ flows on real devices and tightening the gaps those exercises expose.
 - Use `osk evidence verify --input osk-evidence-export.zip` to verify the
   archive against its embedded manifest and any adjacent sidecar integrity
   files
+- Use `osk drill wipe --export-bundle osk-evidence-export.zip` when you want a
+  single read-only report that includes both wipe-boundary guidance and export
+  bundle verification
 - Use `osk evidence destroy --yes` if you need to permanently remove the local
   preserved-evidence store
 - Use `osk wipe --yes` from the coordinator host after `osk operator login` if

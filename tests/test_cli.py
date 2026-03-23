@@ -144,6 +144,28 @@ def test_parse_drill_wipe() -> None:
     assert args.drill_command == "wipe"
 
 
+def test_parse_drill_wipe_with_export_bundle() -> None:
+    args = parse_args(
+        [
+            "drill",
+            "wipe",
+            "--export-bundle",
+            "bundle.zip",
+            "--manifest",
+            "bundle.zip.manifest.json",
+            "--checksum",
+            "bundle.zip.sha256",
+            "--json",
+        ]
+    )
+    assert args.command == "drill"
+    assert args.drill_command == "wipe"
+    assert args.export_bundle == "bundle.zip"
+    assert args.manifest == "bundle.zip.manifest.json"
+    assert args.checksum == "bundle.zip.sha256"
+    assert args.json_output is True
+
+
 def test_parse_config() -> None:
     args = parse_args(["config", "--set", "max_sensors=5"])
     assert args.command == "config"
@@ -394,6 +416,49 @@ def test_evidence_verify_prints_summary(mock_verify: MagicMock, capsys) -> None:
     )
 
 
+@patch("osk.drills.wipe_drill_report")
+def test_drill_wipe_prints_evidence_bundle_summary(mock_wipe_drill: MagicMock, capsys) -> None:
+    mock_wipe_drill.return_value = {
+        "drill": "wipe",
+        "status": "partial",
+        "hub_running": False,
+        "storage_backend": "directory",
+        "evidence_bundle": {
+            "status": "verified",
+            "archive_path": "/tmp/export.zip",
+            "error": None,
+            "verification": {
+                "file_count": 2,
+                "manifest_status": "verified",
+                "checksum_status": "verified",
+                "warnings": [
+                    "Checksum file filename entry differs from the current archive filename."
+                ],
+            },
+        },
+        "capabilities": [],
+        "paths": [],
+        "gaps": [],
+        "next_steps": [],
+        "read_only": True,
+    }
+
+    code = main(["drill", "wipe", "--export-bundle", "/tmp/export.zip"])
+    out = capsys.readouterr().out
+
+    assert code == 1
+    assert "evidence_bundle = verified" in out
+    assert "evidence_archive = /tmp/export.zip" in out
+    assert "evidence_bundle_files = 2" in out
+    assert "evidence_manifest_status = verified" in out
+    assert "evidence_checksum_status = verified" in out
+    assert (
+        "evidence_warning = Checksum file filename entry differs from the current "
+        "archive filename." in out
+    )
+    mock_wipe_drill.assert_called_once()
+
+
 @patch("osk.hub.wipe_hub", return_value=0)
 def test_wipe_command_invokes_hub_helper(mock_wipe_hub: MagicMock) -> None:
     code = main(["wipe", "--services", "--timeout", "7", "--destroy-evidence", "--yes", "--json"])
@@ -507,7 +572,11 @@ def test_drill_wipe_prints_summary(mock_report: MagicMock, capsys) -> None:
     assert "Wipe drill: partial" in out
     assert "member_broadcast: available" in out
     assert "No integrated `osk wipe` CLI command" in out
-    mock_report.assert_called_once_with()
+    mock_report.assert_called_once_with(
+        export_bundle=None,
+        manifest_path=None,
+        checksum_path=None,
+    )
 
 
 @patch("osk.cli._repo_root")

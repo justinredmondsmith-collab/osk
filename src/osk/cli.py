@@ -196,7 +196,11 @@ def _cmd_drill(args: argparse.Namespace) -> int:
     if args.drill_command == "install":
         payload = install_drill_report()
     elif args.drill_command == "wipe":
-        payload = wipe_drill_report()
+        payload = wipe_drill_report(
+            export_bundle=Path(args.export_bundle) if args.export_bundle else None,
+            manifest_path=Path(args.manifest) if args.manifest else None,
+            checksum_path=Path(args.checksum) if args.checksum else None,
+        )
     else:
         print("Unknown drill command.")
         return 1
@@ -237,6 +241,19 @@ def _cmd_drill(args: argparse.Namespace) -> int:
     else:
         print(f"hub_running = {str(payload['hub_running']).lower()}")
         print(f"storage_backend = {payload['storage_backend']}")
+        evidence_bundle = payload.get("evidence_bundle") or {}
+        print(f"evidence_bundle = {evidence_bundle.get('status', 'not_provided')}")
+        if evidence_bundle.get("archive_path"):
+            print(f"evidence_archive = {evidence_bundle['archive_path']}")
+        if evidence_bundle.get("error"):
+            print(f"evidence_bundle_error = {evidence_bundle['error']}")
+        verification = evidence_bundle.get("verification")
+        if isinstance(verification, dict):
+            print(f"evidence_bundle_files = {verification.get('file_count')}")
+            print(f"evidence_manifest_status = {verification.get('manifest_status')}")
+            print(f"evidence_checksum_status = {verification.get('checksum_status')}")
+            for warning in verification.get("warnings", []):
+                print(f"evidence_warning = {warning}")
         print("Current capabilities:")
         for capability in payload["capabilities"]:
             availability = "available" if capability["available"] else "not_available"
@@ -721,6 +738,18 @@ def build_parser() -> argparse.ArgumentParser:
     drill_wipe = drill_sub.add_parser(
         "wipe",
         help="Report the current wipe boundary and cleanup runbook.",
+    )
+    drill_wipe.add_argument(
+        "--export-bundle",
+        help="Optional exported evidence archive to verify as part of the drill report.",
+    )
+    drill_wipe.add_argument(
+        "--manifest",
+        help="Optional manifest path to use with --export-bundle.",
+    )
+    drill_wipe.add_argument(
+        "--checksum",
+        help="Optional checksum path to use with --export-bundle.",
     )
     drill_wipe.add_argument(
         "--json",

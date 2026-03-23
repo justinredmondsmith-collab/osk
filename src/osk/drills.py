@@ -6,6 +6,7 @@ import shutil
 from pathlib import Path
 
 from osk.config import OskConfig, load_config
+from osk.evidence import EvidenceManager
 from osk.hub import (
     _find_compose_command,
     default_storage_manager,
@@ -22,6 +23,51 @@ from osk.local_operator import (
     operator_session_path,
     read_operator_session,
 )
+
+
+def _wipe_bundle_report(
+    *,
+    export_bundle: Path | None,
+    manifest_path: Path | None,
+    checksum_path: Path | None,
+) -> dict[str, object]:
+    if export_bundle is None:
+        return {
+            "provided": False,
+            "status": "not_provided",
+            "archive_path": None,
+            "manifest_path": str(manifest_path) if manifest_path is not None else None,
+            "checksum_path": str(checksum_path) if checksum_path is not None else None,
+            "verification": None,
+            "error": None,
+        }
+
+    try:
+        verification = EvidenceManager.verify_export_bundle(
+            export_bundle,
+            manifest_path=manifest_path,
+            checksum_path=checksum_path,
+        )
+    except Exception as exc:
+        return {
+            "provided": True,
+            "status": "failed",
+            "archive_path": str(export_bundle),
+            "manifest_path": str(manifest_path) if manifest_path is not None else None,
+            "checksum_path": str(checksum_path) if checksum_path is not None else None,
+            "verification": None,
+            "error": str(exc),
+        }
+
+    return {
+        "provided": True,
+        "status": "verified" if verification.get("ok") else "failed",
+        "archive_path": str(export_bundle),
+        "manifest_path": verification.get("manifest_path"),
+        "checksum_path": verification.get("checksum_path"),
+        "verification": verification if verification.get("ok") else None,
+        "error": None if verification.get("ok") else verification.get("error"),
+    }
 
 
 def _compose_report(config: OskConfig) -> tuple[dict[str, object], list[str]]:
@@ -110,7 +156,13 @@ def install_drill_report(config: OskConfig | None = None) -> dict[str, object]:
     }
 
 
-def wipe_drill_report(config: OskConfig | None = None) -> dict[str, object]:
+def wipe_drill_report(
+    config: OskConfig | None = None,
+    *,
+    export_bundle: Path | None = None,
+    manifest_path: Path | None = None,
+    checksum_path: Path | None = None,
+) -> dict[str, object]:
     cfg = config or load_config()
     storage = default_storage_manager(cfg)
     hub_state = read_hub_state()
@@ -232,12 +284,33 @@ def wipe_drill_report(config: OskConfig | None = None) -> dict[str, object]:
             "so `osk wipe` would be blocked until you run `osk operator login`.",
         )
 
+    evidence_bundle = _wipe_bundle_report(
+        export_bundle=export_bundle,
+        manifest_path=manifest_path,
+        checksum_path=checksum_path,
+    )
+
     next_steps = [
         "Export preserved evidence first if you need to retain pinned material before cleanup.",
+        "Verify the exported archive before wipe or destroy using "
+        "`osk evidence verify --input ...`.",
         "Run `osk wipe --yes` from the coordinator host while a local operator session is active.",
         "Run `osk evidence destroy --yes` only if you want permanent removal "
         "of preserved evidence storage.",
     ]
+    if evidence_bundle["provided"]:
+        if evidence_bundle["status"] == "verified":
+            next_steps.insert(
+                1,
+                "The supplied evidence bundle verified cleanly; keep the archive, "
+                "manifest, and checksum together for handoff.",
+            )
+        else:
+            next_steps.insert(
+                1,
+                "The supplied evidence bundle did not verify; re-export or repair "
+                "that bundle before wipe or destroy.",
+            )
     if storage.backend == "directory":
         next_steps.append(
             "This machine is using directory-backed development storage, so there is no encrypted "
@@ -253,6 +326,7 @@ def wipe_drill_report(config: OskConfig | None = None) -> dict[str, object]:
         "storage_backend": storage.backend,
         "capabilities": capabilities,
         "paths": paths,
+        "evidence_bundle": evidence_bundle,
         "gaps": gaps,
         "next_steps": next_steps,
         "read_only": True,
