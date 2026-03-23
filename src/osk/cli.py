@@ -544,9 +544,10 @@ def _evidence_manager():
 
 
 def _cmd_evidence(args: argparse.Namespace) -> int:
-    manager = _evidence_manager()
+    from .evidence import EvidenceManager
 
     if args.evidence_command == "unlock":
+        manager = _evidence_manager()
         passphrase = (
             "" if manager.backend == "directory" else getpass.getpass("Evidence passphrase: ")
         )
@@ -556,12 +557,24 @@ def _cmd_evidence(args: argparse.Namespace) -> int:
             print(f"Failed to unlock evidence: {exc}")
             return 1
     elif args.evidence_command == "export":
+        manager = _evidence_manager()
         try:
             result = manager.export(Path(args.output))
         except Exception as exc:
             print(f"Failed to export evidence: {exc}")
             return 1
+    elif args.evidence_command == "verify":
+        try:
+            result = EvidenceManager.verify_export_bundle(
+                Path(args.input),
+                manifest_path=Path(args.manifest) if args.manifest else None,
+                checksum_path=Path(args.checksum) if args.checksum else None,
+            )
+        except Exception as exc:
+            print(f"Failed to verify evidence bundle: {exc}")
+            return 1
     elif args.evidence_command == "destroy":
+        manager = _evidence_manager()
         if not args.yes:
             target = (
                 manager.luks_mount_path
@@ -602,6 +615,19 @@ def _cmd_evidence(args: argparse.Namespace) -> int:
         print(f"manifest_path = {result['manifest_path']}")
         print(f"checksum_path = {result['checksum_path']}")
         print(f"archive_sha256 = {result['archive_sha256']}")
+        return 0
+    if args.evidence_command == "verify":
+        print(f"archive_path = {result['archive_path']}")
+        print(f"archive_sha256 = {result['archive_sha256']}")
+        print(f"file_count = {result['file_count']}")
+        print(f"size = {_format_bytes(int(result['total_bytes']))} ({result['total_bytes']} bytes)")
+        print(f"embedded_manifest = {result['embedded_manifest_status']}")
+        print(f"manifest_path = {result['manifest_path']}")
+        print(f"manifest_status = {result['manifest_status']}")
+        print(f"checksum_path = {result['checksum_path']}")
+        print(f"checksum_status = {result['checksum_status']}")
+        for warning in result.get("warnings", []):
+            print(f"warning = {warning}")
         return 0
 
     print(f"destroyed_path = {result['destroyed_path']}")
@@ -1033,6 +1059,30 @@ def build_parser() -> argparse.ArgumentParser:
         help="Emit machine-readable JSON output.",
     )
     evidence_export.set_defaults(func=_cmd_evidence)
+
+    evidence_verify = evidence_sub.add_parser(
+        "verify", help="Verify an exported evidence bundle and sidecar metadata."
+    )
+    evidence_verify.add_argument(
+        "--input",
+        required=True,
+        help="Zip path for the exported evidence bundle.",
+    )
+    evidence_verify.add_argument(
+        "--manifest",
+        help="Optional path to the sidecar manifest JSON file.",
+    )
+    evidence_verify.add_argument(
+        "--checksum",
+        help="Optional path to the sidecar sha256 file.",
+    )
+    evidence_verify.add_argument(
+        "--json",
+        dest="json_output",
+        action="store_true",
+        help="Emit machine-readable JSON output.",
+    )
+    evidence_verify.set_defaults(func=_cmd_evidence)
 
     evidence_destroy = evidence_sub.add_parser("destroy", help="Destroy preserved evidence.")
     evidence_destroy.add_argument(

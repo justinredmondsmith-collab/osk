@@ -164,6 +164,27 @@ def test_parse_evidence_export() -> None:
     assert args.json_output is True
 
 
+def test_parse_evidence_verify() -> None:
+    args = parse_args(
+        [
+            "evidence",
+            "verify",
+            "--input",
+            "bundle.zip",
+            "--manifest",
+            "bundle.zip.manifest.json",
+            "--checksum",
+            "bundle.zip.sha256",
+            "--json",
+        ]
+    )
+    assert args.evidence_command == "verify"
+    assert args.input == "bundle.zip"
+    assert args.manifest == "bundle.zip.manifest.json"
+    assert args.checksum == "bundle.zip.sha256"
+    assert args.json_output is True
+
+
 def test_parse_evidence_destroy() -> None:
     args = parse_args(["evidence", "destroy", "--yes", "--json"])
     assert args.evidence_command == "destroy"
@@ -341,6 +362,36 @@ def test_evidence_export_prints_summary(mock_manager_factory: MagicMock, capsys)
     assert "manifest_path = /tmp/export.zip.manifest.json" in out
     assert "checksum_path = /tmp/export.zip.sha256" in out
     assert "archive_sha256 = abc123" in out
+
+
+@patch("osk.evidence.EvidenceManager.verify_export_bundle")
+def test_evidence_verify_prints_summary(mock_verify: MagicMock, capsys) -> None:
+    mock_verify.return_value = {
+        "ok": True,
+        "archive_path": "/tmp/export.zip",
+        "archive_sha256": "abc123",
+        "file_count": 2,
+        "total_bytes": 2048,
+        "embedded_manifest_status": "verified",
+        "manifest_path": "/tmp/export.zip.manifest.json",
+        "manifest_status": "verified",
+        "checksum_path": "/tmp/export.zip.sha256",
+        "checksum_status": "verified",
+        "warnings": ["Checksum file filename entry differs from the current archive filename."],
+    }
+
+    code = main(["evidence", "verify", "--input", "/tmp/export.zip"])
+    out = capsys.readouterr().out
+
+    assert code == 0
+    assert "archive_path = /tmp/export.zip" in out
+    assert "archive_sha256 = abc123" in out
+    assert "embedded_manifest = verified" in out
+    assert "manifest_status = verified" in out
+    assert "checksum_status = verified" in out
+    assert (
+        "warning = Checksum file filename entry differs from the current archive filename." in out
+    )
 
 
 @patch("osk.hub.wipe_hub", return_value=0)
