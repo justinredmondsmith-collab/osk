@@ -114,6 +114,9 @@ also surfaces that reopen timestamp and activity source in the recent
 verification trail. If you only need those follow-up transitions later, use
 `osk audit --wipe-follow-up-only --json` or filter to explicit actions with
 `osk audit --action wipe_follow_up_verified --action wipe_follow_up_reopened`.
+The coordinator dashboard now mirrors that shell flow with an Audit Trail
+block that starts on the wipe follow-up slice and can copy the equivalent
+`osk audit` command for the current filter group.
 
 ## Current Safe Sequence
 

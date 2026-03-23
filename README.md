@@ -369,6 +369,10 @@ flows on real devices and tightening the gaps those exercises expose.
   operators can see which closures still hold for the current boundary and
   which earlier verifications have since reopened, including the explicit
   reopen time and whether the member resumed or sent a new message
+- The coordinator dashboard now also includes an Audit Trail block with
+  operator-facing filter chips for wipe follow-up, operator auth, and finding
+  triage events, plus a copyable `osk audit` command for the currently visible
+  slice
 - Connected member browsers now clear queued notes/media, current member
   cookies, IndexedDB outbox state, and the cached member-shell registration
   when they receive a live wipe or `op_ended` message, but disconnected

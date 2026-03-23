@@ -5,6 +5,40 @@
   }
 
   const bootstrap = JSON.parse(bootstrapNode.textContent || "{}");
+  const AUDIT_GROUPS = {
+    wipe_follow_up: {
+      label: "Wipe follow-up",
+      limit: 8,
+      wipeFollowUpOnly: true,
+      emptyMessage: "No wipe follow-up verification or reopen events yet.",
+      summary: "Recent wipe verification and reopen transitions from the audit trail.",
+    },
+    operator_auth: {
+      label: "Operator auth",
+      limit: 8,
+      actions: [
+        "operator_session_created",
+        "operator_session_refreshed",
+        "operator_session_logged_out",
+        "dashboard_session_created",
+      ],
+      emptyMessage: "No recent operator or dashboard session audit events yet.",
+      summary: "Recent local operator-session and dashboard-login transitions.",
+    },
+    finding_triage: {
+      label: "Finding triage",
+      limit: 8,
+      actions: [
+        "finding_acknowledged",
+        "finding_resolved",
+        "finding_reopened",
+        "finding_escalated",
+        "finding_note_added",
+      ],
+      emptyMessage: "No recent finding triage audit events yet.",
+      summary: "Recent finding status changes and note additions recorded in the audit trail.",
+    },
+  };
   const state = {
     authenticated: false,
     filters: {
@@ -23,6 +57,11 @@
     wipeReadiness: null,
     bufferHistory: null,
     bufferSignal: null,
+    auditGroup: "wipe_follow_up",
+    auditEvents: [],
+    auditError: "",
+    auditRefreshInFlight: false,
+    auditRequestId: 0,
     mapStatus: null,
     operationStatus: null,
     intelligenceStatus: null,
@@ -70,6 +109,10 @@
     memberSummary: document.getElementById("member-summary"),
     wipeReadinessSummary: document.getElementById("wipe-readiness-summary"),
     wipeReadinessDetail: document.getElementById("wipe-readiness-detail"),
+    auditTrailFilters: document.getElementById("audit-trail-filters"),
+    auditTrailSummary: document.getElementById("audit-trail-summary"),
+    auditTrailList: document.getElementById("audit-trail-list"),
+    auditTrailCopy: document.getElementById("audit-trail-copy"),
     bufferTrendSummary: document.getElementById("buffer-trend-summary"),
     bufferTrendChart: document.getElementById("buffer-trend-chart"),
     ingestPressure: document.getElementById("ingest-pressure"),
@@ -277,6 +320,36 @@
     return query ? `${bootstrap.paths.dashboard_state}?${query}` : bootstrap.paths.dashboard_state;
   }
 
+  function auditGroupConfig(groupKey) {
+    return AUDIT_GROUPS[groupKey] || AUDIT_GROUPS.wipe_follow_up;
+  }
+
+  function buildAuditTrailPath() {
+    const config = auditGroupConfig(state.auditGroup);
+    const params = new URLSearchParams();
+    params.set("limit", String(config.limit || 8));
+    if (config.wipeFollowUpOnly) {
+      params.set("wipe_follow_up_only", "true");
+    }
+    for (const action of config.actions || []) {
+      params.append("action", action);
+    }
+    return `${bootstrap.paths.audit || "/api/audit"}?${params.toString()}`;
+  }
+
+  function buildAuditTrailCommand() {
+    const config = auditGroupConfig(state.auditGroup);
+    const parts = ["osk", "audit", "--limit", String(config.limit || 8)];
+    if (config.wipeFollowUpOnly) {
+      parts.push("--wipe-follow-up-only");
+    }
+    for (const action of config.actions || []) {
+      parts.push("--action", action);
+    }
+    parts.push("--json");
+    return parts.join(" ");
+  }
+
   function buildDashboardStreamPath() {
     const query = buildDashboardQuery();
     return query ? `${bootstrap.paths.dashboard_stream}?${query}` : bootstrap.paths.dashboard_stream;
@@ -385,6 +458,7 @@
       state.freshKeys.clear();
       renderFeed();
     }, 1800);
+    void refreshAuditTrail({ silent: true });
   }
 
   async function syncDashboardSession() {
@@ -562,6 +636,24 @@
     return `<span class="${classMap[value] || "pill"}">${escapeHtml(value)}</span>`;
   }
 
+  function auditActionPill(action) {
+    const value = String(action || "unknown");
+    const classMap = {
+      wipe_follow_up_verified: "pill pill--resolved",
+      wipe_follow_up_reopened: "pill pill--critical",
+      operator_session_created: "pill pill--accent",
+      operator_session_refreshed: "pill pill--accent",
+      operator_session_logged_out: "pill pill--warning",
+      dashboard_session_created: "pill pill--accent",
+      finding_acknowledged: "pill pill--accent",
+      finding_resolved: "pill pill--resolved",
+      finding_reopened: "pill pill--warning",
+      finding_escalated: "pill pill--critical",
+      finding_note_added: "pill",
+    };
+    return `<span class="${classMap[value] || "pill"}">${escapeHtml(value.replaceAll("_", " "))}</span>`;
+  }
+
   function findingActionEnabled(action, status) {
     if (action === "acknowledge") {
       return status === "open";
@@ -613,6 +705,174 @@
       elements.refreshLabel.textContent = "Retry needed";
     } finally {
       state.refreshInFlight = false;
+    }
+  }
+
+  function auditHeadline(event) {
+    const action = String(event.action || "");
+    const details = event.details || {};
+    const memberName = String(details.member_name || "Member");
+    if (action === "wipe_follow_up_verified") {
+      return `${escapeHtml(memberName)} follow-up verified`;
+    }
+    if (action === "wipe_follow_up_reopened") {
+      return `${escapeHtml(memberName)} follow-up reopened`;
+    }
+    if (action === "operator_session_created") {
+      return "Operator session created";
+    }
+    if (action === "operator_session_refreshed") {
+      return "Operator session refreshed";
+    }
+    if (action === "operator_session_logged_out") {
+      return "Operator session logged out";
+    }
+    if (action === "dashboard_session_created") {
+      return "Dashboard session created";
+    }
+    if (action === "finding_acknowledged") {
+      return "Finding acknowledged";
+    }
+    if (action === "finding_resolved") {
+      return "Finding resolved";
+    }
+    if (action === "finding_reopened") {
+      return "Finding reopened";
+    }
+    if (action === "finding_escalated") {
+      return "Finding escalated";
+    }
+    if (action === "finding_note_added") {
+      return "Finding note added";
+    }
+    return escapeHtml(action.replaceAll("_", " "));
+  }
+
+  function auditDetailLine(event) {
+    const action = String(event.action || "");
+    const details = event.details || {};
+    if (action === "wipe_follow_up_verified") {
+      return `Reason ${String(details.reason || "unknown")} • last seen ${formatLongTimestamp(details.last_seen_at)}`;
+    }
+    if (action === "wipe_follow_up_reopened") {
+      const activityKind = details.activity_kind ? ` • via ${details.activity_kind}` : "";
+      return `Verified ${formatLongTimestamp(details.verified_at)}${activityKind}`;
+    }
+    if (action === "operator_session_created" || action === "operator_session_refreshed") {
+      return `Issued from ${String(details.issued_from || "unknown")} • expires ${formatLongTimestamp(details.expires_at)}`;
+    }
+    if (action === "operator_session_logged_out") {
+      return `Prior expiry ${formatLongTimestamp(details.expires_at)}`;
+    }
+    if (action === "dashboard_session_created") {
+      return `Expires ${formatLongTimestamp(details.expires_at)}`;
+    }
+    if (
+      action === "finding_acknowledged" ||
+      action === "finding_resolved" ||
+      action === "finding_reopened" ||
+      action === "finding_escalated"
+    ) {
+      return `Finding ${String(details.finding_id || "").slice(0, 8) || "unknown"}`;
+    }
+    if (action === "finding_note_added") {
+      return `Finding ${String(details.finding_id || "").slice(0, 8) || "unknown"} • note ${String(details.note_id || "").slice(0, 8) || "unknown"}`;
+    }
+    return "";
+  }
+
+  function auditMetaLine(event) {
+    const actorType = String(event.actor_type || "unknown");
+    const actorMemberId = event.actor_member_id ? ` • member ${String(event.actor_member_id).slice(0, 8)}` : "";
+    return `${formatLongTimestamp(event.timestamp)} • ${actorType}${actorMemberId}`;
+  }
+
+  function renderAuditTrail() {
+    const config = auditGroupConfig(state.auditGroup);
+    if (elements.auditTrailCopy) {
+      elements.auditTrailCopy.disabled = state.auditRefreshInFlight;
+      elements.auditTrailCopy.title = buildAuditTrailCommand();
+    }
+    if (elements.auditTrailFilters) {
+      for (const button of elements.auditTrailFilters.querySelectorAll("[data-audit-group]")) {
+        button.classList.toggle("is-active", button.dataset.auditGroup === state.auditGroup);
+      }
+    }
+    if (state.auditRefreshInFlight && !state.auditEvents.length) {
+      elements.auditTrailSummary.textContent = `Loading ${config.label.toLowerCase()} audit events...`;
+      elements.auditTrailList.innerHTML =
+        '<div class="detail-item"><p>Loading audit history.</p></div>';
+      return;
+    }
+    if (state.auditError) {
+      elements.auditTrailSummary.textContent = state.auditError;
+      elements.auditTrailList.innerHTML = `
+        <div class="detail-item">
+          <p>Could not load ${escapeHtml(config.label.toLowerCase())} audit history.</p>
+          <small class="detail-item__mono">${escapeHtml(buildAuditTrailCommand())}</small>
+        </div>
+      `;
+      return;
+    }
+    elements.auditTrailSummary.textContent = config.summary;
+    if (!state.auditEvents.length) {
+      elements.auditTrailList.innerHTML = `
+        <div class="detail-item">
+          <p>${escapeHtml(config.emptyMessage)}</p>
+          <small class="detail-item__mono">${escapeHtml(buildAuditTrailCommand())}</small>
+        </div>
+      `;
+      return;
+    }
+    elements.auditTrailList.innerHTML = state.auditEvents
+      .map((event) => {
+        const detailLine = auditDetailLine(event);
+        return `
+          <div class="detail-item">
+            <p>${auditHeadline(event)} ${auditActionPill(event.action)}</p>
+            <small>${escapeHtml(auditMetaLine(event))}</small>
+            ${detailLine ? `<small class="detail-item__action">${escapeHtml(detailLine)}</small>` : ""}
+          </div>
+        `;
+      })
+      .join("");
+  }
+
+  async function refreshAuditTrail(options) {
+    const settings = options || {};
+    const requestId = state.auditRequestId + 1;
+    state.auditRequestId = requestId;
+    state.auditRefreshInFlight = true;
+    if (!settings.silent) {
+      renderAuditTrail();
+    }
+    try {
+      const events = await fetchJson(buildAuditTrailPath(), {
+        method: "GET",
+      });
+      if (requestId !== state.auditRequestId) {
+        return;
+      }
+      state.auditEvents = Array.isArray(events) ? events : [];
+      state.auditError = "";
+    } catch (error) {
+      if (requestId !== state.auditRequestId) {
+        return;
+      }
+      const message = error instanceof Error ? error.message : "Audit refresh failed";
+      if (error && (error.status === 401 || error.status === 403)) {
+        lockDashboard("Dashboard session expired. Run `osk dashboard` for a fresh one-time code.");
+      }
+      state.auditEvents = [];
+      state.auditError = message;
+      if (!settings.silent) {
+        setBanner(message, "error");
+      }
+    } finally {
+      if (requestId === state.auditRequestId) {
+        state.auditRefreshInFlight = false;
+      }
+      renderAuditTrail();
     }
   }
 
@@ -1425,6 +1685,35 @@
     connectDashboardStream();
   }
 
+  async function copyAuditTrailCommand() {
+    const command = buildAuditTrailCommand();
+    try {
+      await navigator.clipboard.writeText(command);
+      elements.auditTrailSummary.textContent = `${auditGroupConfig(state.auditGroup).label} command copied to clipboard.`;
+    } catch (error) {
+      elements.auditTrailSummary.textContent = command;
+    }
+  }
+
+  function handleAuditGroupChange(event) {
+    if (!(event.target instanceof Element)) {
+      return;
+    }
+    const button = event.target.closest("[data-audit-group]");
+    if (!(button instanceof HTMLElement)) {
+      return;
+    }
+    const group = String(button.dataset.auditGroup || "");
+    if (!AUDIT_GROUPS[group] || group === state.auditGroup) {
+      return;
+    }
+    state.auditGroup = group;
+    state.auditEvents = [];
+    state.auditError = "";
+    renderAuditTrail();
+    void refreshAuditTrail();
+  }
+
   function scheduleStreamReconnect() {
     if (state.streamRetryHandle || !state.authenticated) {
       return;
@@ -1494,6 +1783,10 @@
       void refreshDashboard();
     });
     elements.filterForm.addEventListener("change", handleFilterChange);
+    elements.auditTrailFilters.addEventListener("click", handleAuditGroupChange);
+    elements.auditTrailCopy.addEventListener("click", () => {
+      void copyAuditTrailCommand();
+    });
     elements.findingNoteForm.addEventListener("submit", submitFindingNote);
     for (const button of elements.findingActions.querySelectorAll("button")) {
       button.addEventListener("click", () => {
@@ -1539,6 +1832,7 @@
   function init() {
     document.title = "Osk | Coordinator Review";
     bindEvents();
+    renderAuditTrail();
     renderContext();
     renderFeed();
     void initializeShell();
