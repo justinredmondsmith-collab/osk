@@ -2,13 +2,18 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 import shutil
 import subprocess
 import zipfile
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal
 
 from osk.storage import LUKS_MAPPER_NAME, StorageManager
+
+EXPORT_MANIFEST_NAME = "_osk_export_manifest.json"
 
 
 class EvidenceManager:
@@ -36,6 +41,13 @@ class EvidenceManager:
     def _mapper_device(self) -> str:
         return f"/dev/mapper/{self.mapper_name}"
 
+    def _sha256_file(self, path: Path) -> str:
+        digest = hashlib.sha256()
+        with path.open("rb") as handle:
+            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                digest.update(chunk)
+        return digest.hexdigest()
+
     def list_items(self) -> list[dict[str, object]]:
         if not self.luks_mount_path.exists():
             return []
@@ -52,6 +64,38 @@ class EvidenceManager:
                 }
             )
         return items
+
+    def _list_export_items(self) -> list[dict[str, object]]:
+        items = self.list_items()
+        export_items: list[dict[str, object]] = []
+        for item in items:
+            relative_path = Path(str(item["path"]))
+            export_items.append(
+                {
+                    **item,
+                    "sha256": self._sha256_file(self.luks_mount_path / relative_path),
+                }
+            )
+        return export_items
+
+    def _build_export_manifest(
+        self,
+        *,
+        output_path: Path,
+        items: list[dict[str, object]],
+        total_bytes: int,
+    ) -> dict[str, object]:
+        return {
+            "artifact_version": 1,
+            "exported_at_utc": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
+            "backend": self.backend,
+            "source_path": str(self.luks_mount_path),
+            "archive_name": output_path.name,
+            "manifest_entry": EXPORT_MANIFEST_NAME,
+            "file_count": len(items),
+            "total_bytes": total_bytes,
+            "items": items,
+        }
 
     def unlock(self, passphrase: str) -> dict[str, object]:
         if self.backend == "directory":
@@ -107,7 +151,7 @@ class EvidenceManager:
         }
 
     def export(self, output_path: Path) -> dict[str, object]:
-        items = self.list_items()
+        items = self._list_export_items()
         if not items:
             return {
                 "ok": False,
@@ -119,19 +163,48 @@ class EvidenceManager:
 
         output = Path(output_path).expanduser()
         output.parent.mkdir(parents=True, exist_ok=True)
-        total_bytes = 0
+        total_bytes = sum(int(item["size_bytes"]) for item in items)
+        manifest = self._build_export_manifest(
+            output_path=output,
+            items=items,
+            total_bytes=total_bytes,
+        )
         with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED) as archive:
             for item in items:
                 relative_path = Path(str(item["path"]))
                 source_path = self.luks_mount_path / relative_path
                 archive.write(source_path, arcname=str(relative_path))
-                total_bytes += int(item["size_bytes"])
+            archive.writestr(
+                EXPORT_MANIFEST_NAME,
+                json.dumps(manifest, indent=2, sort_keys=True),
+            )
+
+        archive_sha256 = self._sha256_file(output)
+        manifest_path = output.with_suffix(output.suffix + ".manifest.json")
+        manifest_path.write_text(
+            json.dumps(
+                {
+                    **manifest,
+                    "output_path": str(output),
+                    "archive_sha256": archive_sha256,
+                },
+                indent=2,
+                sort_keys=True,
+            )
+            + "\n"
+        )
+
+        checksum_path = output.with_suffix(output.suffix + ".sha256")
+        checksum_path.write_text(f"{archive_sha256}  {output.name}\n")
 
         return {
             "ok": True,
             "output_path": str(output),
             "file_count": len(items),
             "total_bytes": total_bytes,
+            "manifest_path": str(manifest_path),
+            "checksum_path": str(checksum_path),
+            "archive_sha256": archive_sha256,
         }
 
     def destroy(self) -> dict[str, object]:
