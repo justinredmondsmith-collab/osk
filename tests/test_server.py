@@ -351,7 +351,9 @@ def test_coordinator_dashboard_renders_local_shell(client: TestClient) -> None:
 
     assert resp.status_code == 200
     assert "Osk Coordinator Review" in resp.text
+    assert "Audit Trail" in resp.text
     assert "/static/dashboard.js" in resp.text
+    assert "/api/audit" in resp.text
     assert "/api/coordinator/dashboard-state" in resp.text
     assert "/api/coordinator/dashboard-stream" in resp.text
     assert resp.headers["cache-control"] == "no-store"

@@ -1705,6 +1705,7 @@ def create_app(
                 "dashboard_session": "/api/operator/dashboard-session",
                 "dashboard_state": "/api/coordinator/dashboard-state",
                 "dashboard_stream": "/api/coordinator/dashboard-stream",
+                "audit": "/api/audit",
                 "signals": "/api/coordinator/signals",
                 "wipe_follow_up": "/api/coordinator/wipe-follow-up",
                 "operation_status": "/api/operation/status",

@@ -254,6 +254,26 @@
           </section>
 
           <section class="context-block">
+            <div class="context-block__head">
+              <h3>Audit Trail</h3>
+              <button class="ghost-button ghost-button--compact" id="audit-trail-copy" type="button">
+                Copy CLI
+              </button>
+            </div>
+            <div class="chip-row" id="audit-trail-filters" role="tablist" aria-label="Audit trail groups">
+              <button class="chip-button is-active" data-audit-group="wipe_follow_up" type="button">Wipe follow-up</button>
+              <button class="chip-button" data-audit-group="operator_auth" type="button">Operator auth</button>
+              <button class="chip-button" data-audit-group="finding_triage" type="button">Finding triage</button>
+            </div>
+            <div class="context-copy context-copy--compact" id="audit-trail-summary">
+              Recent operator-visible audit transitions from the current operation.
+            </div>
+            <div class="detail-list detail-list--tight" id="audit-trail-list">
+              <div class="detail-item"><p>Waiting for audit history.</p></div>
+            </div>
+          </section>
+
+          <section class="context-block">
             <h3>Buffer Trend</h3>
             <div class="stack-list" id="buffer-trend-summary">
               <div class="stack-row"><span>Trend</span><strong>--</strong></div>
