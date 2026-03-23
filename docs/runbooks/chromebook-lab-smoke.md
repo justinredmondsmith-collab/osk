@@ -427,6 +427,7 @@ Expected files include:
 - `metadata.json`
 - `helper.log`
 - `smoke-metadata.json`
+- `launch-preflight.json`
 - `cdp-version.json`
 - `result.json`
 - checkpoint screenshots
@@ -517,7 +518,9 @@ launch, verify the Crostini GUI session still exposes Wayland sockets under
 `/run/user/$(id -u)`. The host-side helper now reconstructs `XDG_RUNTIME_DIR`,
 `WAYLAND_DISPLAY`, `DBUS_SESSION_BUS_ADDRESS`, and a matching `DISPLAY` value
 before launching Chromium over SSH, but a dead or missing Crostini GUI session
-will still prevent CDP from coming up.
+will still prevent CDP from coming up. Check `launch-preflight.json` in the
+artifact directory to confirm which runtime values the wrapper captured before
+it tried to start Chromium.
 
 ### `Smoke metadata file does not exist`
 
