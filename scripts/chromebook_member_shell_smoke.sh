@@ -131,6 +131,8 @@ METADATA_PATH="${RUN_DIR}/metadata.json"
 HELPER_LOG="${RUN_DIR}/helper.log"
 HELPER_PID=""
 RESULT_PATH="${RUN_DIR}/result.json"
+PREFLIGHT_RAW_PATH="${RUN_DIR}/launch-preflight.txt"
+PREFLIGHT_JSON_PATH="${RUN_DIR}/launch-preflight.json"
 LAB_CONTROL_ARGS=(
   --ssh-target "${SSH_TARGET}"
   --chrome-binary "${CHROME_BINARY}"
@@ -173,6 +175,7 @@ write_failure_result() {
     "${SSH_IDENTITY}" \
     "${DEBUG_PORT}" \
     "${METADATA_PATH}" \
+    "${PREFLIGHT_JSON_PATH}" \
     "${stage}" \
     "${message}" \
     "${failure_type}"
@@ -189,12 +192,14 @@ from pathlib import Path
     ssh_identity,
     debug_port,
     metadata_path,
+    preflight_path,
     stage,
     message,
     failure_type,
 ) = sys.argv[1:]
 
 smoke_metadata: dict[str, object] = {}
+launch_preflight: dict[str, object] | None = None
 metadata_file = Path(metadata_path)
 if metadata_file.exists():
     try:
@@ -208,6 +213,14 @@ if metadata_file.exists():
     except Exception:
         smoke_metadata = {}
 
+preflight_file = Path(preflight_path)
+if preflight_file.exists():
+    try:
+        payload = json.loads(preflight_file.read_text())
+        launch_preflight = payload if isinstance(payload, dict) else None
+    except Exception:
+        launch_preflight = None
+
 result_payload = {
     "status": "failed",
     "chromebook_host": chromebook_host,
@@ -218,6 +231,7 @@ result_payload = {
     "local_debug_port": None,
     "artifact_dir": artifact_dir,
     "smoke_metadata": smoke_metadata,
+    "launch_preflight": launch_preflight,
     "cdp_version": None,
     "steps": [],
     "failure": {
@@ -228,6 +242,55 @@ result_payload = {
 }
 
 Path(result_path).write_text(json.dumps(result_payload, indent=2, sort_keys=True) + "\n")
+PY
+}
+
+capture_launch_preflight() {
+  local preflight_output=""
+  local exit_code=0
+
+  set +e
+  preflight_output="$(bash "${LAB_CONTROL_SCRIPT}" preflight "${LAB_CONTROL_ARGS[@]}")"
+  exit_code="$?"
+  set -e
+
+  if [[ "${exit_code}" -ne 0 ]]; then
+    write_failure_result \
+      "preflight" \
+      "Chromebook preflight step failed. (exit ${exit_code})"
+    return "${exit_code}"
+  fi
+
+  printf '%s\n' "${preflight_output}" > "${PREFLIGHT_RAW_PATH}"
+  "${PYTHON_BIN}" - <<'PY' "${PREFLIGHT_RAW_PATH}" "${PREFLIGHT_JSON_PATH}"
+import json
+import sys
+from pathlib import Path
+
+raw_path = Path(sys.argv[1])
+json_path = Path(sys.argv[2])
+payload = {
+    "xdg_runtime_dir": "",
+    "wayland_display": "",
+    "display": "",
+    "dbus_session_bus_address": "",
+    "ozone_flag": "",
+}
+key_map = {
+    "XDG_RUNTIME_DIR": "xdg_runtime_dir",
+    "WAYLAND_DISPLAY": "wayland_display",
+    "DISPLAY": "display",
+    "DBUS_SESSION_BUS_ADDRESS": "dbus_session_bus_address",
+    "OZONE_FLAG": "ozone_flag",
+}
+
+for line in raw_path.read_text().splitlines():
+    key, _, value = line.partition("=")
+    payload_key = key_map.get(key.strip())
+    if payload_key is not None:
+        payload[payload_key] = value
+
+json_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
 PY
 }
 
@@ -318,6 +381,8 @@ run_stage \
   "Chromebook prepare step failed." \
   bash "${LAB_CONTROL_SCRIPT}" prepare \
   "${LAB_CONTROL_ARGS[@]}"
+
+capture_launch_preflight
 
 run_stage \
   "launch" \
