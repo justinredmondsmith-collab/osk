@@ -116,7 +116,10 @@ verification trail. If you only need those follow-up transitions later, use
 `osk audit --action wipe_follow_up_verified --action wipe_follow_up_reopened`.
 The coordinator dashboard now mirrors that shell flow with an Audit Trail
 block that starts on the wipe follow-up slice and can copy the equivalent
-`osk audit` command for the current filter group.
+`osk audit` command for the current filter group. Those audit rows are now
+drill-down entry points too: wipe follow-up events open the member-specific
+follow-up record and finding-triage events open the linked finding detail in
+the main review pane.
 
 ## Current Safe Sequence
 

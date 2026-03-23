@@ -373,6 +373,10 @@ flows on real devices and tightening the gaps those exercises expose.
   operator-facing filter chips for wipe follow-up, operator auth, and finding
   triage events, plus a copyable `osk audit` command for the currently visible
   slice
+- Audit Trail entries are now drill-down links instead of read-only rows:
+  finding-triage events open the linked finding detail in the main review pane,
+  and wipe follow-up events open the member-scoped follow-up record plus its
+  verification history
 - Connected member browsers now clear queued notes/media, current member
   cookies, IndexedDB outbox state, and the cached member-shell registration
   when they receive a live wipe or `op_ended` message, but disconnected

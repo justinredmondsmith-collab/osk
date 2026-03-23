@@ -47,7 +47,9 @@
       severity: "",
       category: "",
     },
+    selectedSource: "feed",
     selectedKey: null,
+    selectedAuditKey: null,
     feedItems: [],
     detail: null,
     correlations: null,
@@ -270,6 +272,37 @@
     return `${item.type}:${item.id}`;
   }
 
+  function auditEventKey(event) {
+    const details = event.details || {};
+    return [
+      String(event.action || "unknown"),
+      String(event.timestamp || ""),
+      String(details.finding_id || ""),
+      String(details.member_id || ""),
+      String(details.note_id || ""),
+      String(event.actor_member_id || ""),
+    ].join(":");
+  }
+
+  function selectedAuditEvent() {
+    return state.auditEvents.find((event) => auditEventKey(event) === state.selectedAuditKey) || null;
+  }
+
+  function selectedFindingId() {
+    if (state.selectedSource === "feed") {
+      const item = selectedItem();
+      if (item && item.type === "finding") {
+        return String(item.finding_id || "").trim();
+      }
+      return "";
+    }
+    const event = selectedAuditEvent();
+    if (!event) {
+      return "";
+    }
+    return String((event.details || {}).finding_id || "").trim();
+  }
+
   async function fetchJson(path, options) {
     const response = await fetch(path, {
       ...options,
@@ -410,6 +443,9 @@
   }
 
   function maybeRefreshDetail(previousSelection) {
+    if (state.selectedSource !== "feed") {
+      return;
+    }
     const nextSelection = selectedItem();
     if (!nextSelection) {
       void refreshDetail();
@@ -450,7 +486,9 @@
 
     renderFeed();
     renderContext();
-    maybeRefreshDetail(previousSelection);
+    if (state.selectedSource === "feed") {
+      maybeRefreshDetail(previousSelection);
+    }
     setBanner("", "info");
     updateConnectionState("live", "Live stream");
     elements.refreshLabel.textContent = "Streaming";
@@ -535,7 +573,8 @@
     elements.reviewFeed.innerHTML = state.feedItems
       .map((item) => {
         const key = itemKey(item);
-        const selected = key === state.selectedKey ? " is-selected" : "";
+        const selected =
+          state.selectedSource === "feed" && key === state.selectedKey ? " is-selected" : "";
         const fresh = state.freshKeys.has(key) ? " is-fresh" : "";
         const typeClass = `timeline-row--${item.type}`;
         const severity = escapeHtml(item.severity || "");
@@ -578,8 +617,11 @@
 
     for (const button of elements.reviewFeed.querySelectorAll(".timeline-row")) {
       button.addEventListener("click", () => {
+        state.selectedSource = "feed";
         state.selectedKey = button.dataset.key;
+        state.selectedAuditKey = null;
         renderFeed();
+        renderAuditTrail();
         void refreshDetail();
       });
     }
@@ -713,10 +755,10 @@
     const details = event.details || {};
     const memberName = String(details.member_name || "Member");
     if (action === "wipe_follow_up_verified") {
-      return `${escapeHtml(memberName)} follow-up verified`;
+      return `${memberName} follow-up verified`;
     }
     if (action === "wipe_follow_up_reopened") {
-      return `${escapeHtml(memberName)} follow-up reopened`;
+      return `${memberName} follow-up reopened`;
     }
     if (action === "operator_session_created") {
       return "Operator session created";
@@ -745,7 +787,28 @@
     if (action === "finding_note_added") {
       return "Finding note added";
     }
-    return escapeHtml(action.replaceAll("_", " "));
+    return action.replaceAll("_", " ");
+  }
+
+  function auditDrillDownAction(event) {
+    const action = String(event.action || "");
+    const details = event.details || {};
+    if (
+      (action === "wipe_follow_up_verified" || action === "wipe_follow_up_reopened") &&
+      details.member_id
+    ) {
+      return {
+        kind: "wipe_follow_up",
+        label: "Show follow-up",
+      };
+    }
+    if (action.startsWith("finding_") && details.finding_id) {
+      return {
+        kind: "finding",
+        label: "Open finding",
+      };
+    }
+    return null;
   }
 
   function auditDetailLine(event) {
@@ -826,12 +889,21 @@
     }
     elements.auditTrailList.innerHTML = state.auditEvents
       .map((event) => {
+        const key = auditEventKey(event);
+        const selected =
+          state.selectedSource === "audit" && state.selectedAuditKey === key ? " is-selected" : "";
+        const drillDown = auditDrillDownAction(event);
         const detailLine = auditDetailLine(event);
         return `
-          <div class="detail-item">
-            <p>${auditHeadline(event)} ${auditActionPill(event.action)}</p>
+          <div class="detail-item${selected}">
+            <p>${escapeHtml(auditHeadline(event))} ${auditActionPill(event.action)}</p>
             <small>${escapeHtml(auditMetaLine(event))}</small>
             ${detailLine ? `<small class="detail-item__action">${escapeHtml(detailLine)}</small>` : ""}
+            ${
+              drillDown
+                ? `<button type="button" class="ghost-button ghost-button--compact detail-item__button" data-audit-key="${escapeHtml(key)}">${escapeHtml(drillDown.label)}</button>`
+                : ""
+            }
           </div>
         `;
       })
@@ -841,6 +913,7 @@
   async function refreshAuditTrail(options) {
     const settings = options || {};
     const requestId = state.auditRequestId + 1;
+    let shouldRefreshDetail = state.selectedSource === "audit";
     state.auditRequestId = requestId;
     state.auditRefreshInFlight = true;
     if (!settings.silent) {
@@ -855,6 +928,12 @@
       }
       state.auditEvents = Array.isArray(events) ? events : [];
       state.auditError = "";
+      if (state.selectedSource === "audit" && !selectedAuditEvent()) {
+        state.selectedSource = "feed";
+        state.selectedAuditKey = null;
+        renderFeed();
+        shouldRefreshDetail = true;
+      }
     } catch (error) {
       if (requestId !== state.auditRequestId) {
         return;
@@ -873,21 +952,89 @@
         state.auditRefreshInFlight = false;
       }
       renderAuditTrail();
+      if (shouldRefreshDetail) {
+        void refreshDetail();
+      }
     }
   }
 
   async function refreshDetail() {
+    if (state.selectedSource === "audit") {
+      const auditEvent = selectedAuditEvent();
+      if (!auditEvent) {
+        state.selectedSource = "feed";
+        state.selectedAuditKey = null;
+        renderAuditTrail();
+      } else {
+        const headline = auditHeadline(auditEvent);
+        const drillDown = auditDrillDownAction(auditEvent);
+        elements.detailTitle.textContent = headline;
+        elements.detailMeta.textContent = `AUDIT • ${formatLongTimestamp(auditEvent.timestamp)}`;
+        elements.selectionEcho.textContent = `Audit selected: ${headline}`;
+        elements.findingActions.hidden = true;
+        elements.signalActions.hidden = true;
+        elements.findingNoteForm.hidden = true;
+        elements.detailStage.innerHTML =
+          '<div class="empty-state"><p>Loading audit detail from the live API.</p></div>';
+
+        try {
+          if (drillDown && drillDown.kind === "finding") {
+            const findingId = selectedFindingId();
+            const [detail, correlations] = await Promise.all([
+              fetchJson(`${bootstrap.paths.findings}/${findingId}`, {
+                method: "GET",
+              }),
+              fetchJson(`${bootstrap.paths.findings}/${findingId}/correlations?limit=6`, {
+                method: "GET",
+              }),
+            ]);
+            state.detail = detail;
+            state.correlations = correlations;
+            elements.detailMeta.textContent =
+              `AUDIT • ${formatLongTimestamp(auditEvent.timestamp)} • ${String(auditEvent.action || "").replaceAll("_", " ")}`;
+            renderFindingDetail(detail, correlations);
+            elements.noteStatus.textContent = `Selected finding ${detail.finding.id} from audit trail.`;
+            return;
+          }
+
+          if (drillDown && drillDown.kind === "wipe_follow_up") {
+            const memberId = String((auditEvent.details || {}).member_id || "").trim();
+            const detail = await fetchJson(`${bootstrap.paths.wipe_follow_up}/${memberId}`, {
+              method: "GET",
+            });
+            state.detail = detail;
+            state.correlations = null;
+            renderWipeFollowUpDetail(detail, auditEvent);
+            return;
+          }
+        } catch (error) {
+          const message = error instanceof Error ? error.message : "Could not load audit detail";
+          elements.detailStage.innerHTML = `
+            <div class="detail-card">
+              <div class="detail-header">
+                <p class="detail-summary">${escapeHtml(message)}</p>
+              </div>
+            </div>
+          `;
+          return;
+        }
+
+        renderAuditEventDetail(auditEvent);
+        return;
+      }
+    }
+
     const item = selectedItem();
     if (!item) {
       elements.detailTitle.textContent = "Waiting for data";
-      elements.detailMeta.textContent = "Choose a finding, event, or SitRep.";
+      elements.detailMeta.textContent = "Choose a finding, event, SitRep, or audit entry.";
       elements.detailStage.innerHTML =
-        '<div class="empty-state"><p>Select a review item to inspect its context and triage controls.</p></div>';
+        '<div class="empty-state"><p>Select a review item or audit entry to inspect its context and triage controls.</p></div>';
       elements.findingActions.hidden = true;
       elements.signalActions.hidden = true;
       elements.findingNoteForm.hidden = true;
       elements.selectionEcho.textContent =
-        "The detail pane tracks the current feed selection and refreshes against the live API.";
+        "The detail pane tracks the current feed or audit selection and refreshes against the live API.";
       return;
     }
 
@@ -1102,13 +1249,121 @@
     elements.noteStatus.textContent = `Selected finding ${finding.id}`;
   }
 
+  function renderAuditEventDetail(event) {
+    const details = event.details || {};
+    const rows = [
+      ["Recorded", formatLongTimestamp(event.timestamp)],
+      ["Actor", String(event.actor_type || "unknown")],
+      ["Action", String(event.action || "unknown").replaceAll("_", " ")],
+    ];
+    if (details.member_id) {
+      rows.push(["Member", String(details.member_name || details.member_id).trim()]);
+    }
+    if (details.finding_id) {
+      rows.push(["Finding", String(details.finding_id)]);
+    }
+    elements.detailStage.innerHTML = `
+      <div class="detail-card">
+        <div class="detail-header">
+          <div class="timeline-row__meta">
+            ${auditActionPill(event.action)}
+          </div>
+          <p class="detail-summary">${escapeHtml(auditDetailLine(event) || "Audit event recorded in the local operator trail.")}</p>
+        </div>
+        <dl class="detail-grid">
+          ${rows
+            .map(
+              ([label, value]) =>
+                `<div><dt>${escapeHtml(label)}</dt><dd>${escapeHtml(value)}</dd></div>`,
+            )
+            .join("")}
+        </dl>
+      </div>
+    `;
+    elements.findingActions.hidden = true;
+    elements.signalActions.hidden = true;
+    elements.findingNoteForm.hidden = true;
+  }
+
+  function renderWipeFollowUpDetail(detail, auditEvent) {
+    const followUp = detail.follow_up || null;
+    const history = Array.isArray(detail.history) ? detail.history : [];
+    const currentMarkup = followUp
+      ? `
+        <div class="detail-item">
+          <p>${escapeHtml(detail.member_name)} ${wipeReasonPill(detail.reason)} ${wipeResolutionPill(followUp.resolution)}</p>
+          <small>${escapeHtml(followUp.role || "member")} • ${escapeHtml(followUp.status || "unknown")} • last seen ${escapeHtml(followUp.last_seen_at || "unknown")}</small>
+          <small class="detail-item__action">${escapeHtml(followUp.resolution_detail || followUp.required_action || detail.summary || "Manual verification still required.")}</small>
+          ${
+            followUp.resolution !== "verified"
+              ? `<button type="button" class="ghost-button ghost-button--compact detail-item__button" data-wipe-follow-up-action="verify" data-member-id="${escapeHtml(detail.member_id)}">Mark verified</button>`
+              : ""
+          }
+        </div>
+      `
+      : `
+        <div class="detail-item">
+          <p>No current wipe follow-up remains for ${escapeHtml(detail.member_name)}.</p>
+          <small class="detail-item__action">${escapeHtml(detail.summary || "Only audit history remains for this member.")}</small>
+        </div>
+      `;
+    const historyMarkup = history.length
+      ? history
+          .map((item) => {
+            const reopenedLine = item.reopened_at
+              ? `<small>Reopened ${escapeHtml(formatLongTimestamp(item.reopened_at))}${item.reopened_activity_kind ? ` via ${escapeHtml(item.reopened_activity_kind)}` : ""}</small>`
+              : "";
+            return `
+              <div class="detail-item">
+                <p>${escapeHtml(item.member_name)} ${wipeReasonPill(item.reason)} ${wipeHistoryPill(item.status)}</p>
+                <small>Verified ${escapeHtml(formatLongTimestamp(item.verified_at))}</small>
+                ${reopenedLine}
+                <small class="detail-item__action">${escapeHtml(item.status_detail || "Verification event recorded in the audit trail.")}</small>
+              </div>
+            `;
+          })
+          .join("")
+      : '<div class="detail-item"><p>No member-specific wipe follow-up history recorded.</p></div>';
+
+    elements.detailStage.innerHTML = `
+      <div class="detail-card">
+        <div class="detail-header">
+          <div class="timeline-row__meta">
+            ${wipeReasonPill(detail.reason)}
+            ${followUp ? wipeResolutionPill(followUp.resolution) : wipeHistoryPill(detail.status)}
+          </div>
+          <p class="detail-summary">${escapeHtml(detail.summary || "Member-scoped wipe follow-up detail from the audit trail.")}</p>
+        </div>
+        <dl class="detail-grid">
+          <div><dt>Member</dt><dd>${escapeHtml(detail.member_name)}</dd></div>
+          <div><dt>Source event</dt><dd>${formatLongTimestamp(auditEvent.timestamp)}</dd></div>
+          <div><dt>Reason</dt><dd>${escapeHtml(detail.reason)}</dd></div>
+          <div><dt>History items</dt><dd>${escapeHtml(detail.history_count || 0)}</dd></div>
+        </dl>
+
+        <section class="detail-section">
+          <h3>Current follow-up</h3>
+          <div class="detail-list">${currentMarkup}</div>
+        </section>
+
+        <section class="detail-section">
+          <h3>Verification trail</h3>
+          <div class="detail-list">${historyMarkup}</div>
+        </section>
+      </div>
+    `;
+    elements.findingActions.hidden = true;
+    elements.signalActions.hidden = true;
+    elements.findingNoteForm.hidden = true;
+  }
+
   async function postFindingAction(action) {
-    const item = selectedItem();
-    if (!item || item.type !== "finding") {
+    const findingId = selectedFindingId();
+    if (!findingId) {
       return;
     }
     try {
-      await fetchJson(`${bootstrap.paths.findings}/${item.finding_id}/${action}`, {
+      await fetchJson(`${bootstrap.paths.findings}/${findingId}/${action}`, {
         method: "POST",
       });
       await refreshDashboard();
@@ -1120,14 +1375,14 @@
 
   async function submitFindingNote(event) {
     event.preventDefault();
-    const item = selectedItem();
     const noteText = elements.findingNoteInput.value.trim();
-    if (!item || item.type !== "finding" || !noteText) {
+    const findingId = selectedFindingId();
+    if (!findingId || !noteText) {
       return;
     }
     try {
       elements.noteStatus.textContent = "Saving note...";
-      await fetchJson(`${bootstrap.paths.findings}/${item.finding_id}/notes`, {
+      await fetchJson(`${bootstrap.paths.findings}/${findingId}/notes`, {
         method: "POST",
         body: JSON.stringify({ text: noteText }),
       });
@@ -1707,9 +1962,16 @@
     if (!AUDIT_GROUPS[group] || group === state.auditGroup) {
       return;
     }
+    const hadAuditSelection = state.selectedSource === "audit";
     state.auditGroup = group;
     state.auditEvents = [];
     state.auditError = "";
+    state.selectedAuditKey = null;
+    if (hadAuditSelection) {
+      state.selectedSource = "feed";
+      renderFeed();
+      void refreshDetail();
+    }
     renderAuditTrail();
     void refreshAuditTrail();
   }
@@ -1784,6 +2046,20 @@
     });
     elements.filterForm.addEventListener("change", handleFilterChange);
     elements.auditTrailFilters.addEventListener("click", handleAuditGroupChange);
+    elements.auditTrailList.addEventListener("click", (event) => {
+      if (!(event.target instanceof Element)) {
+        return;
+      }
+      const button = event.target.closest("[data-audit-key]");
+      if (!(button instanceof HTMLElement)) {
+        return;
+      }
+      state.selectedSource = "audit";
+      state.selectedAuditKey = button.dataset.auditKey || null;
+      renderFeed();
+      renderAuditTrail();
+      void refreshDetail();
+    });
     elements.auditTrailCopy.addEventListener("click", () => {
       void copyAuditTrailCommand();
     });
@@ -1801,6 +2077,18 @@
       });
     }
     elements.wipeReadinessDetail.addEventListener("click", (event) => {
+      if (!(event.target instanceof Element)) {
+        return;
+      }
+      const button = event.target.closest("[data-wipe-follow-up-action]");
+      if (!(button instanceof HTMLElement)) {
+        return;
+      }
+      const action = button.dataset.wipeFollowUpAction;
+      const memberId = button.dataset.memberId;
+      void postWipeFollowUpAction(memberId, action);
+    });
+    elements.detailStage.addEventListener("click", (event) => {
       if (!(event.target instanceof Element)) {
         return;
       }
