@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import json
 import zipfile
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -48,8 +50,32 @@ def test_export_creates_zip(evidence: EvidenceManager, tmp_path: Path) -> None:
 
     assert result["ok"] is True
     assert output.exists()
+    manifest_path = tmp_path / "export.zip.manifest.json"
+    checksum_path = tmp_path / "export.zip.sha256"
+    assert manifest_path.exists()
+    assert checksum_path.exists()
+
     with zipfile.ZipFile(output) as archive:
-        assert sorted(archive.namelist()) == ["event_001.json", "frames/frame_001.jpg"]
+        assert sorted(archive.namelist()) == [
+            "_osk_export_manifest.json",
+            "event_001.json",
+            "frames/frame_001.jpg",
+        ]
+        export_manifest = json.loads(archive.read("_osk_export_manifest.json"))
+
+    manifest_paths = [item["path"] for item in export_manifest["items"]]
+    assert manifest_paths == ["event_001.json", "frames/frame_001.jpg"]
+    assert export_manifest["file_count"] == 2
+    assert export_manifest["total_bytes"] == 19
+
+    sidecar_manifest = json.loads(manifest_path.read_text())
+    assert sidecar_manifest["output_path"] == str(output)
+    assert sidecar_manifest["manifest_entry"] == "_osk_export_manifest.json"
+    assert sidecar_manifest["archive_sha256"] == result["archive_sha256"]
+
+    archive_sha256 = hashlib.sha256(output.read_bytes()).hexdigest()
+    assert archive_sha256 == result["archive_sha256"]
+    assert checksum_path.read_text() == f"{archive_sha256}  export.zip\n"
 
 
 @patch("os.path.expanduser", side_effect=lambda path: path)

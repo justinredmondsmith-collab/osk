@@ -326,6 +326,9 @@ def test_evidence_export_prints_summary(mock_manager_factory: MagicMock, capsys)
         "output_path": "/tmp/export.zip",
         "file_count": 2,
         "total_bytes": 2048,
+        "manifest_path": "/tmp/export.zip.manifest.json",
+        "checksum_path": "/tmp/export.zip.sha256",
+        "archive_sha256": "abc123",
     }
     mock_manager_factory.return_value = manager
 
@@ -335,6 +338,9 @@ def test_evidence_export_prints_summary(mock_manager_factory: MagicMock, capsys)
     assert code == 0
     assert "output_path = /tmp/export.zip" in out
     assert "file_count = 2" in out
+    assert "manifest_path = /tmp/export.zip.manifest.json" in out
+    assert "checksum_path = /tmp/export.zip.sha256" in out
+    assert "archive_sha256 = abc123" in out
 
 
 @patch("osk.hub.wipe_hub", return_value=0)

@@ -96,6 +96,9 @@ history after the fact.
 For now, the safe operator sequence is:
 
 1. Export preserved evidence first if you need to keep pinned material.
+   The export now emits the zip bundle plus adjacent `.manifest.json` and
+   `.sha256` files so you retain file inventory and integrity metadata with the
+   archive.
 2. Run `osk operator login` if no active local operator session exists.
 3. Run `osk wipe --yes` from the coordinator host. That broadcasts wipe to
    connected members and stops the hub.

@@ -599,6 +599,9 @@ def _cmd_evidence(args: argparse.Namespace) -> int:
         print(f"output_path = {result['output_path']}")
         print(f"file_count = {result['file_count']}")
         print(f"size = {_format_bytes(int(result['total_bytes']))} ({result['total_bytes']} bytes)")
+        print(f"manifest_path = {result['manifest_path']}")
+        print(f"checksum_path = {result['checksum_path']}")
+        print(f"archive_sha256 = {result['archive_sha256']}")
         return 0
 
     print(f"destroyed_path = {result['destroyed_path']}")
