@@ -6,6 +6,7 @@ import asyncio
 import base64
 import datetime as dt
 import hashlib
+import inspect
 import ipaddress
 import json
 import logging
@@ -118,6 +119,29 @@ def _isoformat_utc(timestamp: dt.datetime | None) -> str | None:
     if timestamp is None:
         return None
     return timestamp.astimezone(dt.timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def _parse_timestamp(value: object) -> dt.datetime | None:
+    if isinstance(value, dt.datetime):
+        return value.astimezone(dt.timezone.utc)
+    if not isinstance(value, str):
+        return None
+    normalized = value.strip()
+    if not normalized:
+        return None
+    if normalized.endswith("Z"):
+        normalized = normalized[:-1] + "+00:00"
+    try:
+        parsed = dt.datetime.fromisoformat(normalized)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=dt.timezone.utc)
+    return parsed.astimezone(dt.timezone.utc)
+
+
+def _enum_value(value: object) -> str:
+    return str(getattr(value, "value", value) or "").strip()
 
 
 def _utcnow() -> dt.datetime:
@@ -620,6 +644,98 @@ def _wipe_follow_up_resolutions(
             continue
         resolutions[member_id] = {"verified_at": verified_at}
     return resolutions
+
+
+def _merge_wipe_follow_up_markers(
+    marker_store: dict[str, dict[str, dt.datetime | None]],
+    audit_events: list[dict[str, object]],
+) -> None:
+    for event in audit_events:
+        action = str(event.get("action") or "")
+        if action not in {"wipe_follow_up_verified", "wipe_follow_up_reopened"}:
+            continue
+        details = event.get("details") or {}
+        if not isinstance(details, dict):
+            continue
+        member_id = str(details.get("member_id") or "").strip()
+        if not member_id:
+            continue
+        event_at = _parse_timestamp(event.get("timestamp"))
+        if event_at is None:
+            continue
+        marker = marker_store.setdefault(member_id, {"verified_at": None, "reopened_at": None})
+        key = "verified_at" if action == "wipe_follow_up_verified" else "reopened_at"
+        current = marker.get(key)
+        if current is None or event_at > current:
+            marker[key] = event_at
+
+
+async def _wipe_follow_up_marker(
+    *,
+    operation_id: uuid.UUID,
+    db,
+    marker_store: dict[str, dict[str, dt.datetime | None]],
+    member_id: uuid.UUID,
+) -> dict[str, dt.datetime | None]:
+    member_key = str(member_id)
+    marker = marker_store.get(member_key)
+    if marker is not None:
+        return marker
+    get_audit_events = getattr(db, "get_audit_events", None)
+    if get_audit_events is None or not inspect.iscoroutinefunction(get_audit_events):
+        return {"verified_at": None, "reopened_at": None}
+    audit_events = await get_audit_events(operation_id, limit=MAX_AUDIT_LIMIT)
+    _merge_wipe_follow_up_markers(marker_store, audit_events)
+    return marker_store.get(member_key, {"verified_at": None, "reopened_at": None})
+
+
+async def _maybe_record_wipe_follow_up_reopened(
+    *,
+    operation_id: uuid.UUID,
+    db,
+    marker_store: dict[str, dict[str, dt.datetime | None]],
+    member,
+    activity_kind: str,
+) -> bool:
+    member_id = getattr(member, "id", None)
+    if not isinstance(member_id, uuid.UUID):
+        return False
+    marker = await _wipe_follow_up_marker(
+        operation_id=operation_id,
+        db=db,
+        marker_store=marker_store,
+        member_id=member_id,
+    )
+    verified_at = marker.get("verified_at")
+    reopened_at = marker.get("reopened_at")
+    if verified_at is None:
+        return False
+    last_seen_at = _parse_timestamp(getattr(member, "last_seen_at", None))
+    if last_seen_at is None or last_seen_at <= verified_at:
+        return False
+    if reopened_at is not None and reopened_at >= verified_at:
+        return False
+    insert_audit_event = getattr(db, "insert_audit_event", None)
+    if insert_audit_event is None or not inspect.iscoroutinefunction(insert_audit_event):
+        return False
+
+    await insert_audit_event(
+        operation_id,
+        "member",
+        "wipe_follow_up_reopened",
+        actor_member_id=member_id,
+        details={
+            "member_id": str(member_id),
+            "member_name": str(getattr(member, "name", "") or "").strip() or "Unknown member",
+            "role": _enum_value(getattr(member, "role", "")) or "unknown",
+            "status": _enum_value(getattr(member, "status", "")) or "unknown",
+            "activity_kind": activity_kind,
+            "verified_at": _isoformat_utc(verified_at),
+            "last_seen_at": _isoformat_utc(last_seen_at),
+        },
+    )
+    marker_store[str(member_id)] = {"verified_at": verified_at, "reopened_at": last_seen_at}
+    return True
 
 
 def _wipe_follow_up_history_status(
@@ -1346,6 +1462,7 @@ def create_app(
     app.state.intelligence_service = intelligence_service
     app.state.dashboard_buffer_history = deque(maxlen=DASHBOARD_BUFFER_HISTORY_MAX_POINTS)
     app.state.dashboard_buffer_signals = {}
+    app.state.wipe_follow_up_markers = {}
     app.mount("/static", StaticFiles(directory=str(STATIC_ROOT)), name="static")
 
     @app.get("/manifest.webmanifest")
@@ -1823,6 +1940,10 @@ def create_app(
             "wipe_follow_up_verified",
             details=verification_details,
         )
+        app.state.wipe_follow_up_markers[str(member_id)] = {
+            "verified_at": verified_at,
+            "reopened_at": None,
+        }
 
         audit_events = await db.get_audit_events(operation.id, limit=MAX_AUDIT_LIMIT)
         audit_events = [
@@ -2483,6 +2604,15 @@ def create_app(
                     return
                 member = await op_manager.add_member(operation.id, name)
 
+            if resumed:
+                await _maybe_record_wipe_follow_up_reopened(
+                    operation_id=operation.id,
+                    db=db,
+                    marker_store=app.state.wipe_follow_up_markers,
+                    member=member,
+                    activity_kind="resume",
+                )
+
             member_id = member.id
             if member_id in conn_manager.connections:
                 await conn_manager.disconnect(member_id)
@@ -2513,6 +2643,13 @@ def create_app(
                     break
                 conn_manager.mark_seen(member_id)
                 await op_manager.touch_member_heartbeat(member_id)
+                await _maybe_record_wipe_follow_up_reopened(
+                    operation_id=operation.id,
+                    db=db,
+                    marker_store=app.state.wipe_follow_up_markers,
+                    member=member,
+                    activity_kind="message",
+                )
                 if "text" in message:
                     data = json.loads(message["text"])
                     msg_type = data.get("type")

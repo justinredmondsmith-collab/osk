@@ -107,7 +107,9 @@ When you do run `osk wipe`, the audit trail now records the same trigger-time
 coverage snapshot: broadcast target count plus the stale/disconnected member
 browsers already at risk. Use `osk audit --limit ... --json` if you need that
 history after the fact. Manual follow-up verification now records its own audit
-event as well.
+event as well, and newer member activity that invalidates a prior manual
+verification now records `wipe_follow_up_reopened` so the reopened boundary is
+captured explicitly in the audit trail.
 
 ## Current Safe Sequence
 
