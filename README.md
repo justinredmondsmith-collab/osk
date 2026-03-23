@@ -356,6 +356,9 @@ flows on real devices and tightening the gaps those exercises expose.
 - The coordinator dashboard now renders those unresolved wipe follow-up items
   directly in the wipe-readiness panel, including the required action for each
   affected member browser
+- Operators can now mark a wipe follow-up item verified from that dashboard
+  panel, which records a closure event in the audit trail and keeps the item
+  closed until that member shows newer activity
 - Connected member browsers now clear queued notes/media, current member
   cookies, IndexedDB outbox state, and the cached member-shell registration
   when they receive a live wipe or `op_ended` message, but disconnected

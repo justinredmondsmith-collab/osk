@@ -542,6 +542,15 @@
     return `<span class="${classMap[value] || "pill"}">${escapeHtml(value)}</span>`;
   }
 
+  function wipeResolutionPill(resolution) {
+    const value = String(resolution || "unresolved");
+    const classMap = {
+      verified: "pill pill--resolved",
+      unresolved: "pill pill--critical",
+    };
+    return `<span class="${classMap[value] || "pill"}">${escapeHtml(value)}</span>`;
+  }
+
   function findingActionEnabled(action, status) {
     if (action === "acknowledge") {
       return status === "open";
@@ -885,6 +894,22 @@
     }
   }
 
+  async function postWipeFollowUpAction(memberId, action) {
+    if (!memberId || action !== "verify") {
+      return;
+    }
+    try {
+      await fetchJson(`${bootstrap.paths.wipe_follow_up}/${memberId}/${action}`, {
+        method: "POST",
+      });
+      setBanner("Wipe follow-up marked verified.", "info");
+      await refreshDashboard();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Wipe follow-up update failed";
+      setBanner(message, "error");
+    }
+  }
+
   function renderContext() {
     if (state.operationStatus) {
       elements.metricMembers.textContent = state.operationStatus.members ?? "--";
@@ -921,7 +946,8 @@
       ["Reachable", wipeReadiness.reachable_members ?? "--"],
       ["At risk", wipeReadiness.at_risk_members ?? "--"],
       ["Disconnected", wipeReadiness.disconnected_members ?? "--"],
-      ["Follow-up", wipeReadiness.follow_up_count ?? "--"],
+      ["Open follow-up", wipeReadiness.unresolved_follow_up_count ?? "--"],
+      ["Verified", wipeReadiness.verified_follow_up_count ?? "--"],
     ]
       .map(
         ([label, value]) =>
@@ -944,13 +970,19 @@
           </div>
         `,
         ...wipeFollowUp.slice(0, 4).map((member) => {
+          const canVerify = member.resolution !== "verified";
           return `
             <div class="detail-item">
-              <p>${escapeHtml(member.name)} ${wipeReasonPill(member.reason)}</p>
+              <p>${escapeHtml(member.name)} ${wipeReasonPill(member.reason)} ${wipeResolutionPill(member.resolution)}</p>
               <small>
                 ${escapeHtml(member.role || "member")} • ${escapeHtml(member.status || "unknown")} • last seen ${escapeHtml(member.last_seen_at || "unknown")}
               </small>
-              <small class="detail-item__action">${escapeHtml(member.required_action || "Manual verification still required.")}</small>
+              <small class="detail-item__action">${escapeHtml(member.resolution_detail || member.required_action || "Manual verification still required.")}</small>
+              ${
+                canVerify
+                  ? `<button type="button" class="ghost-button detail-item__button" data-wipe-follow-up-action="verify" data-member-id="${escapeHtml(member.id)}">Mark verified</button>`
+                  : ""
+              }
             </div>
           `;
         }),
@@ -1431,6 +1463,18 @@
         void postSignalAction(action);
       });
     }
+    elements.wipeReadinessDetail.addEventListener("click", (event) => {
+      if (!(event.target instanceof Element)) {
+        return;
+      }
+      const button = event.target.closest("[data-wipe-follow-up-action]");
+      if (!(button instanceof HTMLElement)) {
+        return;
+      }
+      const action = button.dataset.wipeFollowUpAction;
+      const memberId = button.dataset.memberId;
+      void postWipeFollowUpAction(memberId, action);
+    });
   }
 
   async function initializeShell() {
