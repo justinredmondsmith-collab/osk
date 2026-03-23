@@ -65,9 +65,7 @@ def build_provenance(
         "trigger": trigger or environ.get("OSK_SMOKE_TRIGGER") or "manual",
         "invocation": invocation or environ.get("OSK_SMOKE_INVOCATION") or None,
         "git_sha": (
-            environ.get("OSK_SMOKE_GIT_SHA")
-            or _git_output(repo_root, "rev-parse", "HEAD")
-            or None
+            environ.get("OSK_SMOKE_GIT_SHA") or _git_output(repo_root, "rev-parse", "HEAD") or None
         ),
         "git_branch": git_branch or None,
         "git_commit_subject": (

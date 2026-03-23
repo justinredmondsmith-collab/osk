@@ -289,8 +289,7 @@ def test_wrapper_records_launch_preflight_when_launch_step_fails(tmp_path: Path)
         "ozone_flag": "--ozone-platform=wayland",
     }
     assert (
-        payload["provenance"]["git_branch"]
-        == "justinredmondsmith-collab/feat/chromebook-lab-gate"
+        payload["provenance"]["git_branch"] == "justinredmondsmith-collab/feat/chromebook-lab-gate"
     )
     assert latest["failure_stage"] == "launch"
     assert log_lines[:3] == ["prepare", "preflight", "launch"]

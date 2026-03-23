@@ -490,9 +490,9 @@ def main(argv: list[str] | None = None) -> int:
     artifact_dir = make_artifact_dir(artifact_root, label=args.timestamp or None)
     result_path = artifact_dir / "result.json"
     _write_json(artifact_dir / "smoke-metadata.json", smoke_metadata)
-    started_at_utc = os.environ.get("OSK_SMOKE_STARTED_AT_UTC") or datetime.now(
-        timezone.utc
-    ).isoformat()
+    started_at_utc = (
+        os.environ.get("OSK_SMOKE_STARTED_AT_UTC") or datetime.now(timezone.utc).isoformat()
+    )
 
     def result_provenance() -> dict[str, Any]:
         return build_provenance(

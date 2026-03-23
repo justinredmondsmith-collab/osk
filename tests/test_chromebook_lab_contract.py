@@ -139,9 +139,7 @@ def test_build_ssh_tunnel_command_supports_explicit_identity_file() -> None:
     ]
 
 
-def test_dry_run_writes_result_contract(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_dry_run_writes_result_contract(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     smoke = _load_module()
     _set_provenance_env(monkeypatch)
     metadata_path = tmp_path / "metadata.json"
