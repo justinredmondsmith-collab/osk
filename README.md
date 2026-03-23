@@ -135,6 +135,9 @@ What exists today:
   `/join` -> `/member`, offline queued field-note replay after reconnect,
   reload/session resume, and live wipe clearing have now been exercised on a
   real WLAN-connected browser outside this sandbox
+- Operational Chromebook lab gate wrapper with commit/branch provenance,
+  stable `latest.json` / `runs.jsonl` artifact indexing, and a self-hosted
+  `workflow_dispatch` path for repeatable real-device smoke runs
 - Hub-owned Phase 2 intelligence service: shared ingest/result models,
   config-selectable fake or real transcript/vision adapters, bounded
   audio/frame ingest queues, location processing, background audio/vision

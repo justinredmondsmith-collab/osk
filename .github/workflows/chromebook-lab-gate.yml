@@ -1,0 +1,158 @@
+name: Chromebook Lab Gate
+
+on:
+  workflow_dispatch:
+    inputs:
+      chromebook_host:
+        description: Optional override for the Chromebook host or IP
+        required: false
+        type: string
+      ssh_target:
+        description: Optional override for the SSH target
+        required: false
+        type: string
+      ssh_port:
+        description: Optional override for the SSH port
+        required: false
+        type: string
+      advertise_host:
+        description: Optional override for the host/IP visible from the Chromebook
+        required: false
+        type: string
+      artifact_root:
+        description: Optional override for the artifact root
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: chromebook-lab-gate
+  cancel-in-progress: false
+
+jobs:
+  chromebook-lab-gate:
+    runs-on: self-hosted
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install package and test dependencies
+        run: python -m pip install --upgrade pip && python -m pip install -e ".[dev]"
+
+      - name: Resolve gate arguments
+        id: args
+        env:
+          INPUT_CHROMEBOOK_HOST: ${{ inputs.chromebook_host }}
+          INPUT_SSH_TARGET: ${{ inputs.ssh_target }}
+          INPUT_SSH_PORT: ${{ inputs.ssh_port }}
+          INPUT_ADVERTISE_HOST: ${{ inputs.advertise_host }}
+          INPUT_ARTIFACT_ROOT: ${{ inputs.artifact_root }}
+          VAR_CHROMEBOOK_HOST: ${{ vars.OSK_CHROMEBOOK_HOST }}
+          VAR_SSH_TARGET: ${{ vars.OSK_CHROMEBOOK_SSH_TARGET }}
+          VAR_SSH_PORT: ${{ vars.OSK_CHROMEBOOK_SSH_PORT }}
+          VAR_ADVERTISE_HOST: ${{ vars.OSK_CHROMEBOOK_ADVERTISE_HOST }}
+          VAR_ARTIFACT_ROOT: ${{ vars.OSK_CHROMEBOOK_ARTIFACT_ROOT }}
+          VAR_SSH_IDENTITY: ${{ vars.OSK_CHROMEBOOK_SSH_IDENTITY }}
+          VAR_CHROME_BINARY: ${{ vars.OSK_CHROMEBOOK_CHROME_BINARY }}
+          VAR_DEBUG_PORT: ${{ vars.OSK_CHROMEBOOK_DEBUG_PORT }}
+        run: |
+          python - <<'PY'
+          import os
+          import shlex
+          from pathlib import Path
+
+          def pick(input_key: str, var_key: str) -> str:
+              return (os.environ.get(input_key) or os.environ.get(var_key) or "").strip()
+
+          chromebook_host = pick("INPUT_CHROMEBOOK_HOST", "VAR_CHROMEBOOK_HOST")
+          advertise_host = pick("INPUT_ADVERTISE_HOST", "VAR_ADVERTISE_HOST")
+          if not chromebook_host:
+              raise SystemExit("Missing Chromebook host. Set a workflow input or OSK_CHROMEBOOK_HOST repo variable.")
+          if not advertise_host:
+              raise SystemExit("Missing advertise host. Set a workflow input or OSK_CHROMEBOOK_ADVERTISE_HOST repo variable.")
+
+          args = [
+              "--trigger",
+              "workflow_dispatch",
+              "--chromebook-host",
+              chromebook_host,
+              "--advertise-host",
+              advertise_host,
+          ]
+
+          ssh_target = pick("INPUT_SSH_TARGET", "VAR_SSH_TARGET")
+          if ssh_target:
+              args.extend(["--ssh-target", ssh_target])
+
+          ssh_port = pick("INPUT_SSH_PORT", "VAR_SSH_PORT")
+          if ssh_port:
+              args.extend(["--ssh-port", ssh_port])
+
+          artifact_root = pick("INPUT_ARTIFACT_ROOT", "VAR_ARTIFACT_ROOT")
+          if artifact_root:
+              args.extend(["--artifact-root", artifact_root])
+          else:
+              artifact_root = "output/chromebook/member-shell-smoke"
+
+          ssh_identity = (os.environ.get("VAR_SSH_IDENTITY") or "").strip()
+          if ssh_identity:
+              args.extend(["--ssh-identity", ssh_identity])
+
+          chrome_binary = (os.environ.get("VAR_CHROME_BINARY") or "").strip()
+          if chrome_binary:
+              args.extend(["--chrome-binary", chrome_binary])
+
+          debug_port = (os.environ.get("VAR_DEBUG_PORT") or "").strip()
+          if debug_port:
+              args.extend(["--debug-port", debug_port])
+
+          output_path = Path(os.environ["GITHUB_OUTPUT"])
+          output_path.write_text(
+              f"args={shlex.join(args)}\nartifact_root={artifact_root}\n",
+              encoding="utf-8",
+          )
+          PY
+
+      - name: Run Chromebook lab gate
+        run: ./scripts/chromebook_lab_gate.sh ${{ steps.args.outputs.args }}
+
+      - name: Resolve artifact path
+        id: artifacts
+        env:
+          ARTIFACT_ROOT: ${{ steps.args.outputs.artifact_root }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          latest_path = Path(os.environ["ARTIFACT_ROOT"]) / "latest.json"
+          if not latest_path.exists():
+              raise SystemExit(f"Missing artifact index: {latest_path}")
+
+          payload = json.loads(latest_path.read_text())
+          artifact_dir = str(payload["artifact_dir"])
+
+          output_path = Path(os.environ["GITHUB_OUTPUT"])
+          output_path.write_text(
+              f"artifact_dir={artifact_dir}\nlatest_path={latest_path}\n",
+              encoding="utf-8",
+          )
+          PY
+
+      - name: Upload Chromebook smoke artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: chromebook-lab-gate
+          path: |
+            ${{ steps.artifacts.outputs.artifact_dir }}
+            ${{ steps.artifacts.outputs.latest_path }}

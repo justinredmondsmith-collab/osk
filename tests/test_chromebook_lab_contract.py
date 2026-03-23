@@ -21,6 +21,19 @@ def _load_module():
     return module
 
 
+def _set_provenance_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("OSK_SMOKE_GIT_SHA", "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef")
+    monkeypatch.setenv(
+        "OSK_SMOKE_GIT_BRANCH",
+        "justinredmondsmith-collab/feat/chromebook-lab-gate",
+    )
+    monkeypatch.setenv("OSK_SMOKE_GIT_COMMIT_SUBJECT", "feat(chromebook): Add lab gate")
+    monkeypatch.setenv("OSK_SMOKE_RUNNER_HOSTNAME", "lab-host")
+    monkeypatch.setenv("OSK_SMOKE_TRIGGER", "test")
+    monkeypatch.setenv("OSK_SMOKE_WORKTREE_DIRTY", "false")
+    monkeypatch.setenv("OSK_SMOKE_STARTED_AT_UTC", "2026-03-22T19:04:05+00:00")
+
+
 def test_parse_args_defaults_ssh_target_to_chromebook_host() -> None:
     smoke = _load_module()
 
@@ -126,8 +139,11 @@ def test_build_ssh_tunnel_command_supports_explicit_identity_file() -> None:
     ]
 
 
-def test_dry_run_writes_result_contract(tmp_path: Path) -> None:
+def test_dry_run_writes_result_contract(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     smoke = _load_module()
+    _set_provenance_env(monkeypatch)
     metadata_path = tmp_path / "metadata.json"
     metadata_path.write_text(
         json.dumps(
@@ -164,8 +180,24 @@ def test_dry_run_writes_result_contract(tmp_path: Path) -> None:
     assert payload["ssh_target"] == "lab-book"
     assert payload["ssh_port"] is None
     assert payload["ssh_identity"] is None
+    assert payload["result_path"] == str(result_path)
+    assert payload["launch_preflight"] is None
     assert payload["smoke_metadata"]["join_url"] == "http://127.0.0.1:8123/join?token=test"
     assert payload["steps"] == []
+    assert payload["provenance"] == {
+        "artifact_version": 1,
+        "completed_at_utc": payload["provenance"]["completed_at_utc"],
+        "device_id": "lab-book",
+        "git_branch": "justinredmondsmith-collab/feat/chromebook-lab-gate",
+        "git_commit_subject": "feat(chromebook): Add lab gate",
+        "git_sha": "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
+        "invocation": None,
+        "run_label": "20260322T190405Z",
+        "runner_hostname": "lab-host",
+        "started_at_utc": "2026-03-22T19:04:05+00:00",
+        "trigger": "test",
+        "worktree_dirty": False,
+    }
 
 
 def test_dry_run_with_missing_metadata_fails_cleanly(
@@ -194,6 +226,7 @@ def test_non_dry_run_writes_failure_result_contract(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     smoke = _load_module()
+    _set_provenance_env(monkeypatch)
     metadata_path = tmp_path / "metadata.json"
     metadata_path.write_text(
         json.dumps(
@@ -249,12 +282,16 @@ def test_non_dry_run_writes_failure_result_contract(
     assert payload["local_debug_port"] == 9333
     assert payload["cdp_version"]["Browser"] == "Chrome/146"
     assert payload["failure"]["message"] == "smoke flow failed"
+    assert payload["result_path"] == str(result_path)
+    assert payload["provenance"]["trigger"] == "test"
+    assert payload["provenance"]["runner_hostname"] == "lab-host"
 
 
 def test_non_dry_run_preserves_partial_steps_and_summary_on_failure(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     smoke = _load_module()
+    _set_provenance_env(monkeypatch)
     metadata_path = tmp_path / "metadata.json"
     metadata_path.write_text(
         json.dumps(
@@ -336,3 +373,4 @@ def test_non_dry_run_preserves_partial_steps_and_summary_on_failure(
         "network_failure_count": 1,
         "page_error_count": 1,
     }
+    assert payload["provenance"]["git_sha"] == "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef"
