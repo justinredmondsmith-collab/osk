@@ -83,6 +83,7 @@ SERVICE_WORKER_PATH = STATIC_ROOT / "sw.js"
 DASHBOARD_STREAM_INTERVAL_SECONDS = 2.0
 DASHBOARD_STREAM_KEEPALIVE_SECONDS = 15.0
 DASHBOARD_BUFFER_HISTORY_MAX_POINTS = 30
+MAX_WIPE_FOLLOW_UP_HISTORY = 5
 TRANSPARENT_TILE_PNG = base64.b64decode(
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9WnRnk4AAAAASUVORK5CYII="
 )
@@ -621,6 +622,115 @@ def _wipe_follow_up_resolutions(
     return resolutions
 
 
+def _wipe_follow_up_history_status(
+    current_follow_up: dict[str, object] | None,
+    *,
+    verified_at: str,
+) -> tuple[str, str]:
+    if current_follow_up is None:
+        return (
+            "cleared",
+            "This member is no longer at risk, but the verification remains in the audit trail.",
+        )
+
+    resolution = str(current_follow_up.get("resolution") or "")
+    current_verified_at = str(current_follow_up.get("verified_at") or "")
+    if resolution == "verified" and current_verified_at == verified_at:
+        return ("current", "Verification still closes the current cleanup boundary.")
+    if resolution == "verified":
+        return ("superseded", "A newer verification superseded this earlier closure event.")
+
+    last_seen_at = str(current_follow_up.get("last_seen_at") or "").strip()
+    if last_seen_at:
+        return ("reopened", f"Reopened by newer member activity at {last_seen_at}.")
+    return ("reopened", "Reopened by newer member activity after this verification.")
+
+
+def _wipe_follow_up_history(
+    audit_events: list[dict[str, object]],
+    *,
+    wipe_readiness: dict[str, object],
+    limit: int = MAX_WIPE_FOLLOW_UP_HISTORY,
+) -> list[dict[str, object]]:
+    follow_up_index: dict[str, dict[str, object]] = {}
+    for item in wipe_readiness.get("follow_up") or []:
+        if not isinstance(item, dict):
+            continue
+        member_id = str(item.get("id") or "").strip()
+        if member_id:
+            follow_up_index[member_id] = item
+
+    history: list[dict[str, object]] = []
+    for event in audit_events:
+        if str(event.get("action") or "") != "wipe_follow_up_verified":
+            continue
+        details = event.get("details") or {}
+        if not isinstance(details, dict):
+            continue
+
+        member_id = str(details.get("member_id") or "").strip()
+        if not member_id:
+            continue
+        verified_at = _isoformat_utc(event.get("timestamp"))
+        if verified_at is None:
+            continue
+
+        current_follow_up = follow_up_index.get(member_id)
+        status, status_detail = _wipe_follow_up_history_status(
+            current_follow_up,
+            verified_at=verified_at,
+        )
+        history.append(
+            {
+                "member_id": member_id,
+                "member_name": str(
+                    details.get("member_name")
+                    or (current_follow_up or {}).get("name")
+                    or "Unknown member"
+                ),
+                "reason": str(
+                    details.get("reason") or (current_follow_up or {}).get("reason") or "unknown"
+                ),
+                "verified_at": verified_at,
+                "last_seen_at": (
+                    current_follow_up.get("last_seen_at")
+                    if current_follow_up is not None
+                    else details.get("last_seen_at")
+                ),
+                "status": status,
+                "status_detail": status_detail,
+            }
+        )
+        if len(history) >= limit:
+            break
+    return history
+
+
+def _decorate_wipe_readiness(
+    wipe_readiness: dict[str, object],
+    *,
+    audit_events: list[dict[str, object]],
+) -> dict[str, object]:
+    history = _wipe_follow_up_history(audit_events, wipe_readiness=wipe_readiness)
+    if not history:
+        history_summary = "No recent wipe follow-up verification events recorded."
+    else:
+        counts = Counter(str(item.get("status") or "unknown") for item in history)
+        summary_bits = [
+            f"{counts[status]} {status}"
+            for status in ("current", "reopened", "cleared", "superseded")
+            if counts[status] > 0
+        ]
+        history_summary = f"Recent verification trail: {', '.join(summary_bits)}."
+
+    return {
+        **wipe_readiness,
+        "follow_up_history": history,
+        "follow_up_history_count": len(history),
+        "follow_up_history_summary": history_summary,
+    }
+
+
 def _wipe_coverage_snapshot(
     *,
     op_manager: OperationManager,
@@ -1120,9 +1230,12 @@ async def _build_dashboard_state(
     generated_at = _utcnow().isoformat().replace("+00:00", "Z")
     member_summary = _member_summary(members)
     audit_events = await db.get_audit_events(operation.id, limit=MAX_AUDIT_LIMIT)
-    wipe_readiness = summarize_wipe_readiness(
-        members,
-        follow_up_resolutions=_wipe_follow_up_resolutions(audit_events),
+    wipe_readiness = _decorate_wipe_readiness(
+        summarize_wipe_readiness(
+            members,
+            follow_up_resolutions=_wipe_follow_up_resolutions(audit_events),
+        ),
+        audit_events=audit_events,
     )
     buffer_history = _record_buffer_history(
         buffer_history_store,
@@ -1698,24 +1811,38 @@ def create_app(
 
         verified_at = _utcnow()
         verified_at_iso = _isoformat_utc(verified_at)
+        verification_details = {
+            "member_id": str(member_id),
+            "member_name": current_follow_up.get("name"),
+            "reason": current_follow_up.get("reason"),
+            "last_seen_at": current_follow_up.get("last_seen_at"),
+        }
         await db.insert_audit_event(
             operation.id,
             "coordinator",
             "wipe_follow_up_verified",
-            details={
-                "member_id": str(member_id),
-                "member_name": current_follow_up.get("name"),
-                "reason": current_follow_up.get("reason"),
-                "last_seen_at": current_follow_up.get("last_seen_at"),
-            },
+            details=verification_details,
         )
 
         audit_events = await db.get_audit_events(operation.id, limit=MAX_AUDIT_LIMIT)
+        audit_events = [
+            {
+                "action": "wipe_follow_up_verified",
+                "actor_type": "coordinator",
+                "timestamp": verified_at,
+                "details": verification_details,
+            },
+            *audit_events,
+        ]
         resolutions = _wipe_follow_up_resolutions(audit_events)
         resolutions[str(member_id)] = {"verified_at": verified_at_iso}
         updated_wipe_readiness = summarize_wipe_readiness(
             members,
             follow_up_resolutions=resolutions,
+        )
+        updated_wipe_readiness = _decorate_wipe_readiness(
+            updated_wipe_readiness,
+            audit_events=audit_events,
         )
         updated_follow_up = next(
             (

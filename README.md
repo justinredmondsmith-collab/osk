@@ -359,6 +359,9 @@ flows on real devices and tightening the gaps those exercises expose.
 - Operators can now mark a wipe follow-up item verified from that dashboard
   panel, which records a closure event in the audit trail and keeps the item
   closed until that member shows newer activity
+- That same wipe-readiness panel now shows a short recent verification trail so
+  operators can see which closures still hold for the current boundary and
+  which earlier verifications have since reopened
 - Connected member browsers now clear queued notes/media, current member
   cookies, IndexedDB outbox state, and the cached member-shell registration
   when they receive a live wipe or `op_ended` message, but disconnected

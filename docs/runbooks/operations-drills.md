@@ -99,7 +99,9 @@ the live broadcast path, plus unresolved follow-up entries that stay open until
 the affected browsers are rechecked or manually verified. The dashboard panel
 now renders the required action for each unresolved member directly in that
 view, and you can mark an item verified there once the browser has been
-manually checked.
+manually checked. Recent verification events are also shown in that same panel
+so you can see whether a prior closure still holds or has reopened after newer
+member activity.
 
 When you do run `osk wipe`, the audit trail now records the same trigger-time
 coverage snapshot: broadcast target count plus the stale/disconnected member

@@ -551,6 +551,17 @@
     return `<span class="${classMap[value] || "pill"}">${escapeHtml(value)}</span>`;
   }
 
+  function wipeHistoryPill(status) {
+    const value = String(status || "current");
+    const classMap = {
+      current: "pill pill--resolved",
+      reopened: "pill pill--critical",
+      cleared: "pill pill--accent",
+      superseded: "pill pill--warning",
+    };
+    return `<span class="${classMap[value] || "pill"}">${escapeHtml(value)}</span>`;
+  }
+
   function findingActionEnabled(action, status) {
     if (action === "acknowledge") {
       return status === "open";
@@ -910,6 +921,30 @@
     }
   }
 
+  function renderWipeFollowUpHistory(wipeReadiness) {
+    const history = Array.isArray(wipeReadiness.follow_up_history) ? wipeReadiness.follow_up_history : [];
+    if (!history.length) {
+      return "";
+    }
+    return [
+      `
+        <div class="detail-item detail-item--subsection">
+          <p>Recent verification trail</p>
+          <small>${escapeHtml(wipeReadiness.follow_up_history_summary || "Recent wipe follow-up verification events from the audit trail.")}</small>
+        </div>
+      `,
+      ...history.map(
+        (item) => `
+          <div class="detail-item">
+            <p>${escapeHtml(item.member_name)} ${wipeReasonPill(item.reason)} ${wipeHistoryPill(item.status)}</p>
+            <small>Verified ${escapeHtml(formatLongTimestamp(item.verified_at))}</small>
+            <small class="detail-item__action">${escapeHtml(item.status_detail || "Verification event recorded in the audit trail.")}</small>
+          </div>
+        `,
+      ),
+    ].join("");
+  }
+
   function renderContext() {
     if (state.operationStatus) {
       elements.metricMembers.textContent = state.operationStatus.members ?? "--";
@@ -955,11 +990,13 @@
       )
       .join("");
     const wipeFollowUp = Array.isArray(wipeReadiness.follow_up) ? wipeReadiness.follow_up : [];
+    const wipeFollowUpHistoryMarkup = renderWipeFollowUpHistory(wipeReadiness);
     if (!wipeFollowUp.length) {
       elements.wipeReadinessDetail.innerHTML = `
         <div class="detail-item">
           <p>${escapeHtml(wipeReadiness.follow_up_summary || wipeReadiness.summary || "Live wipe readiness is clear.")}</p>
         </div>
+        ${wipeFollowUpHistoryMarkup}
       `;
     } else {
       elements.wipeReadinessDetail.innerHTML = [
@@ -986,6 +1023,7 @@
             </div>
           `;
         }),
+        wipeFollowUpHistoryMarkup,
       ].join("");
     }
 
