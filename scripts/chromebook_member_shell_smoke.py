@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import contextlib
 import json
+import os
 import socket
 import subprocess
 import sys
@@ -15,6 +16,8 @@ from pathlib import Path
 from typing import Any, Iterator
 
 import httpx
+
+from osk.chromebook_smoke_artifacts import build_provenance
 
 DEFAULT_ARTIFACT_ROOT = Path("output/chromebook/member-shell-smoke")
 DEFAULT_DEBUG_PORT = 9222
@@ -439,6 +442,9 @@ def build_result_payload(
     steps: list[dict[str, Any]] | None = None,
     failure: dict[str, Any] | None = None,
     summary: dict[str, Any] | None = None,
+    launch_preflight: dict[str, Any] | None = None,
+    provenance: dict[str, Any] | None = None,
+    result_path: Path | None = None,
 ) -> dict[str, Any]:
     payload = {
         "status": status,
@@ -449,10 +455,13 @@ def build_result_payload(
         "debug_port": debug_port,
         "local_debug_port": local_debug_port,
         "artifact_dir": str(artifact_dir),
+        "result_path": str(result_path) if result_path is not None else None,
         "smoke_metadata": smoke_metadata,
+        "launch_preflight": launch_preflight,
         "cdp_version": cdp_version,
         "steps": steps or [],
         "failure": failure,
+        "provenance": provenance,
     }
     if summary is not None:
         payload["summary"] = summary
@@ -465,6 +474,7 @@ def write_result(result_path: Path, payload: dict[str, Any]) -> None:
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
+    repo_root = Path(__file__).resolve().parents[1]
     metadata_path = Path(args.smoke_metadata).expanduser()
     if not metadata_path.exists():
         print(f"Smoke metadata file does not exist: {metadata_path}", file=sys.stderr)
@@ -480,6 +490,18 @@ def main(argv: list[str] | None = None) -> int:
     artifact_dir = make_artifact_dir(artifact_root, label=args.timestamp or None)
     result_path = artifact_dir / "result.json"
     _write_json(artifact_dir / "smoke-metadata.json", smoke_metadata)
+    started_at_utc = (
+        os.environ.get("OSK_SMOKE_STARTED_AT_UTC") or datetime.now(timezone.utc).isoformat()
+    )
+
+    def result_provenance() -> dict[str, Any]:
+        return build_provenance(
+            repo_root=repo_root,
+            run_label=artifact_dir.name,
+            chromebook_host=args.chromebook_host,
+            started_at_utc=started_at_utc,
+            completed_at_utc=datetime.now(timezone.utc).isoformat(),
+        )
 
     if args.dry_run:
         payload = build_result_payload(
@@ -491,6 +513,8 @@ def main(argv: list[str] | None = None) -> int:
             debug_port=args.debug_port,
             smoke_metadata=smoke_metadata,
             artifact_dir=artifact_dir,
+            provenance=result_provenance(),
+            result_path=result_path,
         )
         write_result(result_path, payload)
         return 0
@@ -536,6 +560,8 @@ def main(argv: list[str] | None = None) -> int:
                 "type": failure_type,
             },
             summary=(smoke_result or {}).get("summary"),
+            provenance=result_provenance(),
+            result_path=result_path,
         )
         write_result(result_path, payload)
         print(f"Chromebook smoke failed: {exc}", file=sys.stderr)
@@ -554,6 +580,8 @@ def main(argv: list[str] | None = None) -> int:
         cdp_version=cdp_version,
         steps=smoke_result["steps"],
         summary=smoke_result["summary"],
+        provenance=result_provenance(),
+        result_path=result_path,
     )
     write_result(result_path, payload)
     return 0

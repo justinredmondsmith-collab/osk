@@ -103,6 +103,13 @@ def _run_wrapper(
             "OSK_HELPER_READY_ATTEMPTS": "10",
             "OSK_HELPER_READY_SLEEP_SECONDS": "0.05",
             "OSK_TEST_LAB_CONTROL_LOG": str(log_path),
+            "OSK_SMOKE_GIT_SHA": "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
+            "OSK_SMOKE_GIT_BRANCH": "justinredmondsmith-collab/feat/chromebook-lab-gate",
+            "OSK_SMOKE_GIT_COMMIT_SUBJECT": "feat(chromebook): Add lab gate",
+            "OSK_SMOKE_RUNNER_HOSTNAME": "lab-host",
+            "OSK_SMOKE_TRIGGER": "test",
+            "OSK_SMOKE_WORKTREE_DIRTY": "false",
+            "OSK_SMOKE_STARTED_AT_UTC": "2026-03-22T19:04:05+00:00",
         }
     )
     if cdp_runner_script is not None:
@@ -129,9 +136,21 @@ def _run_wrapper(
 
 
 def _load_result(artifact_root: Path) -> dict[str, object]:
-    run_dirs = sorted(artifact_root.iterdir())
+    run_dirs = sorted(path for path in artifact_root.iterdir() if path.is_dir())
     assert len(run_dirs) == 1
     return json.loads((run_dirs[0] / "result.json").read_text())
+
+
+def _load_latest(artifact_root: Path) -> dict[str, object]:
+    return json.loads((artifact_root / "latest.json").read_text())
+
+
+def _load_runs(artifact_root: Path) -> list[dict[str, object]]:
+    return [
+        json.loads(line)
+        for line in (artifact_root / "runs.jsonl").read_text().splitlines()
+        if line.strip()
+    ]
 
 
 def test_wrapper_fails_fast_when_helper_never_becomes_reachable(tmp_path: Path) -> None:
@@ -150,12 +169,23 @@ def test_wrapper_fails_fast_when_helper_never_becomes_reachable(tmp_path: Path) 
     )
 
     payload = _load_result(tmp_path / "artifacts")
+    latest = _load_latest(tmp_path / "artifacts")
+    runs = _load_runs(tmp_path / "artifacts")
     log_path = tmp_path / "lab-control.log"
 
     assert result.returncode == 1
     assert payload["status"] == "failed"
     assert payload["failure"]["stage"] == "helper-ready"
     assert payload["smoke_metadata"]["join_url"] == "http://127.0.0.1:65535/join?token=test"
+    assert payload["provenance"]["trigger"] == "test"
+    assert payload["provenance"]["git_sha"] == "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef"
+    assert payload["provenance"]["runner_hostname"] == "lab-host"
+    assert payload["provenance"]["run_label"] == Path(payload["artifact_dir"]).name
+    assert latest["status"] == "failed"
+    assert latest["failure_stage"] == "helper-ready"
+    assert latest["result_path"] == payload["result_path"]
+    assert len(runs) == 1
+    assert runs[0]["result_path"] == payload["result_path"]
     assert "prepare" not in (log_path.read_text() if log_path.exists() else "")
 
 
@@ -176,6 +206,7 @@ def test_wrapper_writes_failed_result_when_prepare_step_fails(tmp_path: Path) ->
     )
 
     payload = _load_result(tmp_path / "artifacts")
+    latest = _load_latest(tmp_path / "artifacts")
     log_path = tmp_path / "lab-control.log"
     log_lines = log_path.read_text().splitlines()
 
@@ -183,6 +214,8 @@ def test_wrapper_writes_failed_result_when_prepare_step_fails(tmp_path: Path) ->
     assert payload["status"] == "failed"
     assert payload["failure"]["stage"] == "prepare"
     assert payload["smoke_metadata"]["join_url"] == "http://127.0.0.1:8123/join?token=test"
+    assert payload["provenance"]["invocation"] == "chromebook_member_shell_smoke.sh"
+    assert latest["failure_stage"] == "prepare"
     assert "prepare" in log_lines
     assert "launch" not in log_lines
 
@@ -214,6 +247,13 @@ def test_wrapper_records_launch_preflight_when_launch_step_fails(tmp_path: Path)
                     "OZONE_FLAG=--ozone-platform=wayland",
                 ]
             ),
+            "OSK_SMOKE_GIT_SHA": "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
+            "OSK_SMOKE_GIT_BRANCH": "justinredmondsmith-collab/feat/chromebook-lab-gate",
+            "OSK_SMOKE_GIT_COMMIT_SUBJECT": "feat(chromebook): Add lab gate",
+            "OSK_SMOKE_RUNNER_HOSTNAME": "lab-host",
+            "OSK_SMOKE_TRIGGER": "test",
+            "OSK_SMOKE_WORKTREE_DIRTY": "false",
+            "OSK_SMOKE_STARTED_AT_UTC": "2026-03-22T19:04:05+00:00",
         }
     )
 
@@ -235,6 +275,7 @@ def test_wrapper_records_launch_preflight_when_launch_step_fails(tmp_path: Path)
     )
 
     payload = _load_result(tmp_path / "artifacts")
+    latest = _load_latest(tmp_path / "artifacts")
     log_lines = (tmp_path / "lab-control.log").read_text().splitlines()
 
     assert result.returncode == 23
@@ -247,6 +288,10 @@ def test_wrapper_records_launch_preflight_when_launch_step_fails(tmp_path: Path)
         "dbus_session_bus_address": "unix:path=/run/user/1000/bus",
         "ozone_flag": "--ozone-platform=wayland",
     }
+    assert (
+        payload["provenance"]["git_branch"] == "justinredmondsmith-collab/feat/chromebook-lab-gate"
+    )
+    assert latest["failure_stage"] == "launch"
     assert log_lines[:3] == ["prepare", "preflight", "launch"]
     assert "Chromebook launch preflight:" in result.stderr
     assert "XDG_RUNTIME_DIR=/run/user/1000" in result.stderr
@@ -285,6 +330,13 @@ def test_wrapper_prints_launch_preflight_when_smoke_runner_fails(tmp_path: Path)
                     "OZONE_FLAG=--ozone-platform=wayland",
                 ]
             ),
+            "OSK_SMOKE_GIT_SHA": "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
+            "OSK_SMOKE_GIT_BRANCH": "justinredmondsmith-collab/feat/chromebook-lab-gate",
+            "OSK_SMOKE_GIT_COMMIT_SUBJECT": "feat(chromebook): Add lab gate",
+            "OSK_SMOKE_RUNNER_HOSTNAME": "lab-host",
+            "OSK_SMOKE_TRIGGER": "test",
+            "OSK_SMOKE_WORKTREE_DIRTY": "false",
+            "OSK_SMOKE_STARTED_AT_UTC": "2026-03-22T19:04:05+00:00",
         }
     )
 
@@ -306,11 +358,14 @@ def test_wrapper_prints_launch_preflight_when_smoke_runner_fails(tmp_path: Path)
     )
 
     payload = _load_result(tmp_path / "artifacts")
+    latest = _load_latest(tmp_path / "artifacts")
     log_lines = (tmp_path / "lab-control.log").read_text().splitlines()
 
     assert result.returncode == 17
     assert payload["status"] == "failed"
     assert payload["failure"]["stage"] == "smoke-runner"
+    assert payload["provenance"]["trigger"] == "test"
+    assert latest["failure_stage"] == "smoke-runner"
     assert log_lines[:3] == ["prepare", "preflight", "launch"]
     assert "Chromebook launch preflight:" in result.stderr
     assert "XDG_RUNTIME_DIR=/run/user/1000" in result.stderr

@@ -430,10 +430,16 @@ Expected files include:
 - `launch-preflight.json`
 - `cdp-version.json`
 - `result.json`
+- `latest.json`
+- `runs.jsonl`
 - checkpoint screenshots
 - `console-events.json`
 - `network-failures.json`
 - `page-errors.json`
+
+`latest.json` is the stable pointer to the newest completed run under the
+artifact root. `runs.jsonl` is the append-only local run ledger, useful when
+you want quick commit/run provenance without opening each timestamped directory.
 
 ## Debug Run
 
@@ -451,6 +457,44 @@ after the test:
 ```
 
 This is useful when you want to inspect the lab browser state after a failure.
+
+## Gate Run
+
+When you want the same real-device smoke to behave like an operational gate,
+use the gate wrapper instead of the raw smoke wrapper:
+
+```bash
+./scripts/chromebook_lab_gate.sh \
+  --trigger manual \
+  --chromebook-host <chromebook-host-or-ip> \
+  --ssh-target <user@chromebook-ip> \
+  --ssh-port <optional-port> \
+  --advertise-host <host-ip-visible-from-chromebook>
+```
+
+The gate wrapper:
+
+- refuses a dirty git worktree by default
+- stamps the run with branch, commit, trigger, runner hostname, and device ID
+- updates `latest.json` and `runs.jsonl`
+- prints a concise pass/fail summary after the run completes
+
+If you need to run from a dirty checkout while iterating locally:
+
+```bash
+./scripts/chromebook_lab_gate.sh \
+  --allow-dirty \
+  --trigger local-dev \
+  --chromebook-host <chromebook-host-or-ip> \
+  --advertise-host <host-ip-visible-from-chromebook>
+```
+
+For repeatable GitHub-side operation, the repo now includes a manual
+`workflow_dispatch` workflow at
+[`chromebook-lab-gate.yml`](../../.github/workflows/chromebook-lab-gate.yml).
+That workflow is intended for a self-hosted runner with network reachability to
+the dedicated Chromebook and the host-visible smoke-helper address. It is not a
+fit for the default hosted CI runner.
 
 ## Current Blocking Check
 

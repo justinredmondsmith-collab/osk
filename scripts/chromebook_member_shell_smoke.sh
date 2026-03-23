@@ -125,6 +125,10 @@ if [[ -z "${SSH_TARGET}" ]]; then
 fi
 
 RUN_LABEL="$(date -u +%Y%m%dT%H%M%SZ)"
+RUN_STARTED_AT_UTC="${OSK_SMOKE_STARTED_AT_UTC:-$(date -u +%Y-%m-%dT%H:%M:%SZ)}"
+export OSK_SMOKE_STARTED_AT_UTC="${RUN_STARTED_AT_UTC}"
+export OSK_SMOKE_TRIGGER="${OSK_SMOKE_TRIGGER:-manual}"
+export OSK_SMOKE_INVOCATION="${OSK_SMOKE_INVOCATION:-chromebook_member_shell_smoke.sh}"
 RUN_DIR="${ARTIFACT_ROOT}/${RUN_LABEL}"
 mkdir -p "${RUN_DIR}"
 METADATA_PATH="${RUN_DIR}/metadata.json"
@@ -166,7 +170,9 @@ write_failure_result() {
     return 0
   fi
 
-  "${PYTHON_BIN}" - <<'PY' \
+  (
+    cd "${REPO_ROOT}"
+    PYTHONPATH=src "${PYTHON_BIN}" - <<'PY' \
     "${RESULT_PATH}" \
     "${RUN_DIR}" \
     "${CHROMEBOOK_HOST}" \
@@ -230,6 +236,7 @@ result_payload = {
     "debug_port": int(debug_port),
     "local_debug_port": None,
     "artifact_dir": artifact_dir,
+    "result_path": result_path,
     "smoke_metadata": smoke_metadata,
     "launch_preflight": launch_preflight,
     "cdp_version": None,
@@ -243,6 +250,7 @@ result_payload = {
 
 Path(result_path).write_text(json.dumps(result_payload, indent=2, sort_keys=True) + "\n")
 PY
+  )
 }
 
 capture_launch_preflight() {
@@ -304,6 +312,54 @@ emit_launch_preflight_summary() {
     printf '  %s\n' "${line}" >&2
   done < "${PREFLIGHT_RAW_PATH}"
   printf '  artifact: %s\n' "${PREFLIGHT_JSON_PATH}" >&2
+}
+
+sync_result_metadata() {
+  if [[ ! -f "${RESULT_PATH}" ]]; then
+    return 0
+  fi
+
+  (
+    cd "${REPO_ROOT}"
+    PYTHONPATH=src "${PYTHON_BIN}" - <<'PY' \
+      "${RESULT_PATH}" \
+      "${ARTIFACT_ROOT}" \
+      "${PREFLIGHT_JSON_PATH}" \
+      "${CHROMEBOOK_HOST}" \
+      "${RUN_LABEL}"
+from __future__ import annotations
+
+import sys
+from datetime import datetime, timezone
+from pathlib import Path
+
+from osk.chromebook_smoke_artifacts import (
+    build_provenance,
+    merge_result_metadata,
+    write_artifact_indexes,
+)
+
+result_path = Path(sys.argv[1])
+artifact_root = Path(sys.argv[2])
+preflight_path = Path(sys.argv[3])
+chromebook_host = sys.argv[4]
+run_label = sys.argv[5]
+repo_root = Path.cwd()
+
+provenance = build_provenance(
+    repo_root=repo_root,
+    run_label=run_label,
+    chromebook_host=chromebook_host,
+    completed_at_utc=datetime.now(timezone.utc).isoformat(),
+)
+payload = merge_result_metadata(
+    result_path,
+    launch_preflight_path=preflight_path,
+    provenance=provenance,
+)
+write_artifact_indexes(artifact_root, payload)
+PY
+  )
 }
 
 run_stage() {
@@ -388,29 +444,56 @@ if [[ "${HELPER_READY}" != "1" ]]; then
     echo "Smoke helper never became reachable at ${JOIN_URL}" >&2
   fi
   cat "${HELPER_LOG}" >&2 || true
+  sync_result_metadata
   exit 1
 fi
 
-run_stage \
+if run_stage \
   "prepare" \
   "Chromebook prepare step failed." \
   bash "${LAB_CONTROL_SCRIPT}" prepare \
-  "${LAB_CONTROL_ARGS[@]}"
+  "${LAB_CONTROL_ARGS[@]}"; then
+  :
+else
+  exit_code="$?"
+  sync_result_metadata
+  exit "${exit_code}"
+fi
 
-capture_launch_preflight
+if capture_launch_preflight; then
+  :
+else
+  exit_code="$?"
+  sync_result_metadata
+  exit "${exit_code}"
+fi
 
-run_stage \
+if run_stage \
   "launch" \
   "Chromebook launch step failed." \
   bash "${LAB_CONTROL_SCRIPT}" launch \
   "${LAB_CONTROL_ARGS[@]}" \
-  --start-url "about:blank"
+  --start-url "about:blank"; then
+  :
+else
+  exit_code="$?"
+  sync_result_metadata
+  exit "${exit_code}"
+fi
 
-run_stage \
+if run_stage \
   "smoke-runner" \
   "Chromebook smoke runner failed." \
   "${PYTHON_BIN}" "${CDP_RUNNER_SCRIPT}" \
-  "${PYTHON_SMOKE_ARGS[@]}"
+  "${PYTHON_SMOKE_ARGS[@]}"; then
+  :
+else
+  exit_code="$?"
+  sync_result_metadata
+  exit "${exit_code}"
+fi
+
+sync_result_metadata
 
 echo
 echo "Chromebook smoke artifacts:"
@@ -418,3 +501,4 @@ echo "  run dir:    ${RUN_DIR}"
 echo "  helper log: ${HELPER_LOG}"
 echo "  metadata:   ${METADATA_PATH}"
 echo "  result:     ${RUN_DIR}/result.json"
+echo "  latest:     ${ARTIFACT_ROOT}/latest.json"
