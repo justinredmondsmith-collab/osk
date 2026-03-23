@@ -88,7 +88,7 @@ build_reset_profile_remote() {
 build_launch_remote() {
   local remote
   printf -v remote \
-    'set -euo pipefail; mkdir -p -- %q; nohup %q --user-data-dir=%q --remote-debugging-port=%q --no-first-run --no-default-browser-check --disable-sync --disable-background-networking --window-size=%q %q >%q 2>&1 </dev/null & echo $! > %q' \
+    'set -euo pipefail; mkdir -p -- %q; xdg_runtime_dir="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"; if [ -z "${DBUS_SESSION_BUS_ADDRESS:-}" ] && [ -S "${xdg_runtime_dir}/bus" ]; then export DBUS_SESSION_BUS_ADDRESS="unix:path=${xdg_runtime_dir}/bus"; fi; export XDG_RUNTIME_DIR="${xdg_runtime_dir}"; ozone_flag=""; wayland_display=""; if [ -n "${WAYLAND_DISPLAY:-}" ] && [ -S "${xdg_runtime_dir}/${WAYLAND_DISPLAY}" ]; then wayland_display="${WAYLAND_DISPLAY}"; elif [ -S "${xdg_runtime_dir}/wayland-0" ]; then wayland_display="wayland-0"; elif [ -S "${xdg_runtime_dir}/wayland-1" ]; then wayland_display="wayland-1"; fi; if [ -n "${wayland_display}" ]; then export WAYLAND_DISPLAY="${wayland_display}"; ozone_flag="--ozone-platform=wayland"; fi; if [ -z "${DISPLAY:-}" ]; then if [ -e "${xdg_runtime_dir}/DISPLAY-:0-wl" ]; then export DISPLAY=:0; elif [ -e "${xdg_runtime_dir}/DISPLAY-:1-wl" ]; then export DISPLAY=:1; fi; fi; nohup %q --user-data-dir=%q --remote-debugging-port=%q --no-first-run --no-default-browser-check --disable-sync --disable-background-networking --window-size=%q ${ozone_flag} %q >%q 2>&1 </dev/null & echo $! > %q' \
     "${PROFILE_DIR}" \
     "${CHROME_BINARY}" \
     "${PROFILE_DIR}" \

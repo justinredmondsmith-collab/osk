@@ -512,6 +512,13 @@ chromium \
 curl -s http://127.0.0.1:9222/json/version
 ```
 
+If the browser log shows `Missing X server or $DISPLAY` from an SSH-triggered
+launch, verify the Crostini GUI session still exposes Wayland sockets under
+`/run/user/$(id -u)`. The host-side helper now reconstructs `XDG_RUNTIME_DIR`,
+`WAYLAND_DISPLAY`, `DBUS_SESSION_BUS_ADDRESS`, and a matching `DISPLAY` value
+before launching Chromium over SSH, but a dead or missing Crostini GUI session
+will still prevent CDP from coming up.
+
 ### `Smoke metadata file does not exist`
 
 The host-side mocked smoke helper never wrote its metadata file. Inspect the
