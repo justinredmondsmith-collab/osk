@@ -54,6 +54,9 @@ def test_launch_dry_run_uses_explicit_user_data_dir() -> None:
     assert payload["ssh_prefix"] == ["ssh", "-F", "/dev/null"]
     launch_command = payload["steps"][0]["command"]
     assert launch_command.startswith("ssh -F /dev/null lab-book ")
+    assert "XDG_RUNTIME_DIR" in launch_command
+    assert "WAYLAND_DISPLAY" in launch_command
+    assert "--ozone-platform=wayland" in launch_command
     assert "--user-data-dir=/var/tmp/osk-chromebook-lab" in launch_command
     assert "--remote-debugging-port=9222" in launch_command
     assert "/opt/google/chrome/chrome" in launch_command
