@@ -934,13 +934,19 @@
         </div>
       `,
       ...history.map(
-        (item) => `
-          <div class="detail-item">
-            <p>${escapeHtml(item.member_name)} ${wipeReasonPill(item.reason)} ${wipeHistoryPill(item.status)}</p>
-            <small>Verified ${escapeHtml(formatLongTimestamp(item.verified_at))}</small>
-            <small class="detail-item__action">${escapeHtml(item.status_detail || "Verification event recorded in the audit trail.")}</small>
-          </div>
-        `,
+        (item) => {
+          const reopenedLine = item.reopened_at
+            ? `<small>Reopened ${escapeHtml(formatLongTimestamp(item.reopened_at))}${item.reopened_activity_kind ? ` via ${escapeHtml(item.reopened_activity_kind)}` : ""}</small>`
+            : "";
+          return `
+            <div class="detail-item">
+              <p>${escapeHtml(item.member_name)} ${wipeReasonPill(item.reason)} ${wipeHistoryPill(item.status)}</p>
+              <small>Verified ${escapeHtml(formatLongTimestamp(item.verified_at))}</small>
+              ${reopenedLine}
+              <small class="detail-item__action">${escapeHtml(item.status_detail || "Verification event recorded in the audit trail.")}</small>
+            </div>
+          `;
+        },
       ),
     ].join("");
   }

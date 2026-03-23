@@ -364,7 +364,8 @@ flows on real devices and tightening the gaps those exercises expose.
   durable in the audit trail instead of only inferred from current state
 - That same wipe-readiness panel now shows a short recent verification trail so
   operators can see which closures still hold for the current boundary and
-  which earlier verifications have since reopened
+  which earlier verifications have since reopened, including the explicit
+  reopen time and whether the member resumed or sent a new message
 - Connected member browsers now clear queued notes/media, current member
   cookies, IndexedDB outbox state, and the cached member-shell registration
   when they receive a live wipe or `op_ended` message, but disconnected
