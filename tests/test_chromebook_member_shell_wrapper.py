@@ -71,12 +71,25 @@ def _write_curl_script(path: Path, *, exit_code: int) -> Path:
     )
 
 
+def _write_cdp_runner_script(path: Path, *, exit_code: int) -> Path:
+    return _write_executable(
+        path,
+        textwrap.dedent(
+            f"""\
+            #!/usr/bin/env python3
+            raise SystemExit({exit_code})
+            """
+        ),
+    )
+
+
 def _run_wrapper(
     tmp_path: Path,
     *,
     helper_script: Path,
     curl_script: Path,
     lab_control_script: Path,
+    cdp_runner_script: Path | None = None,
     fail_action: str | None = None,
 ) -> subprocess.CompletedProcess[str]:
     artifact_root = tmp_path / "artifacts"
@@ -92,6 +105,8 @@ def _run_wrapper(
             "OSK_TEST_LAB_CONTROL_LOG": str(log_path),
         }
     )
+    if cdp_runner_script is not None:
+        env["OSK_CDP_RUNNER_SCRIPT"] = str(cdp_runner_script)
     if fail_action is not None:
         env["OSK_TEST_FAIL_ACTION"] = fail_action
 
@@ -233,3 +248,71 @@ def test_wrapper_records_launch_preflight_when_launch_step_fails(tmp_path: Path)
         "ozone_flag": "--ozone-platform=wayland",
     }
     assert log_lines[:3] == ["prepare", "preflight", "launch"]
+    assert "Chromebook launch preflight:" in result.stderr
+    assert "XDG_RUNTIME_DIR=/run/user/1000" in result.stderr
+    assert "WAYLAND_DISPLAY=wayland-0" in result.stderr
+    assert "DISPLAY=:0" in result.stderr
+    assert "DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus" in result.stderr
+    assert "OZONE_FLAG=--ozone-platform=wayland" in result.stderr
+    assert "launch-preflight.json" in result.stderr
+
+
+def test_wrapper_prints_launch_preflight_when_smoke_runner_fails(tmp_path: Path) -> None:
+    helper_script = _write_helper_script(
+        tmp_path / "member_shell_smoke_stub.py",
+        "http://127.0.0.1:8123/join?token=test",
+    )
+    curl_script = _write_curl_script(tmp_path / "curl-success.sh", exit_code=0)
+    lab_control_script = _write_lab_control_script(tmp_path / "chromebook_lab_control_stub.sh")
+    cdp_runner_script = _write_cdp_runner_script(tmp_path / "cdp-runner-fail.sh", exit_code=17)
+
+    env = os.environ.copy()
+    env.update(
+        {
+            "OSK_MEMBER_SMOKE_SCRIPT": str(helper_script),
+            "OSK_CURL_BIN": str(curl_script),
+            "OSK_LAB_CONTROL_SCRIPT": str(lab_control_script),
+            "OSK_CDP_RUNNER_SCRIPT": str(cdp_runner_script),
+            "OSK_HELPER_READY_ATTEMPTS": "10",
+            "OSK_HELPER_READY_SLEEP_SECONDS": "0.05",
+            "OSK_TEST_LAB_CONTROL_LOG": str(tmp_path / "lab-control.log"),
+            "OSK_TEST_PREFLIGHT_OUTPUT": "\n".join(
+                [
+                    "XDG_RUNTIME_DIR=/run/user/1000",
+                    "WAYLAND_DISPLAY=wayland-0",
+                    "DISPLAY=:0",
+                    "DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus",
+                    "OZONE_FLAG=--ozone-platform=wayland",
+                ]
+            ),
+        }
+    )
+
+    result = subprocess.run(
+        [
+            "bash",
+            str(SCRIPT_PATH),
+            "--chromebook-host",
+            "lab-book",
+            "--advertise-host",
+            "198.51.100.42",
+            "--artifact-root",
+            str(tmp_path / "artifacts"),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+        env=env,
+    )
+
+    payload = _load_result(tmp_path / "artifacts")
+    log_lines = (tmp_path / "lab-control.log").read_text().splitlines()
+
+    assert result.returncode == 17
+    assert payload["status"] == "failed"
+    assert payload["failure"]["stage"] == "smoke-runner"
+    assert log_lines[:3] == ["prepare", "preflight", "launch"]
+    assert "Chromebook launch preflight:" in result.stderr
+    assert "XDG_RUNTIME_DIR=/run/user/1000" in result.stderr
+    assert "OZONE_FLAG=--ozone-platform=wayland" in result.stderr
+    assert "launch-preflight.json" in result.stderr

@@ -294,6 +294,18 @@ json_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
 PY
 }
 
+emit_launch_preflight_summary() {
+  if [[ ! -f "${PREFLIGHT_RAW_PATH}" ]]; then
+    return 0
+  fi
+
+  echo "Chromebook launch preflight:" >&2
+  while IFS= read -r line; do
+    printf '  %s\n' "${line}" >&2
+  done < "${PREFLIGHT_RAW_PATH}"
+  printf '  artifact: %s\n' "${PREFLIGHT_JSON_PATH}" >&2
+}
+
 run_stage() {
   local stage="$1"
   local description="$2"
@@ -309,6 +321,9 @@ run_stage() {
   fi
 
   write_failure_result "${stage}" "${description} (exit ${exit_code})"
+  if [[ "${stage}" == "launch" || "${stage}" == "smoke-runner" ]]; then
+    emit_launch_preflight_summary
+  fi
   return "${exit_code}"
 }
 
