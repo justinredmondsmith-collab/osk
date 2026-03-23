@@ -109,7 +109,9 @@ browsers already at risk. Use `osk audit --limit ... --json` if you need that
 history after the fact. Manual follow-up verification now records its own audit
 event as well, and newer member activity that invalidates a prior manual
 verification now records `wipe_follow_up_reopened` so the reopened boundary is
-captured explicitly in the audit trail.
+captured explicitly in the audit trail. The coordinator wipe-readiness panel
+also surfaces that reopen timestamp and activity source in the recent
+verification trail.
 
 ## Current Safe Sequence
 

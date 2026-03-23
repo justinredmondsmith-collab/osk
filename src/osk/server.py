@@ -742,8 +742,25 @@ def _wipe_follow_up_history_status(
     current_follow_up: dict[str, object] | None,
     *,
     verified_at: str,
+    reopened_at: str | None = None,
+    reopened_activity_kind: str | None = None,
 ) -> tuple[str, str]:
+    reopen_detail = None
+    if reopened_at:
+        if reopened_activity_kind:
+            reopen_detail = f"Reopened via {reopened_activity_kind} at {reopened_at}."
+        else:
+            reopen_detail = f"Reopened at {reopened_at}."
+
     if current_follow_up is None:
+        if reopen_detail is not None:
+            return (
+                "cleared",
+                (
+                    f"{reopen_detail} This member is no longer at risk, but the "
+                    "verification remains in the audit trail."
+                ),
+            )
         return (
             "cleared",
             "This member is no longer at risk, but the verification remains in the audit trail.",
@@ -755,6 +772,9 @@ def _wipe_follow_up_history_status(
         return ("current", "Verification still closes the current cleanup boundary.")
     if resolution == "verified":
         return ("superseded", "A newer verification superseded this earlier closure event.")
+
+    if reopen_detail is not None:
+        return ("reopened", reopen_detail)
 
     last_seen_at = str(current_follow_up.get("last_seen_at") or "").strip()
     if last_seen_at:
@@ -776,9 +796,26 @@ def _wipe_follow_up_history(
         if member_id:
             follow_up_index[member_id] = item
 
+    pending_reopens: dict[str, dict[str, str | None]] = {}
     history: list[dict[str, object]] = []
     for event in audit_events:
-        if str(event.get("action") or "") != "wipe_follow_up_verified":
+        action = str(event.get("action") or "")
+        if action == "wipe_follow_up_reopened":
+            details = event.get("details") or {}
+            if not isinstance(details, dict):
+                continue
+            member_id = str(details.get("member_id") or "").strip()
+            if not member_id or member_id in pending_reopens:
+                continue
+            reopened_at = _parse_timestamp(details.get("last_seen_at")) or _parse_timestamp(
+                event.get("timestamp")
+            )
+            pending_reopens[member_id] = {
+                "reopened_at": _isoformat_utc(reopened_at),
+                "reopened_activity_kind": str(details.get("activity_kind") or "").strip() or None,
+            }
+            continue
+        if action != "wipe_follow_up_verified":
             continue
         details = event.get("details") or {}
         if not isinstance(details, dict):
@@ -792,9 +829,12 @@ def _wipe_follow_up_history(
             continue
 
         current_follow_up = follow_up_index.get(member_id)
+        reopened_event = pending_reopens.pop(member_id, None)
         status, status_detail = _wipe_follow_up_history_status(
             current_follow_up,
             verified_at=verified_at,
+            reopened_at=(reopened_event or {}).get("reopened_at"),
+            reopened_activity_kind=(reopened_event or {}).get("reopened_activity_kind"),
         )
         history.append(
             {
@@ -812,6 +852,10 @@ def _wipe_follow_up_history(
                     current_follow_up.get("last_seen_at")
                     if current_follow_up is not None
                     else details.get("last_seen_at")
+                ),
+                "reopened_at": (reopened_event or {}).get("reopened_at"),
+                "reopened_activity_kind": (reopened_event or {}).get(
+                    "reopened_activity_kind"
                 ),
                 "status": status,
                 "status_detail": status_detail,
