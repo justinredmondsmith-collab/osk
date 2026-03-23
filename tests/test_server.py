@@ -832,6 +832,145 @@ def test_verify_wipe_follow_up_records_audit_and_returns_closed_item(
     assert audit_details["last_seen_at"] is not None
 
 
+def test_get_wipe_follow_up_detail_returns_current_item_and_history(
+    client: TestClient,
+    mock_db: MagicMock,
+    mock_op_manager: MagicMock,
+) -> None:
+    current = dt.datetime(2026, 3, 23, 3, 12, tzinfo=dt.timezone.utc)
+    stale_seen = dt.datetime(2026, 3, 23, 3, 8, tzinfo=dt.timezone.utc)
+    verified_at = dt.datetime(2026, 3, 23, 3, 0, tzinfo=dt.timezone.utc)
+    member_id = uuid.uuid4()
+    mock_op_manager.get_member_list.return_value = [
+        {
+            "id": str(member_id),
+            "name": "Observer One",
+            "role": "observer",
+            "connected_at": current,
+            "last_seen_at": stale_seen,
+            "status": "connected",
+            "last_gps_at": None,
+            "latitude": None,
+            "longitude": None,
+            "buffer_status": {},
+        },
+    ]
+    mock_db.get_audit_events.return_value = [
+        {
+            "action": "wipe_follow_up_reopened",
+            "actor_type": "member",
+            "timestamp": stale_seen,
+            "details": {
+                "member_id": str(member_id),
+                "member_name": "Observer One",
+                "activity_kind": "resume",
+                "last_seen_at": stale_seen.isoformat().replace("+00:00", "Z"),
+            },
+        },
+        {
+            "action": "wipe_follow_up_verified",
+            "actor_type": "coordinator",
+            "timestamp": verified_at,
+            "details": {
+                "member_id": str(member_id),
+                "member_name": "Observer One",
+                "reason": "stale",
+                "last_seen_at": "2026-03-23T02:54:00Z",
+            },
+        },
+    ]
+
+    with patch(
+        "osk.server.load_config",
+        return_value=OskConfig(member_heartbeat_timeout_seconds=60),
+    ):
+        resp = client.get(f"/api/coordinator/wipe-follow-up/{member_id}")
+
+    assert resp.status_code == 200
+    payload = resp.json()
+    assert payload["member_id"] == str(member_id)
+    assert payload["member_name"] == "Observer One"
+    assert payload["reason"] == "stale"
+    assert payload["follow_up"] is not None
+    assert payload["follow_up"]["id"] == str(member_id)
+    assert payload["follow_up"]["resolution"] == "unresolved"
+    assert payload["history_count"] == 1
+    assert payload["history"][0]["member_id"] == str(member_id)
+    assert payload["history"][0]["status"] == "reopened"
+    assert payload["history"][0]["reopened_activity_kind"] == "resume"
+
+
+def test_get_wipe_follow_up_detail_returns_cleared_member_history(
+    client: TestClient,
+    mock_db: MagicMock,
+    mock_op_manager: MagicMock,
+) -> None:
+    reopened_at = dt.datetime(2026, 3, 23, 3, 5, tzinfo=dt.timezone.utc)
+    verified_at = dt.datetime(2026, 3, 23, 3, 0, tzinfo=dt.timezone.utc)
+    member_id = uuid.uuid4()
+    mock_op_manager.get_member_list.return_value = []
+    mock_db.get_audit_events.return_value = [
+        {
+            "action": "wipe_follow_up_reopened",
+            "actor_type": "member",
+            "timestamp": reopened_at,
+            "details": {
+                "member_id": str(member_id),
+                "member_name": "Observer One",
+                "activity_kind": "message",
+                "last_seen_at": reopened_at.isoformat().replace("+00:00", "Z"),
+            },
+        },
+        {
+            "action": "wipe_follow_up_verified",
+            "actor_type": "coordinator",
+            "timestamp": verified_at,
+            "details": {
+                "member_id": str(member_id),
+                "member_name": "Observer One",
+                "reason": "disconnected",
+                "last_seen_at": "2026-03-23T02:51:00Z",
+            },
+        },
+    ]
+
+    with patch(
+        "osk.server.load_config",
+        return_value=OskConfig(member_heartbeat_timeout_seconds=60),
+    ):
+        resp = client.get(f"/api/coordinator/wipe-follow-up/{member_id}")
+
+    assert resp.status_code == 200
+    payload = resp.json()
+    assert payload["member_id"] == str(member_id)
+    assert payload["member_name"] == "Observer One"
+    assert payload["reason"] == "disconnected"
+    assert payload["follow_up"] is None
+    assert payload["history_count"] == 1
+    assert payload["history"][0]["status"] == "cleared"
+    assert payload["history"][0]["reopened_activity_kind"] == "message"
+    assert payload["history"][0]["reopened_at"] == "2026-03-23T03:05:00Z"
+
+
+def test_get_wipe_follow_up_detail_rejects_unknown_member(
+    client: TestClient,
+    mock_db: MagicMock,
+    mock_op_manager: MagicMock,
+) -> None:
+    member_id = uuid.uuid4()
+    mock_op_manager.get_member_list.return_value = []
+    mock_db.get_audit_events.return_value = []
+
+    with patch(
+        "osk.server.load_config",
+        return_value=OskConfig(member_heartbeat_timeout_seconds=60),
+    ):
+        resp = client.get(f"/api/coordinator/wipe-follow-up/{member_id}")
+
+    assert resp.status_code == 404
+    assert resp.json() == {"error": "Wipe follow-up item not found"}
+
+
 def test_coordinator_dashboard_state_tracks_buffer_history_window(
     client: TestClient,
     mock_db: MagicMock,

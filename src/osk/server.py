@@ -890,6 +890,61 @@ def _decorate_wipe_readiness(
     }
 
 
+def _member_wipe_follow_up_detail(
+    wipe_readiness: dict[str, object],
+    *,
+    member_id: str,
+) -> dict[str, object] | None:
+    normalized_member_id = member_id.strip()
+    if not normalized_member_id:
+        return None
+
+    current_follow_up = next(
+        (
+            item
+            for item in wipe_readiness.get("follow_up") or []
+            if isinstance(item, dict) and str(item.get("id") or "").strip() == normalized_member_id
+        ),
+        None,
+    )
+    history = [
+        item
+        for item in wipe_readiness.get("follow_up_history") or []
+        if isinstance(item, dict)
+        and str(item.get("member_id") or "").strip() == normalized_member_id
+    ]
+    if current_follow_up is None and not history:
+        return None
+
+    latest_history = history[0] if history else {}
+    member_name = str(
+        (current_follow_up or {}).get("name")
+        or latest_history.get("member_name")
+        or "Unknown member"
+    )
+    reason = str(
+        (current_follow_up or {}).get("reason") or latest_history.get("reason") or "unknown"
+    )
+    summary = str(
+        (current_follow_up or {}).get("resolution_detail")
+        or latest_history.get("status_detail")
+        or ""
+    )
+    status = str(
+        (current_follow_up or {}).get("resolution") or latest_history.get("status") or "unknown"
+    )
+    return {
+        "member_id": normalized_member_id,
+        "member_name": member_name,
+        "reason": reason,
+        "status": status,
+        "summary": summary,
+        "follow_up": current_follow_up,
+        "history": history,
+        "history_count": len(history),
+    }
+
+
 def _wipe_coverage_snapshot(
     *,
     op_manager: OperationManager,
@@ -2027,6 +2082,36 @@ def create_app(
             },
             headers={"Cache-Control": "no-store"},
         )
+
+    @app.get("/api/coordinator/wipe-follow-up/{member_id}")
+    async def wipe_follow_up_detail(member_id: uuid.UUID, request: Request):
+        if response := _require_local_admin(request, op_manager):
+            return response
+        operation = op_manager.operation
+        if operation is None:
+            return JSONResponse({"error": "No active operation"}, status_code=503)
+
+        config = load_config()
+        members = await _dashboard_members(
+            op_manager=op_manager,
+            db=db,
+            heartbeat_timeout_seconds=config.member_heartbeat_timeout_seconds,
+        )
+        audit_events = await db.get_audit_events(operation.id, limit=MAX_AUDIT_LIMIT)
+        wipe_readiness = _decorate_wipe_readiness(
+            summarize_wipe_readiness(
+                members,
+                follow_up_resolutions=_wipe_follow_up_resolutions(audit_events),
+            ),
+            audit_events=audit_events,
+        )
+        detail = _member_wipe_follow_up_detail(
+            wipe_readiness,
+            member_id=str(member_id),
+        )
+        if detail is None:
+            return JSONResponse({"error": "Wipe follow-up item not found"}, status_code=404)
+        return JSONResponse(detail, headers={"Cache-Control": "no-store"})
 
     @app.get("/api/operator/dashboard-session")
     async def get_dashboard_session(request: Request):

@@ -579,6 +579,11 @@ textarea {
   background: rgba(7, 17, 31, 0.42);
 }
 
+.detail-item.is-selected {
+  border-color: rgba(78, 205, 196, 0.38);
+  background: rgba(78, 205, 196, 0.1);
+}
+
 .detail-item--subsection {
   border-style: dashed;
   background: rgba(9, 20, 34, 0.58);
