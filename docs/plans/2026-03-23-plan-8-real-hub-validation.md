@@ -6,7 +6,7 @@
 
 **Architecture:** The host owns orchestration, artifact capture, and result contracts. Validation targets a real running Osk hub with its actual `/join` and `/member` path, current cookie/session exchange, and current operator-side wipe/readiness surfaces. Device-driving can reuse the Chromebook lab path where useful, but mocked member-shell smoke and real-hub validation remain separate workflows.
 
-**Current state:** The repo already has meaningful runtime slices across Phases 1 through 6, a real member shell, explicit wipe-readiness surfaces, install/wipe drills, and a dedicated Chromebook smoke path for the mocked member shell. The current gap is that the repo does not yet own a repeatable validation loop for the real hub/runtime flow. The most important next step is to prove the existing runtime path on real hardware and record enough evidence to drive hardening work without overstating readiness.
+**Current state:** The repo already has meaningful runtime slices across Phases 1 through 6, a real member shell, explicit wipe-readiness surfaces, install/wipe drills, and a dedicated Chromebook smoke path for the mocked member shell. The repo now also owns a repeatable real-hub validation loop for the Chromebook lab path, including a verified coordinator restart/resume scenario on real hardware. The remaining gap is operator-side closure automation and cleanup discipline for older unresolved wipe follow-up members, not the baseline restart/runtime path itself.
 
 **Planning note:** This plan is intentionally validation-first. The first task defines the host-side contract and artifacts for real-hub validation before browser-driving or restart scenarios are added. The point of v1 is trustworthy run structure, not broad automation claims.
 
@@ -61,7 +61,7 @@
 | Create: `scripts/real_hub_validation.py` | Host-side real-hub validation contract and dry-run entrypoint |
 | Create: `tests/test_real_hub_validation_contract.py` | Unit tests for required inputs, artifact paths, and result shape |
 | Modify later: `scripts/chromebook_real_hub_validation.sh` | Optional real-device wrapper once the contract exists |
-| Modify later: `docs/runbooks/real-hub-validation.md` | Operator runbook for the real-hub validation flow |
+| Create: `docs/runbooks/real-hub-validation.md` | Operator runbook for the real-hub validation flow |
 
 ---
 
@@ -176,16 +176,19 @@ default to preserve the active operation across a real coordinator restart, and
 reconnects to the existing member browser over CDP to verify whether the
 runtime session and queued replay survive. The code path now distinguishes
 temporary coordinator restarts from true operation shutdowns, but the repo
-still treats restart survivability as validation work rather than a blanket
-readiness claim until the live lab path is exercised and the remaining failure
-modes are measured.
+now has a real workstation-plus-Chromebook pass for this flow. The validated
+artifact is
+`output/chromebook/real-hub-validation/20260324T003546Z/result.json`, where
+`hub_restart_resume_observed` passed with the same resumed `member_id` and an
+empty outbox after restart. Remaining follow-up is in operator closure and wipe
+follow-up cleanup, not restart survivability itself.
 
 ---
 
 ## Done When
 
-- [ ] The repo has a Plan 8 document that scopes real-hub validation truthfully
-- [ ] The repo has a dry-run real-hub validation contract entrypoint
-- [ ] The contract produces structured artifacts under a stable output root
-- [ ] Mocked smoke and real-hub validation are documented as distinct paths
-- [ ] No docs claim automated real-hub validation beyond what the repo actually implements
+- [x] The repo has a Plan 8 document that scopes real-hub validation truthfully
+- [x] The repo has a dry-run real-hub validation contract entrypoint
+- [x] The contract produces structured artifacts under a stable output root
+- [x] Mocked smoke and real-hub validation are documented as distinct paths
+- [x] No docs claim automated real-hub validation beyond what the repo actually implements

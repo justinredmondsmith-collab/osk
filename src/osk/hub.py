@@ -429,10 +429,18 @@ async def watch_for_stop_request(
                 preserve_operation,
             )
             if conn_manager is not None and conn_manager.connected_count:
-                logger.info(
-                    "Draining %s active member websocket(s) before shutdown.",
-                    conn_manager.connected_count,
-                )
+                if preserve_operation:
+                    logger.info(
+                        "Draining %s active member websocket(s) before shutdown.",
+                        conn_manager.connected_count,
+                    )
+                else:
+                    logger.info(
+                        "Broadcasting op_ended and draining %s active member websocket(s) "
+                        "before shutdown.",
+                        conn_manager.connected_count,
+                    )
+                    await conn_manager.broadcast({"type": "op_ended"})
                 await conn_manager.disconnect_all()
             server.should_exit = True
             return
