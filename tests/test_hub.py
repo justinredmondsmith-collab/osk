@@ -1339,3 +1339,22 @@ async def test_watch_for_stop_request_sets_server_should_exit(tmp_path: Path) ->
         await task
 
     assert server.should_exit is True
+
+
+async def test_watch_for_stop_request_drains_connections_before_exit(tmp_path: Path) -> None:
+    class DummyServer:
+        should_exit = False
+
+    server = DummyServer()
+    conn_manager = SimpleNamespace(connected_count=2, disconnect_all=AsyncMock())
+    stop_path = tmp_path / "hub-stop-request.json"
+    with patch("osk.hub._config_root", return_value=tmp_path):
+        task = asyncio.create_task(
+            watch_for_stop_request(server, conn_manager=conn_manager, poll_seconds=0.01)
+        )
+        await asyncio.sleep(0.02)
+        stop_path.write_text('{"requested_at": 1, "preserve_operation": true}\n')
+        await task
+
+    assert server.should_exit is True
+    conn_manager.disconnect_all.assert_awaited_once()

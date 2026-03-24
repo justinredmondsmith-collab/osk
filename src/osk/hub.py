@@ -416,7 +416,11 @@ async def wait_for_database(database_url: str, timeout_seconds: float = 30.0) ->
     raise HubBootstrapError(f"Database did not become ready within {timeout_seconds:.0f}s{detail}")
 
 
-async def watch_for_stop_request(server: uvicorn.Server, poll_seconds: float = 0.2) -> None:
+async def watch_for_stop_request(
+    server: uvicorn.Server,
+    conn_manager: ConnectionManager | None = None,
+    poll_seconds: float = 0.2,
+) -> None:
     while not server.should_exit:
         if _shutdown_requested():
             preserve_operation = bool((_read_stop_request() or {}).get("preserve_operation"))
@@ -424,6 +428,12 @@ async def watch_for_stop_request(server: uvicorn.Server, poll_seconds: float = 0
                 "Received graceful hub shutdown request (preserve_operation=%s).",
                 preserve_operation,
             )
+            if conn_manager is not None and conn_manager.connected_count:
+                logger.info(
+                    "Draining %s active member websocket(s) before shutdown.",
+                    conn_manager.connected_count,
+                )
+                await conn_manager.disconnect_all()
             server.should_exit = True
             return
         await asyncio.sleep(poll_seconds)
@@ -854,9 +864,10 @@ async def run_hub(name: str) -> None:
                 ssl_certfile=config.tls_cert_path,
                 ssl_keyfile=config.tls_key_path,
                 log_level="info",
+                timeout_graceful_shutdown=config.hub_graceful_shutdown_timeout_seconds,
             )
         )
-        stop_watcher = asyncio.create_task(watch_for_stop_request(server))
+        stop_watcher = asyncio.create_task(watch_for_stop_request(server, conn_manager))
         heartbeat_watcher = asyncio.create_task(
             watch_member_heartbeats(
                 op_manager,

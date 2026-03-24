@@ -488,6 +488,7 @@ def test_restart_scenario_records_resume_step_and_hardening_tasks(
     validation = _load_module()
     _set_provenance_env(monkeypatch)
     artifact_root = tmp_path / "artifacts"
+    tunnel_state = {"active": False}
 
     monkeypatch.setattr(
         validation,
@@ -506,7 +507,11 @@ def test_restart_scenario_records_resume_step_and_hardening_tasks(
 
     @contextmanager
     def fake_tunnel(*_args, **_kwargs):
-        yield
+        tunnel_state["active"] = True
+        try:
+            yield
+        finally:
+            tunnel_state["active"] = False
 
     monkeypatch.setattr(validation, "choose_local_port", lambda: 9333)
     monkeypatch.setattr(validation, "managed_ssh_tunnel", fake_tunnel)
@@ -561,10 +566,9 @@ def test_restart_scenario_records_resume_step_and_hardening_tasks(
             },
         },
     )
-    monkeypatch.setattr(
-        validation,
-        "_run_restart_resume_check",
-        lambda **_kwargs: {
+    def fake_restart_resume_check(**_kwargs):
+        assert tunnel_state["active"] is True
+        return {
             "step_update": {
                 "id": "hub_restart_resume_observed",
                 "status": "failed_hardening_task",
@@ -580,8 +584,9 @@ def test_restart_scenario_records_resume_step_and_hardening_tasks(
                 ],
                 "restart_resume_status": "failed_hardening_task",
             },
-        },
-    )
+        }
+
+    monkeypatch.setattr(validation, "_run_restart_resume_check", fake_restart_resume_check)
 
     code = validation.main(
         [

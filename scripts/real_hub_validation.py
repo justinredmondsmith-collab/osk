@@ -1331,6 +1331,14 @@ def main(argv: list[str] | None = None) -> int:
                 args=args,
                 artifact_dir=artifact_dir,
             )
+            if args.scenario == "restart":
+                restart_result = _run_restart_resume_check(
+                    args=args,
+                    artifact_dir=artifact_dir,
+                    local_debug_port=local_debug_port,
+                    cdp_version=cdp_version,
+                    live_result=live_result,
+                )
     except Exception as exc:
         if isinstance(exc, RealHubRunFailed):
             live_result = exc.state.result()
@@ -1383,13 +1391,6 @@ def main(argv: list[str] | None = None) -> int:
     )
     payload["summary"] = _merge_summary(payload.get("summary"), operator_closure["summary"])
     if args.scenario == "restart":
-        restart_result = _run_restart_resume_check(
-            args=args,
-            artifact_dir=artifact_dir,
-            local_debug_port=local_debug_port,
-            cdp_version=cdp_version,
-            live_result=live_result,
-        )
         payload["steps"] = _merge_step_updates(
             [*payload["steps"], restart_result["step_update"]],
             scenario=args.scenario,
