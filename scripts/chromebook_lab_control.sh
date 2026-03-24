@@ -18,6 +18,7 @@ Options:
   --ssh-port PORT          SSH port for the Chromebook control path
   --ssh-identity PATH      SSH private key used for the Chromebook control path
   --chrome-binary PATH     Chrome binary or command on the Chromebook (default: chromium)
+  --chrome-flag FLAG       Extra Chrome flag to pass through at launch (repeatable)
   --profile-dir PATH       Disposable browser profile path (default: /var/tmp/osk-chromebook-lab)
   --debug-port PORT        Remote debugging port (default: 9222)
   --window-size WxH        Browser window size for launch (default: 1440,900)
@@ -144,20 +145,25 @@ emit_crostini_gui_diagnostics' \
 }
 
 build_launch_remote() {
-  local gui_env_function remote
+  local gui_env_function remote flag
   gui_env_function="$(declare -f detect_crostini_gui_env)"
   printf -v remote \
     'set -euo pipefail
 %s
 mkdir -p -- %q
 detect_crostini_gui_env
-nohup %q --user-data-dir=%q --remote-debugging-port=%q --no-first-run --no-default-browser-check --disable-sync --disable-background-networking --window-size=%q ${ozone_flag:+${ozone_flag} }%q >%q 2>&1 </dev/null & echo $! > %q' \
+nohup %q --user-data-dir=%q --remote-debugging-port=%q --no-first-run --no-default-browser-check --disable-sync --disable-background-networking --window-size=%q ' \
     "${gui_env_function}" \
     "${PROFILE_DIR}" \
     "${CHROME_BINARY}" \
     "${PROFILE_DIR}" \
     "${DEBUG_PORT}" \
-    "${WINDOW_SIZE}" \
+    "${WINDOW_SIZE}"
+  for flag in "${CHROME_FLAGS[@]}"; do
+    printf -v remote '%s%q ' "${remote}" "${flag}"
+  done
+  printf -v remote '%s${ozone_flag:+${ozone_flag} }%q >%q 2>&1 </dev/null & echo $! > %q' \
+    "${remote}" \
     "${START_URL}" \
     "${BROWSER_LOG}" \
     "${PID_FILE}"
@@ -225,6 +231,7 @@ main() {
   SSH_PORT=""
   SSH_IDENTITY=""
   CHROME_BINARY="chromium"
+  CHROME_FLAGS=()
   PROFILE_DIR="/var/tmp/osk-chromebook-lab"
   DEBUG_PORT="9222"
   WINDOW_SIZE="1440,900"
@@ -249,6 +256,10 @@ main() {
         ;;
       --chrome-binary)
         CHROME_BINARY="${2:?missing value for --chrome-binary}"
+        shift 2
+        ;;
+      --chrome-flag)
+        CHROME_FLAGS+=("${2:?missing value for --chrome-flag}")
         shift 2
         ;;
       --profile-dir)

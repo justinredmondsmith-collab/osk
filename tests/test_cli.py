@@ -14,15 +14,29 @@ def test_parse_start() -> None:
 def test_parse_stop() -> None:
     args = parse_args(["stop"])
     assert args.command == "stop"
+    assert args.restart is False
     assert args.services is False
     assert args.timeout == 10.0
 
 
 def test_parse_stop_with_options() -> None:
-    args = parse_args(["stop", "--services", "--timeout", "5"])
+    args = parse_args(["stop", "--services", "--restart", "--timeout", "5"])
     assert args.command == "stop"
+    assert args.restart is True
     assert args.services is True
     assert args.timeout == 5.0
+
+
+@patch("osk.hub.stop_hub", return_value=0)
+def test_stop_command_forwards_restart_flag(mock_stop_hub: MagicMock) -> None:
+    code = main(["stop", "--restart", "--timeout", "5"])
+
+    assert code == 0
+    mock_stop_hub.assert_called_once_with(
+        wait_seconds=5.0,
+        stop_services=False,
+        preserve_operation=True,
+    )
 
 
 def test_parse_status() -> None:
@@ -749,7 +763,11 @@ def test_doctor_reports_missing_install_assets(
 def test_stop_command_invokes_hub_stop(mock_stop_hub: MagicMock) -> None:
     code = main(["stop", "--services", "--timeout", "3"])
     assert code == 0
-    mock_stop_hub.assert_called_once_with(wait_seconds=3.0, stop_services=True)
+    mock_stop_hub.assert_called_once_with(
+        wait_seconds=3.0,
+        stop_services=True,
+        preserve_operation=False,
+    )
 
 
 @patch("osk.hub.status_hub", return_value=0)

@@ -117,6 +117,26 @@ def test_launch_dry_run_uses_explicit_user_data_dir() -> None:
     assert "/opt/google/chrome/chrome" in launch_command
 
 
+def test_launch_dry_run_includes_extra_chrome_flags() -> None:
+    result = _run_script(
+        "launch",
+        "--ssh-target",
+        "lab-book",
+        "--chrome-flag",
+        "--ignore-certificate-errors",
+        "--chrome-flag",
+        "--allow-insecure-localhost",
+        "--dry-run",
+        "--json",
+    )
+
+    assert result.returncode == 0
+    payload = json.loads(result.stdout)
+    launch_command = payload["steps"][0]["command"]
+    assert "--ignore-certificate-errors" in launch_command
+    assert "--allow-insecure-localhost" in launch_command
+
+
 def test_prepare_dry_run_includes_non_default_ssh_port() -> None:
     result = _run_script(
         "prepare",

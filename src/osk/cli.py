@@ -291,7 +291,11 @@ def _cmd_status(_: argparse.Namespace) -> int:
 def _cmd_stop(args: argparse.Namespace) -> int:
     from .hub import stop_hub
 
-    return stop_hub(wait_seconds=args.timeout, stop_services=args.services)
+    return stop_hub(
+        wait_seconds=args.timeout,
+        stop_services=args.services,
+        preserve_operation=args.restart,
+    )
 
 
 def _cmd_config(args: argparse.Namespace) -> int:
@@ -782,6 +786,14 @@ def build_parser() -> argparse.ArgumentParser:
         "--services",
         action="store_true",
         help="Also stop local Compose-managed services used by the current phase.",
+    )
+    stop_parser.add_argument(
+        "--restart",
+        action="store_true",
+        help=(
+            "Stop the coordinator without ending the current operation so a later "
+            "start can resume it."
+        ),
     )
     stop_parser.add_argument(
         "--timeout",

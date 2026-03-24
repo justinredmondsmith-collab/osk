@@ -356,7 +356,7 @@ def test_stop_hub_falls_back_to_sigterm(
             "osk.hub._pid_is_running",
             side_effect=[True, True, True, False, False],
         ),
-        patch("osk.hub.time.monotonic", side_effect=[0.0, 0.0, 0.3, 0.1]),
+        patch("osk.hub.time.monotonic", side_effect=[0.0, 0.0, 0.3, 0.3, 0.4]),
         patch(
             "osk.hub.load_config",
             return_value=OskConfig(),
@@ -392,6 +392,31 @@ def test_stop_hub_cleans_stale_state(tmp_path: Path) -> None:
     assert not state_path.exists()
     assert not bootstrap_path.exists()
     assert not session_path.exists()
+
+
+@patch("osk.hub.time.sleep")
+def test_stop_hub_preserves_operation_for_restart(
+    mock_sleep: MagicMock,
+    tmp_path: Path,
+    capsys,
+) -> None:
+    state_path = tmp_path / "hub-state.json"
+    stop_path = tmp_path / "hub-stop-request.json"
+    state_path.write_text('{"pid": 4321, "operation_name": "March"}\n')
+    with (
+        patch("osk.hub._config_root", return_value=tmp_path),
+        patch("osk.hub._pid_is_running", side_effect=[True, False, False, False]),
+        patch("osk.hub.time.monotonic", side_effect=[0.0, 0.0, 0.1]),
+        patch("osk.hub.load_config", return_value=OskConfig()),
+    ):
+        code = stop_hub(wait_seconds=1, preserve_operation=True)
+
+    out = capsys.readouterr().out
+    assert code == 0
+    assert "Restarting Osk hub for 'March'" in out
+    assert "without ending the operation" in out
+    assert not state_path.exists()
+    assert not stop_path.exists()
 
 
 @patch("osk.hub.read_operator_session", return_value=None)

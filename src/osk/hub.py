@@ -308,10 +308,31 @@ def _clear_hub_state() -> None:
     _hub_state_path().unlink(missing_ok=True)
 
 
-def _request_hub_shutdown() -> None:
+def _request_hub_shutdown(*, preserve_operation: bool = False) -> None:
     request_path = _hub_stop_request_path()
     request_path.parent.mkdir(parents=True, exist_ok=True)
-    request_path.write_text(json.dumps({"requested_at": int(time.time())}) + "\n")
+    request_path.write_text(
+        json.dumps(
+            {
+                "requested_at": int(time.time()),
+                "preserve_operation": preserve_operation,
+            }
+        )
+        + "\n"
+    )
+
+
+def _read_stop_request() -> dict[str, object] | None:
+    request_path = _hub_stop_request_path()
+    if not request_path.exists():
+        return None
+    try:
+        payload = json.loads(request_path.read_text())
+    except json.JSONDecodeError:
+        return {"preserve_operation": False}
+    if not isinstance(payload, dict):
+        return {"preserve_operation": False}
+    return payload
 
 
 def _clear_stop_request() -> None:
@@ -398,7 +419,11 @@ async def wait_for_database(database_url: str, timeout_seconds: float = 30.0) ->
 async def watch_for_stop_request(server: uvicorn.Server, poll_seconds: float = 0.2) -> None:
     while not server.should_exit:
         if _shutdown_requested():
-            logger.info("Received graceful hub shutdown request.")
+            preserve_operation = bool((_read_stop_request() or {}).get("preserve_operation"))
+            logger.info(
+                "Received graceful hub shutdown request (preserve_operation=%s).",
+                preserve_operation,
+            )
             server.should_exit = True
             return
         await asyncio.sleep(poll_seconds)
@@ -847,6 +872,8 @@ async def run_hub(name: str) -> None:
             heartbeat_watcher.cancel()
             await asyncio.gather(stop_watcher, heartbeat_watcher, return_exceptions=True)
     finally:
+        stop_request = _read_stop_request() or {}
+        preserve_operation = bool(stop_request.get("preserve_operation"))
         print("\nShutting down...")
         _clear_hub_state()
         _clear_stop_request()
@@ -854,10 +881,16 @@ async def run_hub(name: str) -> None:
         clear_dashboard_session()
         clear_bootstrap_session()
         clear_operator_session()
-        await conn_manager.broadcast({"type": "op_ended"})
+        if not preserve_operation:
+            await conn_manager.broadcast({"type": "op_ended"})
         if intelligence_service is not None:
             await intelligence_service.stop()
-        if db_connected and op_manager is not None and op_manager.operation is not None:
+        if (
+            db_connected
+            and op_manager is not None
+            and op_manager.operation is not None
+            and not preserve_operation
+        ):
             await op_manager.stop()
         await db.close()
         if luks_open:
@@ -891,7 +924,12 @@ def run_hub_sync(name: str) -> int:
     return 0
 
 
-def stop_hub(wait_seconds: float = 10.0, *, stop_services: bool = False) -> int:
+def stop_hub(
+    wait_seconds: float = 10.0,
+    *,
+    stop_services: bool = False,
+    preserve_operation: bool = False,
+) -> int:
     config = load_config()
     state = read_hub_state()
     if state is None:
@@ -913,8 +951,11 @@ def stop_hub(wait_seconds: float = 10.0, *, stop_services: bool = False) -> int:
         return 0
 
     operation_name = state.get("operation_name", "unknown")
-    print(f"Stopping Osk hub for '{operation_name}' (pid {pid})...")
-    _request_hub_shutdown()
+    if preserve_operation:
+        print(f"Restarting Osk hub for '{operation_name}' (pid {pid})...")
+    else:
+        print(f"Stopping Osk hub for '{operation_name}' (pid {pid})...")
+    _request_hub_shutdown(preserve_operation=preserve_operation)
 
     deadline = time.monotonic() + wait_seconds
     while time.monotonic() < deadline:
@@ -925,7 +966,8 @@ def stop_hub(wait_seconds: float = 10.0, *, stop_services: bool = False) -> int:
     if _pid_is_running(pid):
         logger.warning("Graceful shutdown timed out; sending SIGTERM to pid %s", pid)
         os.kill(pid, signal.SIGTERM)
-        while time.monotonic() < deadline:
+        sigterm_deadline = time.monotonic() + wait_seconds
+        while time.monotonic() < sigterm_deadline:
             if not _pid_is_running(pid):
                 break
             time.sleep(0.2)
@@ -942,7 +984,10 @@ def stop_hub(wait_seconds: float = 10.0, *, stop_services: bool = False) -> int:
     clear_operator_session()
     if stop_services:
         stop_local_services(config)
-    print("Osk hub stopped.")
+    if preserve_operation:
+        print("Osk hub stopped without ending the operation.")
+    else:
+        print("Osk hub stopped.")
     return 0
 
 
