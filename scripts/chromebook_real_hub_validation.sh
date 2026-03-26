@@ -127,6 +127,7 @@ export OSK_SMOKE_INVOCATION="${OSK_SMOKE_INVOCATION:-chromebook_real_hub_validat
 RUN_DIR="${ARTIFACT_ROOT}/${RUN_LABEL}"
 mkdir -p "${RUN_DIR}"
 RESULT_PATH="${RUN_DIR}/result.json"
+HANDOFF_PATH="${RUN_DIR}/operator-handoff.json"
 PREFLIGHT_RAW_PATH="${RUN_DIR}/launch-preflight.txt"
 PREFLIGHT_JSON_PATH="${RUN_DIR}/launch-preflight.json"
 
@@ -223,6 +224,7 @@ result_payload = {
         "members_snapshot_path": None,
         "member_shell_smoke_latest_path": None,
         "member_shell_smoke_result_path": None,
+        "operator_handoff_path": None,
         "operator_session_bootstrap_path": None,
         "status_snapshot_path": None,
         "cdp_version_path": None,
@@ -435,6 +437,13 @@ sync_result_metadata
 echo
 echo "Chromebook real-hub validation artifacts:"
 echo "  run dir:    ${RUN_DIR}"
-echo "  result:     ${RUN_DIR}/result.json"
+if [[ -f "${HANDOFF_PATH}" ]]; then
+  echo "  handoff:    ${HANDOFF_PATH}"
+fi
+echo "  result:     ${RESULT_PATH}"
 echo "  latest:     ${ARTIFACT_ROOT}/latest.json"
-echo "  note:       inspect result.json for scenario-specific restart and wipe follow-up states"
+if [[ -f "${HANDOFF_PATH}" ]]; then
+  echo "  note:       inspect operator-handoff.json first, then follow its recommended artifacts"
+else
+  echo "  note:       inspect result.json for scenario-specific restart and wipe follow-up states"
+fi

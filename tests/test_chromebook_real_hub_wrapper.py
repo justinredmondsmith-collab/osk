@@ -50,8 +50,21 @@ def _write_validation_runner_stub(path: Path) -> Path:
             artifact_root = Path(read_arg("--artifact-root"))
             run_label = read_arg("--timestamp")
             result_path = artifact_root / run_label / "result.json"
+            handoff_path = artifact_root / run_label / "operator-handoff.json"
             args_path = artifact_root / run_label / "runner-args.json"
             args_path.write_text(json.dumps(args, indent=2) + "\\n")
+            handoff_path.write_text(
+                json.dumps(
+                    {
+                        "status": "passed",
+                        "summary": {"message": "stub handoff"},
+                        "recommended_artifacts": {"result_path": str(result_path)},
+                    },
+                    indent=2,
+                    sort_keys=True,
+                )
+                + "\\n"
+            )
             payload = {
                 "contract_version": 1,
                 "status": "passed",
@@ -71,6 +84,7 @@ def _write_validation_runner_stub(path: Path) -> Path:
                     "members_snapshot_path": None,
                     "member_shell_smoke_latest_path": None,
                     "member_shell_smoke_result_path": None,
+                    "operator_handoff_path": str(handoff_path),
                     "operator_session_bootstrap_path": None,
                     "status_snapshot_path": None,
                     "cdp_version_path": None,
@@ -214,12 +228,15 @@ def test_wrapper_prepares_launches_and_forwards_real_hub_args(tmp_path: Path) ->
         "members_snapshot_path": None,
         "member_shell_smoke_latest_path": None,
         "member_shell_smoke_result_path": None,
+        "operator_handoff_path": str(run_dir / "operator-handoff.json"),
         "operator_session_bootstrap_path": None,
         "status_snapshot_path": None,
         "wipe_readiness_path": None,
     }
     assert latest["captures"] == payload["captures"]
     assert latest["status"] == "passed"
+    assert f"handoff:    {run_dir / 'operator-handoff.json'}" in result.stdout
+    assert "inspect operator-handoff.json first" in result.stdout
 
 
 def test_wrapper_records_prepare_failure_before_runner_executes(tmp_path: Path) -> None:
@@ -254,6 +271,7 @@ def test_wrapper_records_prepare_failure_before_runner_executes(tmp_path: Path) 
         "members_snapshot_path": None,
         "member_shell_smoke_latest_path": None,
         "member_shell_smoke_result_path": None,
+        "operator_handoff_path": None,
         "operator_session_bootstrap_path": None,
         "status_snapshot_path": None,
         "wipe_readiness_path": None,

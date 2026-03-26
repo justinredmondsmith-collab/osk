@@ -74,6 +74,10 @@ bash scripts/chromebook_real_hub_validation.sh \
   --scenario restart
 ```
 
+On successful runs the wrapper now prints the `operator-handoff.json` path
+first. Use that as the first artifact to inspect from the shell before opening
+`result.json` or the underlying closure and audit artifacts.
+
 Stop the hub and local services after the run:
 
 ```bash
