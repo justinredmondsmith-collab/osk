@@ -198,92 +198,11 @@ jobs:
         env:
           LATEST_PATH: ${{ steps.artifacts.outputs.latest_path }}
         run: |
-          python - <<'PY'
-          import json
-          import os
-          from pathlib import Path
-
-          latest_path = Path(os.environ["LATEST_PATH"])
-          payload = json.loads(latest_path.read_text())
-          provenance = payload.get("provenance") or {}
-          handoff = payload.get("operator_handoff") or {}
-
-          summary = {
-              "status": payload.get("status") or "",
-              "trigger": provenance.get("trigger") or "",
-              "branch": provenance.get("git_branch") or "",
-              "git_sha": provenance.get("git_sha") or "",
-              "artifact_dir": payload.get("artifact_dir") or "",
-              "result_path": payload.get("result_path") or "",
-              "handoff_path": handoff.get("path") or "",
-              "operator_closure_status": handoff.get("operator_closure_status") or "",
-              "operator_closure_state": handoff.get("operator_closure_state") or "",
-              "wipe_observed_status": handoff.get("wipe_observed_status") or "",
-              "follow_up_required": handoff.get("follow_up_required"),
-              "unresolved_follow_up_count": handoff.get("unresolved_follow_up_count"),
-              "follow_up_summary": handoff.get("follow_up_summary") or "",
-              "latest_path": str(latest_path),
-          }
-
-          output_lines = [
-              f"status={summary['status']}",
-              f"handoff_path={summary['handoff_path']}",
-              f"operator_closure_status={summary['operator_closure_status']}",
-              f"operator_closure_state={summary['operator_closure_state']}",
-              f"wipe_observed_status={summary['wipe_observed_status']}",
-              "follow_up_required="
-              + (
-                  ""
-                  if summary["follow_up_required"] is None
-                  else str(summary["follow_up_required"])
-              ),
-              "unresolved_follow_up_count="
-              + (
-                  ""
-                  if summary["unresolved_follow_up_count"] is None
-                  else str(summary["unresolved_follow_up_count"])
-              ),
-          ]
-          Path(os.environ["GITHUB_OUTPUT"]).write_text(
-              "\n".join(output_lines) + "\n",
-              encoding="utf-8",
-          )
-
-          summary_lines = [
-              "# Chromebook Real Hub Gate",
-              "",
-              f"- Status: `{summary['status'] or '<unknown>'}`",
-              f"- Trigger: `{summary['trigger'] or '<unknown>'}`",
-              f"- Branch: `{summary['branch'] or '<unknown>'}`",
-              f"- Git SHA: `{summary['git_sha'] or '<unknown>'}`",
-              f"- Run Dir: `{summary['artifact_dir'] or '<unknown>'}`",
-              f"- Result: `{summary['result_path'] or '<unknown>'}`",
-              f"- Latest: `{summary['latest_path']}`",
-          ]
-          if summary["handoff_path"]:
-              summary_lines.append(f"- Handoff: `{summary['handoff_path']}`")
-          if summary["operator_closure_status"] or summary["operator_closure_state"]:
-              summary_lines.append(
-                  "- Closure: "
-                  f"`{summary['operator_closure_status'] or '<unknown>'}` / "
-                  f"`{summary['operator_closure_state'] or '<unknown>'}`"
-              )
-          if summary["wipe_observed_status"]:
-              summary_lines.append(f"- Wipe: `{summary['wipe_observed_status']}`")
-          if summary["follow_up_required"] is not None:
-              summary_lines.append(f"- Follow Up Required: `{summary['follow_up_required']}`")
-          if summary["unresolved_follow_up_count"] is not None:
-              summary_lines.append(
-                  f"- Unresolved Follow Up Count: `{summary['unresolved_follow_up_count']}`"
-              )
-          if summary["follow_up_summary"]:
-              summary_lines.append(f"- Note: {summary['follow_up_summary']}")
-
-          Path(os.environ["GITHUB_STEP_SUMMARY"]).write_text(
-              "\n".join(summary_lines) + "\n",
-              encoding="utf-8",
-          )
-          PY
+          python scripts/chromebook_real_hub_workflow_summary.py \
+            --latest-path "$LATEST_PATH" \
+            --github-output "$GITHUB_OUTPUT" \
+            --github-step-summary "$GITHUB_STEP_SUMMARY" \
+            --annotate-github
 
       - name: Upload real-hub artifacts
         if: ${{ always() && steps.artifacts.outcome == 'success' }}

@@ -104,8 +104,9 @@ For repeatable GitHub-side operation, the repo now includes a manual
 That workflow is intended for a self-hosted runner with network reachability to
 both the real hub target and the dedicated Chromebook. Operators should provide
 the current real `join_url` as a workflow input for each run; the indexed
-closure summary is then published back into the workflow job summary and the
-resolved run artifacts are uploaded from the runner.
+closure summary is then published back into the workflow job summary, surfaced
+as a workflow annotation for clear/open/failed closure state, and the resolved
+run artifacts are uploaded from the runner.
 
 To inspect the latest indexed real-hub result without opening run-local JSON
 files directly:
