@@ -858,8 +858,8 @@ def build_parser() -> argparse.ArgumentParser:
         "--wipe-follow-up-only",
         action="store_true",
         help=(
-            "Limit results to wipe follow-up review, verification, and reopen "
-            "audit events."
+            "Limit results to wipe follow-up review, retirement, verification, "
+            "and reopen audit events."
         ),
     )
     audit_parser.add_argument(

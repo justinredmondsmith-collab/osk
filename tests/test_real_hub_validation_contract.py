@@ -146,6 +146,9 @@ def test_dry_run_writes_real_hub_contract_result(
         "doctor_snapshot_path": None,
         "hub_preflight_path": str(preflight_path),
         "members_snapshot_path": None,
+        "member_shell_smoke_latest_path": None,
+        "member_shell_smoke_result_path": None,
+        "operator_session_bootstrap_path": None,
         "status_snapshot_path": None,
         "wipe_readiness_path": None,
     }
@@ -283,6 +286,34 @@ def test_non_dry_run_executes_real_hub_browser_flow(
         },
     )
     monkeypatch.setattr(validation, "run_live_flow", fake_run_live_flow)
+    monkeypatch.setattr(
+        validation,
+        "_capture_live_wipe_evidence",
+        lambda **_kwargs: {
+            "captures": {
+                "member_shell_smoke_latest_path": str(
+                    artifact_root / "member-shell-smoke" / "latest.json"
+                ),
+                "member_shell_smoke_result_path": str(
+                    artifact_root / "member-shell-smoke" / "20260323T180000Z" / "result.json"
+                ),
+            },
+            "step_update": {
+                "id": "wipe_observed",
+                "status": "passed",
+                "automated": True,
+                "detail": {
+                    "evidence_source": "member_shell_smoke_latest",
+                    "member_shell_smoke_run_label": "20260323T180000Z",
+                },
+            },
+            "summary": {
+                "wipe_observed_status": "captured_from_member_shell_smoke",
+                "wipe_evidence_source": "member_shell_smoke_latest",
+                "wipe_evidence_run_label": "20260323T180000Z",
+            },
+        },
+    )
 
     def fake_capture_operator_closure(*, args, artifact_dir: Path) -> dict[str, object]:
         closure_summary_path = artifact_dir / "closure-summary.json"
@@ -296,6 +327,9 @@ def test_non_dry_run_executes_real_hub_browser_flow(
         return {
             "captures": {
                 "closure_summary_path": str(closure_summary_path),
+                "operator_session_bootstrap_path": str(
+                    artifact_dir / "operator-session-bootstrap.json"
+                ),
                 "wipe_readiness_path": str(wipe_readiness_path),
                 "audit_slice_path": str(audit_slice_path),
             },
@@ -355,18 +389,28 @@ def test_non_dry_run_executes_real_hub_browser_flow(
     assert payload["captures"]["hub_preflight_path"] == str(preflight_path)
     assert payload["captures"]["cdp_version_path"] == str(cdp_version_path)
     assert payload["captures"]["closure_summary_path"] == str(closure_summary_path)
+    assert payload["captures"]["operator_session_bootstrap_path"] == str(
+        artifact_root / "20260323T190405Z" / "operator-session-bootstrap.json"
+    )
     assert payload["captures"]["wipe_readiness_path"] == str(wipe_readiness_path)
     assert payload["captures"]["audit_slice_path"] == str(audit_slice_path)
+    assert payload["captures"]["member_shell_smoke_latest_path"] == str(
+        artifact_root / "member-shell-smoke" / "latest.json"
+    )
+    assert payload["captures"]["member_shell_smoke_result_path"] == str(
+        artifact_root / "member-shell-smoke" / "20260323T180000Z" / "result.json"
+    )
     assert len(payload["steps"]) == 6
     assert [step["status"] for step in payload["steps"]] == [
         "passed",
         "passed",
         "passed",
         "passed",
-        "manual_follow_up",
+        "passed",
         "passed",
     ]
     assert payload["summary"]["member_id"] == "member-123"
+    assert payload["summary"]["wipe_observed_status"] == "captured_from_member_shell_smoke"
     assert payload["summary"]["operator_closure_status"] == "captured"
     assert payload["summary"]["operator_closure_state"] == "captured_open_follow_up"
     assert payload["failure"] is None
@@ -458,12 +502,36 @@ def test_non_dry_run_records_partial_operator_closure_when_unavailable(
     )
     monkeypatch.setattr(
         validation,
+        "_capture_live_wipe_evidence",
+        lambda **_kwargs: {
+            "captures": {
+                "member_shell_smoke_latest_path": None,
+                "member_shell_smoke_result_path": None,
+            },
+            "step_update": {
+                "id": "wipe_observed",
+                "status": "manual_follow_up",
+                "automated": False,
+                "detail": {
+                    "message": "No member-shell smoke artifact was available for wipe evidence.",
+                    "evidence_source": "member_shell_smoke_latest",
+                },
+            },
+            "summary": {
+                "wipe_observed_status": "manual_follow_up",
+                "wipe_evidence_source": "member_shell_smoke_latest",
+            },
+        },
+    )
+    monkeypatch.setattr(
+        validation,
         "_capture_operator_closure",
         lambda **_kwargs: {
             "captures": {
                 "closure_summary_path": str(
                     artifact_root / "20260323T190405Z" / "closure-summary.json"
                 ),
+                "operator_session_bootstrap_path": None,
                 "wipe_readiness_path": None,
                 "audit_slice_path": None,
             },
@@ -505,10 +573,14 @@ def test_non_dry_run_records_partial_operator_closure_when_unavailable(
     assert payload["captures"]["closure_summary_path"] == str(
         artifact_root / "20260323T190405Z" / "closure-summary.json"
     )
+    assert payload["captures"]["operator_session_bootstrap_path"] is None
     assert payload["captures"]["wipe_readiness_path"] is None
     assert payload["captures"]["audit_slice_path"] is None
+    assert payload["captures"]["member_shell_smoke_latest_path"] is None
+    assert payload["captures"]["member_shell_smoke_result_path"] is None
     assert payload["steps"][-1]["id"] == "operator_closure_captured"
     assert payload["steps"][-1]["status"] == "manual_follow_up"
+    assert payload["summary"]["wipe_observed_status"] == "manual_follow_up"
     assert payload["summary"]["operator_closure_status"] == "unavailable"
     assert payload["summary"]["operator_closure_state"] == "unavailable"
 
@@ -520,11 +592,22 @@ def test_capture_operator_closure_writes_open_follow_up_summary_and_detail_artif
 
     member_id = "11111111-1111-1111-1111-111111111111"
     detail_path = tmp_path / f"wipe-follow-up-{member_id}.json"
+    bootstrap_path = tmp_path / "operator-session-bootstrap.json"
 
     monkeypatch.setattr(
         validation,
-        "_local_admin_headers",
-        lambda: ({"X-Test-Auth": "ok"}, "test_credentials"),
+        "_resolve_local_admin_access",
+        lambda **_kwargs: {
+            "headers": {"X-Test-Auth": "ok"},
+            "credential_source": "bootstrap_operator_session",
+            "bootstrap_status": "created",
+            "bootstrap_message": None,
+            "bootstrap_capture_path": str(bootstrap_path),
+            "bootstrap_response": {
+                "issued_from": "bootstrap",
+                "operator_session_active": True,
+            },
+        },
     )
     monkeypatch.setattr(validation, "_httpx_verify_for_url", lambda _url: True)
 
@@ -616,10 +699,13 @@ def test_capture_operator_closure_writes_open_follow_up_summary_and_detail_artif
     detail = json.loads(detail_path.read_text())
 
     assert result["captures"]["closure_summary_path"] == str(closure_summary_path)
+    assert result["captures"]["operator_session_bootstrap_path"] == str(bootstrap_path)
     assert result["captures"]["wipe_readiness_path"] == str(wipe_readiness_path)
     assert result["captures"]["audit_slice_path"] == str(audit_slice_path)
     assert payload["closure_state"] == "captured_open_follow_up"
-    assert payload["credential_source"] == "test_credentials"
+    assert payload["credential_source"] == "bootstrap_operator_session"
+    assert payload["operator_bootstrap_status"] == "created"
+    assert payload["operator_session_bootstrap_path"] == str(bootstrap_path)
     assert payload["unresolved_follow_up_count"] == 1
     assert payload["active_unresolved_follow_up_count"] == 0
     assert payload["historical_drift_follow_up_count"] == 1
@@ -630,7 +716,9 @@ def test_capture_operator_closure_writes_open_follow_up_summary_and_detail_artif
     assert payload["follow_up_history_summary"] == "Recent follow-up trail: 1 reviewed."
     assert payload["follow_up_detail_paths"] == {member_id: str(detail_path)}
     assert result["summary"]["operator_closure_state"] == "captured_open_follow_up"
+    assert result["summary"]["operator_bootstrap_status"] == "created"
     assert result["step_update"]["detail"]["closure_state"] == "captured_open_follow_up"
+    assert result["step_update"]["detail"]["operator_bootstrap_status"] == "created"
     assert detail["member_id"] == member_id
     assert detail["follow_up"]["resolution"] == "unresolved"
 
@@ -645,8 +733,15 @@ def test_capture_operator_closure_writes_detail_artifacts_for_recent_history_mem
 
     monkeypatch.setattr(
         validation,
-        "_local_admin_headers",
-        lambda: ({"X-Test-Auth": "ok"}, "test_credentials"),
+        "_resolve_local_admin_access",
+        lambda **_kwargs: {
+            "headers": {"X-Test-Auth": "ok"},
+            "credential_source": "test_credentials",
+            "bootstrap_status": None,
+            "bootstrap_message": None,
+            "bootstrap_capture_path": None,
+            "bootstrap_response": None,
+        },
     )
     monkeypatch.setattr(validation, "_httpx_verify_for_url", lambda _url: True)
 
@@ -746,7 +841,19 @@ def test_capture_operator_closure_writes_unavailable_summary_when_credentials_mi
 ) -> None:
     validation = _load_module()
 
-    monkeypatch.setattr(validation, "_local_admin_headers", lambda: (None, None))
+    bootstrap_path = tmp_path / "operator-session-bootstrap.json"
+    monkeypatch.setattr(
+        validation,
+        "_resolve_local_admin_access",
+        lambda **_kwargs: {
+            "headers": None,
+            "credential_source": None,
+            "bootstrap_status": "failed",
+            "bootstrap_message": "No active operator bootstrap is available for this hub instance.",
+            "bootstrap_capture_path": str(bootstrap_path),
+            "bootstrap_response": None,
+        },
+    )
 
     result = validation._capture_operator_closure(
         args=SimpleNamespace(hub_url="https://10.0.0.60:8444", timeout_seconds=20.0),
@@ -757,13 +864,207 @@ def test_capture_operator_closure_writes_unavailable_summary_when_credentials_mi
     payload = json.loads(closure_summary_path.read_text())
 
     assert result["captures"]["closure_summary_path"] == str(closure_summary_path)
+    assert result["captures"]["operator_session_bootstrap_path"] == str(bootstrap_path)
     assert result["captures"]["wipe_readiness_path"] is None
     assert result["captures"]["audit_slice_path"] is None
     assert payload["closure_state"] == "unavailable"
     assert payload["credential_source"] is None
+    assert payload["operator_bootstrap_status"] == "failed"
+    assert payload["operator_bootstrap_message"] == (
+        "No active operator bootstrap is available for this hub instance."
+    )
+    assert payload["operator_session_bootstrap_path"] == str(bootstrap_path)
     assert payload["follow_up_detail_paths"] == {}
     assert result["summary"]["operator_closure_state"] == "unavailable"
+    assert result["summary"]["operator_bootstrap_status"] == "failed"
     assert result["step_update"]["detail"]["closure_state"] == "unavailable"
+    assert result["step_update"]["detail"]["operator_bootstrap_status"] == "failed"
+
+
+def test_resolve_local_admin_access_bootstraps_operator_session_when_missing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    validation = _load_module()
+    repo_root = tmp_path / "repo"
+    artifact_dir = tmp_path / "artifacts"
+    artifact_dir.mkdir()
+
+    state = {"headers_ready": False}
+
+    def fake_local_admin_headers():
+        if state["headers_ready"]:
+            return {"X-Osk-Operator-Session": "token-123"}, "local_operator_session"
+        return None, None
+
+    def fake_bootstrap(*, repo_root: Path, artifact_dir: Path) -> dict[str, object]:
+        state["headers_ready"] = True
+        return {
+            "ok": True,
+            "status": "created",
+            "message": None,
+            "capture_path": str(artifact_dir / "operator-session-bootstrap.json"),
+            "response": {"issued_from": "bootstrap"},
+        }
+
+    monkeypatch.setattr(validation, "_local_admin_headers", fake_local_admin_headers)
+    monkeypatch.setattr(validation, "_bootstrap_local_operator_session", fake_bootstrap)
+
+    result = validation._resolve_local_admin_access(repo_root=repo_root, artifact_dir=artifact_dir)
+
+    assert result["headers"] == {"X-Osk-Operator-Session": "token-123"}
+    assert result["credential_source"] == "bootstrap_operator_session"
+    assert result["bootstrap_status"] == "created"
+    assert result["bootstrap_capture_path"] == str(
+        artifact_dir / "operator-session-bootstrap.json"
+    )
+
+
+def test_bootstrap_local_operator_session_writes_attempt_artifact(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    validation = _load_module()
+
+    monkeypatch.setattr(
+        validation,
+        "_run_osk_cli",
+        lambda repo_root, cli_args, timeout_seconds=None: SimpleNamespace(
+            args=[str(repo_root), *cli_args],
+            returncode=0,
+            stdout=json.dumps(
+                {
+                    "bootstrap_consumed": True,
+                    "issued_from": "bootstrap",
+                    "operator_session_active": True,
+                }
+            ),
+            stderr="",
+        ),
+    )
+
+    result = validation._bootstrap_local_operator_session(
+        repo_root=tmp_path / "repo",
+        artifact_dir=tmp_path,
+    )
+
+    payload = json.loads((tmp_path / "operator-session-bootstrap.json").read_text())
+
+    assert result["ok"] is True
+    assert result["status"] == "created"
+    assert result["capture_path"] == str(tmp_path / "operator-session-bootstrap.json")
+    assert payload["returncode"] == 0
+    assert payload["response"]["issued_from"] == "bootstrap"
+
+
+def test_capture_live_wipe_evidence_uses_latest_member_shell_smoke_for_same_device(
+    tmp_path: Path,
+) -> None:
+    validation = _load_module()
+    repo_root = tmp_path / "repo"
+    artifact_root = repo_root / "output" / "chromebook" / "member-shell-smoke"
+    run_dir = artifact_root / "20260323T180000Z"
+    run_dir.mkdir(parents=True)
+
+    result_path = run_dir / "result.json"
+    result_path.write_text(
+        json.dumps(
+            {
+                "status": "passed",
+                "chromebook_host": "chromebook-lab",
+                "result_path": str(result_path),
+                "steps": [
+                    {
+                        "name": "wipe-clear",
+                        "status": "passed",
+                        "screenshot": "06-wipe-clear.png",
+                        "detail": {"wipe_status_code": 200},
+                    }
+                ],
+                "provenance": {"run_label": "20260323T180000Z"},
+            }
+        )
+        + "\n"
+    )
+    (artifact_root / "latest.json").write_text(
+        json.dumps(
+            {
+                "status": "passed",
+                "chromebook_host": "chromebook-lab",
+                "result_path": str(result_path),
+                "provenance": {"run_label": "20260323T180000Z"},
+            }
+        )
+        + "\n"
+    )
+
+    result = validation._capture_live_wipe_evidence(
+        args=SimpleNamespace(
+            device_id="chromebook-lab",
+            member_shell_artifact_root="output/chromebook/member-shell-smoke",
+        ),
+        repo_root=repo_root,
+    )
+
+    assert result["captures"]["member_shell_smoke_latest_path"] == str(
+        artifact_root / "latest.json"
+    )
+    assert result["captures"]["member_shell_smoke_result_path"] == str(result_path)
+    assert result["step_update"]["id"] == "wipe_observed"
+    assert result["step_update"]["status"] == "passed"
+    assert result["step_update"]["automated"] is True
+    assert result["step_update"]["detail"]["member_shell_smoke_run_label"] == "20260323T180000Z"
+    assert result["step_update"]["detail"]["wipe_status_code"] == 200
+    assert result["summary"]["wipe_observed_status"] == "captured_from_member_shell_smoke"
+    assert result["summary"]["wipe_evidence_run_label"] == "20260323T180000Z"
+
+
+def test_capture_live_wipe_evidence_falls_back_when_smoke_run_does_not_qualify(
+    tmp_path: Path,
+) -> None:
+    validation = _load_module()
+    repo_root = tmp_path / "repo"
+    artifact_root = repo_root / "output" / "chromebook" / "member-shell-smoke"
+    run_dir = artifact_root / "20260323T180000Z"
+    run_dir.mkdir(parents=True)
+
+    result_path = run_dir / "result.json"
+    result_path.write_text(
+        json.dumps(
+            {
+                "status": "passed",
+                "chromebook_host": "other-device",
+                "result_path": str(result_path),
+                "steps": [{"name": "wipe-clear", "status": "passed"}],
+                "provenance": {"run_label": "20260323T180000Z"},
+            }
+        )
+        + "\n"
+    )
+    (artifact_root / "latest.json").write_text(
+        json.dumps(
+            {
+                "status": "passed",
+                "chromebook_host": "other-device",
+                "result_path": str(result_path),
+                "provenance": {"run_label": "20260323T180000Z"},
+            }
+        )
+        + "\n"
+    )
+
+    result = validation._capture_live_wipe_evidence(
+        args=SimpleNamespace(
+            device_id="chromebook-lab",
+            member_shell_artifact_root="output/chromebook/member-shell-smoke",
+        ),
+        repo_root=repo_root,
+    )
+
+    assert result["captures"]["member_shell_smoke_latest_path"] is None
+    assert result["captures"]["member_shell_smoke_result_path"] is None
+    assert result["step_update"]["id"] == "wipe_observed"
+    assert result["step_update"]["status"] == "manual_follow_up"
+    assert result["step_update"]["automated"] is False
+    assert result["summary"]["wipe_observed_status"] == "manual_follow_up"
 
 
 def test_restart_scenario_records_resume_step_and_hardening_tasks(
@@ -841,6 +1142,7 @@ def test_restart_scenario_records_resume_step_and_hardening_tasks(
                 "closure_summary_path": str(
                     artifact_root / "20260323T190405Z" / "closure-summary.json"
                 ),
+                "operator_session_bootstrap_path": None,
                 "wipe_readiness_path": None,
                 "audit_slice_path": None,
             },
@@ -856,6 +1158,29 @@ def test_restart_scenario_records_resume_step_and_hardening_tasks(
             "summary": {
                 "operator_closure_status": "unavailable",
                 "operator_closure_state": "unavailable",
+            },
+        },
+    )
+    monkeypatch.setattr(
+        validation,
+        "_capture_live_wipe_evidence",
+        lambda **_kwargs: {
+            "captures": {
+                "member_shell_smoke_latest_path": None,
+                "member_shell_smoke_result_path": None,
+            },
+            "step_update": {
+                "id": "wipe_observed",
+                "status": "manual_follow_up",
+                "automated": False,
+                "detail": {
+                    "message": "No member-shell smoke artifact was available for wipe evidence.",
+                    "evidence_source": "member_shell_smoke_latest",
+                },
+            },
+            "summary": {
+                "wipe_observed_status": "manual_follow_up",
+                "wipe_evidence_source": "member_shell_smoke_latest",
             },
         },
     )
@@ -1097,6 +1422,8 @@ def test_dry_run_records_available_local_snapshot_paths(
     assert payload["captures"]["status_snapshot_path"] == str(
         artifact_root / "20260323T190405Z" / "status.json"
     )
+    assert payload["captures"]["member_shell_smoke_latest_path"] is None
+    assert payload["captures"]["member_shell_smoke_result_path"] is None
     assert preflight["local_snapshots"] == {
         "doctor": {
             "available": True,

@@ -23,6 +23,7 @@ import httpx
 from osk.chromebook_smoke_artifacts import build_provenance
 
 DEFAULT_ARTIFACT_ROOT = Path("output/validation/real-hub")
+DEFAULT_MEMBER_SHELL_ARTIFACT_ROOT = Path("output/chromebook/member-shell-smoke")
 DEFAULT_SCENARIO = "baseline"
 DEFAULT_DEBUG_PORT = 9222
 DEFAULT_TIMEOUT_SECONDS = 20.0
@@ -90,6 +91,14 @@ def build_parser() -> argparse.ArgumentParser:
         "--artifact-root",
         default=str(DEFAULT_ARTIFACT_ROOT),
         help="Root directory for timestamped real-hub validation artifacts.",
+    )
+    parser.add_argument(
+        "--member-shell-artifact-root",
+        default=str(DEFAULT_MEMBER_SHELL_ARTIFACT_ROOT),
+        help=(
+            "Artifact root for Chromebook member-shell smoke runs used to reuse "
+            "live-wipe evidence."
+        ),
     )
     parser.add_argument(
         "--scenario",
@@ -160,6 +169,16 @@ def make_artifact_dir(root: Path, *, now: datetime | None = None, label: str | N
 
 def _write_json(path: Path, payload: Any) -> None:
     path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
+
+
+def _read_json(path: Path) -> dict[str, Any] | None:
+    try:
+        payload = json.loads(path.read_text())
+    except (OSError, json.JSONDecodeError):
+        return None
+    if not isinstance(payload, dict):
+        return None
+    return payload
 
 
 def _slugify(label: str) -> str:
@@ -906,6 +925,190 @@ def _httpx_verify_for_url(url: str) -> bool:
         return True
 
 
+def _resolve_path(path_value: str | None, *, repo_root: Path) -> Path | None:
+    normalized = str(path_value or "").strip()
+    if not normalized:
+        return None
+    path = Path(normalized).expanduser()
+    if not path.is_absolute():
+        path = repo_root / path
+    return path
+
+
+def _capture_live_wipe_evidence(*, args: argparse.Namespace, repo_root: Path) -> dict[str, Any]:
+    artifact_root = _resolve_path(args.member_shell_artifact_root, repo_root=repo_root)
+    latest_path = None if artifact_root is None else artifact_root / "latest.json"
+    if latest_path is None or not latest_path.exists():
+        return {
+            "captures": {
+                "member_shell_smoke_latest_path": None,
+                "member_shell_smoke_result_path": None,
+            },
+            "step_update": {
+                "id": "wipe_observed",
+                "status": "manual_follow_up",
+                "automated": False,
+                "detail": {
+                    "message": "No member-shell smoke artifact was available for wipe evidence.",
+                    "evidence_source": "member_shell_smoke_latest",
+                },
+            },
+            "summary": {
+                "wipe_observed_status": "manual_follow_up",
+                "wipe_evidence_source": "member_shell_smoke_latest",
+            },
+        }
+
+    latest_payload = _read_json(latest_path)
+    if latest_payload is None:
+        return {
+            "captures": {
+                "member_shell_smoke_latest_path": None,
+                "member_shell_smoke_result_path": None,
+            },
+            "step_update": {
+                "id": "wipe_observed",
+                "status": "manual_follow_up",
+                "automated": False,
+                "detail": {
+                    "message": "Latest member-shell smoke index was unreadable.",
+                    "evidence_source": "member_shell_smoke_latest",
+                },
+            },
+            "summary": {
+                "wipe_observed_status": "manual_follow_up",
+                "wipe_evidence_source": "member_shell_smoke_latest",
+            },
+        }
+
+    smoke_device_id = str(
+        latest_payload.get("chromebook_host")
+        or (latest_payload.get("provenance") or {}).get("device_id")
+        or ""
+    ).strip()
+    if smoke_device_id != args.device_id:
+        return {
+            "captures": {
+                "member_shell_smoke_latest_path": None,
+                "member_shell_smoke_result_path": None,
+            },
+            "step_update": {
+                "id": "wipe_observed",
+                "status": "manual_follow_up",
+                "automated": False,
+                "detail": {
+                    "message": (
+                        "Latest member-shell smoke artifact belongs to a different Chromebook."
+                    ),
+                    "evidence_source": "member_shell_smoke_latest",
+                    "artifact_device_id": smoke_device_id or None,
+                },
+            },
+            "summary": {
+                "wipe_observed_status": "manual_follow_up",
+                "wipe_evidence_source": "member_shell_smoke_latest",
+            },
+        }
+
+    result_path = _resolve_path(str(latest_payload.get("result_path") or ""), repo_root=repo_root)
+    result_payload = None if result_path is None else _read_json(result_path)
+    if (
+        str(latest_payload.get("status") or "").strip() != "passed"
+        or result_payload is None
+        or str(result_payload.get("status") or "").strip() != "passed"
+    ):
+        return {
+            "captures": {
+                "member_shell_smoke_latest_path": None,
+                "member_shell_smoke_result_path": None,
+            },
+            "step_update": {
+                "id": "wipe_observed",
+                "status": "manual_follow_up",
+                "automated": False,
+                "detail": {
+                    "message": "Latest member-shell smoke artifact did not pass.",
+                    "evidence_source": "member_shell_smoke_latest",
+                },
+            },
+            "summary": {
+                "wipe_observed_status": "manual_follow_up",
+                "wipe_evidence_source": "member_shell_smoke_latest",
+            },
+        }
+
+    wipe_step = None
+    for step in result_payload.get("steps") or []:
+        if not isinstance(step, dict):
+            continue
+        if str(step.get("name") or "").strip() == "wipe-clear":
+            wipe_step = step
+            break
+
+    if str((wipe_step or {}).get("status") or "").strip() != "passed":
+        return {
+            "captures": {
+                "member_shell_smoke_latest_path": None,
+                "member_shell_smoke_result_path": None,
+            },
+            "step_update": {
+                "id": "wipe_observed",
+                "status": "manual_follow_up",
+                "automated": False,
+                "detail": {
+                    "message": (
+                        "Latest member-shell smoke artifact did not prove the wipe-clear step."
+                    ),
+                    "evidence_source": "member_shell_smoke_latest",
+                    "member_shell_smoke_run_label": (
+                        (result_payload.get("provenance") or {}).get("run_label")
+                    ),
+                },
+            },
+            "summary": {
+                "wipe_observed_status": "manual_follow_up",
+                "wipe_evidence_source": "member_shell_smoke_latest",
+            },
+        }
+
+    run_label = str(
+        (result_payload.get("provenance") or {}).get("run_label")
+        or (latest_payload.get("provenance") or {}).get("run_label")
+        or ""
+    ).strip() or None
+    wipe_detail = wipe_step.get("detail")
+    if not isinstance(wipe_detail, dict):
+        wipe_detail = {}
+
+    return {
+        "captures": {
+            "member_shell_smoke_latest_path": str(latest_path),
+            "member_shell_smoke_result_path": str(result_path),
+        },
+        "step_update": {
+            "id": "wipe_observed",
+            "status": "passed",
+            "automated": True,
+            "detail": {
+                "message": (
+                    "Live wipe evidence reused from the latest passing member-shell smoke run "
+                    "for this Chromebook."
+                ),
+                "evidence_source": "member_shell_smoke_latest",
+                "member_shell_smoke_run_label": run_label,
+                "member_shell_smoke_result_path": str(result_path),
+                "wipe_step_screenshot": wipe_step.get("screenshot"),
+                "wipe_status_code": wipe_detail.get("wipe_status_code"),
+            },
+        },
+        "summary": {
+            "wipe_observed_status": "captured_from_member_shell_smoke",
+            "wipe_evidence_source": "member_shell_smoke_latest",
+            "wipe_evidence_run_label": run_label,
+        },
+    }
+
+
 def _local_admin_headers() -> tuple[dict[str, str] | None, str | None]:
     env_admin_token = str(os.environ.get("OSK_REAL_HUB_ADMIN_TOKEN") or "").strip()
     if env_admin_token:
@@ -950,12 +1153,18 @@ def _write_closure_summary(
     wipe_readiness: dict[str, Any] | None = None,
     audit_events: list[dict[str, Any]] | None = None,
     follow_up_detail_paths: dict[str, str] | None = None,
+    operator_bootstrap_status: str | None = None,
+    operator_bootstrap_message: str | None = None,
+    operator_session_bootstrap_path: str | None = None,
 ) -> str:
     payload = {
         "captured_at_utc": datetime.now(timezone.utc).isoformat(),
         "closure_state": closure_state,
         "credential_source": credential_source,
         "message": message,
+        "operator_bootstrap_status": operator_bootstrap_status,
+        "operator_bootstrap_message": operator_bootstrap_message,
+        "operator_session_bootstrap_path": operator_session_bootstrap_path,
         "wipe_readiness_status": (
             wipe_readiness.get("status") if isinstance(wipe_readiness, dict) else None
         ),
@@ -1012,19 +1221,110 @@ def _write_closure_summary(
     return str(path)
 
 
+def _bootstrap_local_operator_session(*, repo_root: Path, artifact_dir: Path) -> dict[str, Any]:
+    bootstrap_path = artifact_dir / "operator-session-bootstrap.json"
+    completed = _run_osk_cli(repo_root, ["operator", "login", "--json"], timeout_seconds=10.0)
+    payload: dict[str, Any] = {
+        "args": completed.args,
+        "returncode": completed.returncode,
+        "stdout": completed.stdout,
+        "stderr": completed.stderr,
+    }
+    try:
+        parsed = json.loads(completed.stdout or "{}")
+    except json.JSONDecodeError:
+        parsed = None
+    if isinstance(parsed, dict):
+        payload["response"] = parsed
+    _write_json(bootstrap_path, payload)
+
+    if completed.returncode != 0:
+        message = (
+            completed.stderr.strip()
+            or completed.stdout.strip()
+            or f"`osk operator login --json` exited with {completed.returncode}."
+        )
+        return {
+            "ok": False,
+            "status": "failed",
+            "message": message,
+            "capture_path": str(bootstrap_path),
+            "response": parsed if isinstance(parsed, dict) else None,
+        }
+
+    return {
+        "ok": True,
+        "status": "created",
+        "message": None,
+        "capture_path": str(bootstrap_path),
+        "response": parsed if isinstance(parsed, dict) else None,
+    }
+
+
+def _resolve_local_admin_access(*, repo_root: Path, artifact_dir: Path) -> dict[str, Any]:
+    headers, credential_source = _local_admin_headers()
+    if headers is not None:
+        return {
+            "headers": headers,
+            "credential_source": credential_source,
+            "bootstrap_status": None,
+            "bootstrap_message": None,
+            "bootstrap_capture_path": None,
+            "bootstrap_response": None,
+        }
+
+    bootstrap = _bootstrap_local_operator_session(repo_root=repo_root, artifact_dir=artifact_dir)
+    headers, refreshed_source = _local_admin_headers()
+    if headers is not None:
+        credential_source = (
+            "bootstrap_operator_session"
+            if refreshed_source == "local_operator_session"
+            else (refreshed_source or "bootstrap_operator_session")
+        )
+        return {
+            "headers": headers,
+            "credential_source": credential_source,
+            "bootstrap_status": bootstrap["status"],
+            "bootstrap_message": bootstrap["message"],
+            "bootstrap_capture_path": bootstrap["capture_path"],
+            "bootstrap_response": bootstrap["response"],
+        }
+
+    return {
+        "headers": None,
+        "credential_source": None,
+        "bootstrap_status": bootstrap["status"],
+        "bootstrap_message": bootstrap["message"]
+        or "Local operator credentials unavailable.",
+        "bootstrap_capture_path": bootstrap["capture_path"],
+        "bootstrap_response": bootstrap["response"],
+    }
+
+
 def _capture_operator_closure(*, args: argparse.Namespace, artifact_dir: Path) -> dict[str, Any]:
     closure_summary_path = artifact_dir / "closure-summary.json"
-    headers, credential_source = _local_admin_headers()
+    repo_root = Path(__file__).resolve().parents[1]
+    access = _resolve_local_admin_access(repo_root=repo_root, artifact_dir=artifact_dir)
+    headers = access["headers"]
+    credential_source = access["credential_source"]
+    operator_bootstrap_status = access["bootstrap_status"]
+    operator_bootstrap_message = access["bootstrap_message"]
+    operator_session_bootstrap_path = access["bootstrap_capture_path"]
     if headers is None:
+        failure_message = operator_bootstrap_message or "Local operator credentials unavailable."
         _write_closure_summary(
             closure_summary_path,
             closure_state="unavailable",
             credential_source=None,
-            message="Local operator credentials unavailable.",
+            message=failure_message,
+            operator_bootstrap_status=operator_bootstrap_status,
+            operator_bootstrap_message=operator_bootstrap_message,
+            operator_session_bootstrap_path=operator_session_bootstrap_path,
         )
         return {
             "captures": {
                 "closure_summary_path": str(closure_summary_path),
+                "operator_session_bootstrap_path": operator_session_bootstrap_path,
                 "wipe_readiness_path": None,
                 "audit_slice_path": None,
             },
@@ -1033,13 +1333,15 @@ def _capture_operator_closure(*, args: argparse.Namespace, artifact_dir: Path) -
                 "status": "manual_follow_up",
                 "automated": False,
                 "detail": {
-                    "message": "Local operator credentials unavailable.",
+                    "message": failure_message,
                     "closure_state": "unavailable",
+                    "operator_bootstrap_status": operator_bootstrap_status,
                 },
             },
             "summary": {
                 "operator_closure_status": "unavailable",
                 "operator_closure_state": "unavailable",
+                "operator_bootstrap_status": operator_bootstrap_status,
             },
         }
 
@@ -1076,10 +1378,14 @@ def _capture_operator_closure(*, args: argparse.Namespace, artifact_dir: Path) -
             closure_state="error",
             credential_source=credential_source,
             message=str(exc),
+            operator_bootstrap_status=operator_bootstrap_status,
+            operator_bootstrap_message=operator_bootstrap_message,
+            operator_session_bootstrap_path=operator_session_bootstrap_path,
         )
         return {
             "captures": {
                 "closure_summary_path": str(closure_summary_path),
+                "operator_session_bootstrap_path": operator_session_bootstrap_path,
                 "wipe_readiness_path": None,
                 "audit_slice_path": None,
             },
@@ -1090,11 +1396,13 @@ def _capture_operator_closure(*, args: argparse.Namespace, artifact_dir: Path) -
                 "detail": {
                     "message": str(exc),
                     "closure_state": "error",
+                    "operator_bootstrap_status": operator_bootstrap_status,
                 },
             },
             "summary": {
                 "operator_closure_status": "error",
                 "operator_closure_state": "error",
+                "operator_bootstrap_status": operator_bootstrap_status,
             },
         }
 
@@ -1167,10 +1475,14 @@ def _capture_operator_closure(*, args: argparse.Namespace, artifact_dir: Path) -
         wipe_readiness=wipe_readiness,
         audit_events=audit_events,
         follow_up_detail_paths=follow_up_detail_paths,
+        operator_bootstrap_status=operator_bootstrap_status,
+        operator_bootstrap_message=operator_bootstrap_message,
+        operator_session_bootstrap_path=operator_session_bootstrap_path,
     )
     return {
         "captures": {
             "closure_summary_path": str(closure_summary_path),
+            "operator_session_bootstrap_path": operator_session_bootstrap_path,
             "wipe_readiness_path": str(wipe_readiness_path),
             "audit_slice_path": str(audit_slice_path),
         },
@@ -1184,6 +1496,7 @@ def _capture_operator_closure(*, args: argparse.Namespace, artifact_dir: Path) -
                 "wipe_readiness_status": wipe_readiness.get("status"),
                 "unresolved_follow_up_count": wipe_readiness.get("unresolved_follow_up_count"),
                 "audit_event_count": len(audit_events),
+                "operator_bootstrap_status": operator_bootstrap_status,
             },
         },
         "summary": {
@@ -1192,6 +1505,7 @@ def _capture_operator_closure(*, args: argparse.Namespace, artifact_dir: Path) -
             "wipe_readiness_status": wipe_readiness.get("status"),
             "unresolved_follow_up_count": wipe_readiness.get("unresolved_follow_up_count"),
             "audit_event_count": len(audit_events),
+            "operator_bootstrap_status": operator_bootstrap_status,
         },
     }
 
@@ -1417,6 +1731,9 @@ def _build_result_payload(
             "doctor_snapshot_path": capture_paths.get("doctor_snapshot_path"),
             "hub_preflight_path": capture_paths.get("hub_preflight_path"),
             "members_snapshot_path": capture_paths.get("members_snapshot_path"),
+            "member_shell_smoke_latest_path": capture_paths.get("member_shell_smoke_latest_path"),
+            "member_shell_smoke_result_path": capture_paths.get("member_shell_smoke_result_path"),
+            "operator_session_bootstrap_path": capture_paths.get("operator_session_bootstrap_path"),
             "status_snapshot_path": capture_paths.get("status_snapshot_path"),
             "cdp_version_path": capture_paths.get("cdp_version_path"),
             "audit_slice_path": None,
@@ -1456,6 +1773,9 @@ def main(argv: list[str] | None = None) -> int:
         args=args,
         snapshot_info=snapshot_info,
     )
+    capture_paths["member_shell_smoke_latest_path"] = None
+    capture_paths["member_shell_smoke_result_path"] = None
+    capture_paths["operator_session_bootstrap_path"] = None
 
     if args.dry_run:
         payload = _build_result_payload(
@@ -1490,6 +1810,8 @@ def main(argv: list[str] | None = None) -> int:
                 args=args,
                 artifact_dir=artifact_dir,
             )
+            wipe_evidence = _capture_live_wipe_evidence(args=args, repo_root=repo_root)
+            capture_paths.update(wipe_evidence["captures"])
             if args.scenario == "restart":
                 restart_result = _run_restart_resume_check(
                     args=args,
@@ -1535,8 +1857,8 @@ def main(argv: list[str] | None = None) -> int:
         result_path=result_path,
         run_label=run_label,
         capture_paths=capture_paths,
-        steps=live_result["steps"],
-        summary=live_result["summary"],
+        steps=[*live_result["steps"], wipe_evidence["step_update"]],
+        summary=_merge_summary(live_result["summary"], wipe_evidence["summary"]),
         local_debug_port=local_debug_port,
         cdp_version=cdp_version,
         diagnostic_paths=live_result.get("diagnostic_paths"),
@@ -1544,6 +1866,9 @@ def main(argv: list[str] | None = None) -> int:
     operator_closure = _capture_operator_closure(args=args, artifact_dir=artifact_dir)
     payload["captures"]["closure_summary_path"] = operator_closure["captures"][
         "closure_summary_path"
+    ]
+    payload["captures"]["operator_session_bootstrap_path"] = operator_closure["captures"][
+        "operator_session_bootstrap_path"
     ]
     payload["captures"]["wipe_readiness_path"] = operator_closure["captures"]["wipe_readiness_path"]
     payload["captures"]["audit_slice_path"] = operator_closure["captures"]["audit_slice_path"]

@@ -107,6 +107,7 @@ def test_audit_help_mentions_review_events_for_wipe_follow_up_filter() -> None:
 
     assert "--wipe-follow-up-only" in help_text
     assert "review" in help_text.lower()
+    assert "retire" in help_text.lower()
 
 
 def test_parse_logs() -> None:

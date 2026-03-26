@@ -667,6 +667,26 @@ def _wipe_follow_up_reviews(
     return reviews
 
 
+def _wipe_follow_up_retirements(
+    audit_events: list[dict[str, object]],
+) -> dict[str, dict[str, object]]:
+    retirements: dict[str, dict[str, object]] = {}
+    for event in audit_events:
+        if str(event.get("action") or "") != "wipe_follow_up_historical_retired":
+            continue
+        details = event.get("details") or {}
+        if not isinstance(details, dict):
+            continue
+        member_id = str(details.get("member_id") or "").strip()
+        if not member_id or member_id in retirements:
+            continue
+        retired_at = _isoformat_utc(event.get("timestamp"))
+        if retired_at is None:
+            continue
+        retirements[member_id] = {"retired_at": retired_at}
+    return retirements
+
+
 def _merge_wipe_follow_up_markers(
     marker_store: dict[str, dict[str, dt.datetime | None]],
     audit_events: list[dict[str, object]],
@@ -837,6 +857,30 @@ def _wipe_follow_up_review_status(
     )
 
 
+def _wipe_follow_up_retirement_status(
+    current_follow_up: dict[str, object] | None,
+    *,
+    retired_at: str,
+) -> tuple[str, str]:
+    if current_follow_up is None:
+        return (
+            "retired",
+            (
+                "Historical drift retirement remains in the audit trail. No current wipe "
+                "follow-up remains for this member."
+            ),
+        )
+
+    return (
+        "superseded",
+        (
+            f"Historical drift retirement recorded at {retired_at}, but current member "
+            "state still produces active wipe follow-up. This earlier retirement remains "
+            "audit context only."
+        ),
+    )
+
+
 def _wipe_follow_up_history(
     audit_events: list[dict[str, object]],
     *,
@@ -855,6 +899,59 @@ def _wipe_follow_up_history(
     history: list[dict[str, object]] = []
     for event in audit_events:
         action = str(event.get("action") or "")
+        if action == "wipe_follow_up_historical_retired":
+            details = event.get("details") or {}
+            if not isinstance(details, dict):
+                continue
+
+            member_id = str(details.get("member_id") or "").strip()
+            if not member_id:
+                continue
+            retired_at = _isoformat_utc(event.get("timestamp"))
+            if retired_at is None:
+                continue
+
+            current_follow_up = follow_up_index.get(member_id)
+            status, status_detail = _wipe_follow_up_retirement_status(
+                current_follow_up,
+                retired_at=retired_at,
+            )
+            history.append(
+                {
+                    "member_id": member_id,
+                    "member_name": str(
+                        details.get("member_name")
+                        or (current_follow_up or {}).get("name")
+                        or "Unknown member"
+                    ),
+                    "reason": str(
+                        details.get("reason")
+                        or (current_follow_up or {}).get("reason")
+                        or "unknown"
+                    ),
+                    "classification": str(
+                        details.get("classification")
+                        or (current_follow_up or {}).get("classification")
+                        or "historical_drift"
+                    ),
+                    "action": action,
+                    "retired_at": retired_at,
+                    "reviewed_at": None,
+                    "verified_at": None,
+                    "last_seen_at": (
+                        current_follow_up.get("last_seen_at")
+                        if current_follow_up is not None
+                        else details.get("last_seen_at")
+                    ),
+                    "reopened_at": None,
+                    "reopened_activity_kind": None,
+                    "status": status,
+                    "status_detail": status_detail,
+                }
+            )
+            if len(history) >= limit:
+                break
+            continue
         if action == "wipe_follow_up_historical_reviewed":
             details = event.get("details") or {}
             if not isinstance(details, dict):
@@ -985,7 +1082,14 @@ def _decorate_wipe_readiness(
         counts = Counter(str(item.get("status") or "unknown") for item in history)
         summary_bits = [
             f"{counts[status]} {status}"
-            for status in ("current", "reopened", "cleared", "superseded", "reviewed")
+            for status in (
+                "current",
+                "reopened",
+                "cleared",
+                "retired",
+                "superseded",
+                "reviewed",
+            )
             if counts[status] > 0
         ]
         history_summary = f"Recent follow-up trail: {', '.join(summary_bits)}."
@@ -1069,6 +1173,7 @@ def _wipe_coverage_snapshot(
     return {
         "broadcast_target_count": conn_manager.connected_count,
         "captured_at": _utcnow().isoformat().replace("+00:00", "Z"),
+        "members": members,
         "wipe_readiness": summarize_wipe_readiness(members),
     }
 
@@ -1557,6 +1662,7 @@ async def _build_dashboard_state(
             members,
             follow_up_resolutions=_wipe_follow_up_resolutions(audit_events),
             follow_up_reviews=_wipe_follow_up_reviews(audit_events),
+            follow_up_retirements=_wipe_follow_up_retirements(audit_events),
         ),
         audit_events=audit_events,
     )
@@ -2127,6 +2233,7 @@ def create_app(
             members,
             follow_up_resolutions=_wipe_follow_up_resolutions(audit_events),
             follow_up_reviews=_wipe_follow_up_reviews(audit_events),
+            follow_up_retirements=_wipe_follow_up_retirements(audit_events),
         )
         current_follow_up = next(
             (
@@ -2173,6 +2280,7 @@ def create_app(
             members,
             follow_up_resolutions=resolutions,
             follow_up_reviews=_wipe_follow_up_reviews(audit_events),
+            follow_up_retirements=_wipe_follow_up_retirements(audit_events),
         )
         updated_wipe_readiness = _decorate_wipe_readiness(
             updated_wipe_readiness,
@@ -2216,6 +2324,7 @@ def create_app(
             members,
             follow_up_resolutions=_wipe_follow_up_resolutions(audit_events),
             follow_up_reviews=_wipe_follow_up_reviews(audit_events),
+            follow_up_retirements=_wipe_follow_up_retirements(audit_events),
         )
         current_follow_up = next(
             (
@@ -2271,6 +2380,7 @@ def create_app(
             members,
             follow_up_resolutions=_wipe_follow_up_resolutions(audit_events),
             follow_up_reviews=_wipe_follow_up_reviews(audit_events),
+            follow_up_retirements=_wipe_follow_up_retirements(audit_events),
         )
         updated_wipe_readiness = _decorate_wipe_readiness(
             updated_wipe_readiness,
@@ -2289,6 +2399,101 @@ def create_app(
                 "status": "reviewed",
                 "member_id": str(member_id),
                 "reviewed_at": reviewed_at_iso,
+                "follow_up": updated_follow_up,
+                "wipe_readiness": updated_wipe_readiness,
+            },
+            headers={"Cache-Control": "no-store"},
+        )
+
+    @app.post("/api/coordinator/wipe-follow-up/{member_id}/retire")
+    async def retire_historical_wipe_follow_up(member_id: uuid.UUID, request: Request):
+        if response := _require_local_admin(request, op_manager):
+            return response
+        operation = op_manager.operation
+        if operation is None:
+            return JSONResponse({"error": "No active operation"}, status_code=503)
+
+        config = load_config()
+        members = await _dashboard_members(
+            op_manager=op_manager,
+            db=db,
+            heartbeat_timeout_seconds=config.member_heartbeat_timeout_seconds,
+        )
+        audit_events = await db.get_audit_events(operation.id, limit=MAX_AUDIT_LIMIT)
+        current_wipe_readiness = summarize_wipe_readiness(
+            members,
+            follow_up_resolutions=_wipe_follow_up_resolutions(audit_events),
+            follow_up_reviews=_wipe_follow_up_reviews(audit_events),
+            follow_up_retirements=_wipe_follow_up_retirements(audit_events),
+        )
+        current_follow_up = next(
+            (
+                item
+                for item in current_wipe_readiness["follow_up"]
+                if item.get("id") == str(member_id)
+            ),
+            None,
+        )
+        if current_follow_up is None:
+            return JSONResponse({"error": "Wipe follow-up item not found"}, status_code=404)
+        if current_follow_up.get("classification") != "historical_drift":
+            return JSONResponse(
+                {
+                    "error": (
+                        "Historical drift retirement is only available for historical drift items"
+                    )
+                },
+                status_code=409,
+            )
+
+        retired_at = _utcnow()
+        retired_at_iso = _isoformat_utc(retired_at)
+        retirement_details = {
+            "member_id": str(member_id),
+            "member_name": current_follow_up.get("name"),
+            "reason": current_follow_up.get("reason"),
+            "classification": current_follow_up.get("classification"),
+            "last_seen_at": current_follow_up.get("last_seen_at"),
+        }
+        await db.insert_audit_event(
+            operation.id,
+            "coordinator",
+            "wipe_follow_up_historical_retired",
+            details=retirement_details,
+        )
+
+        audit_events = [
+            {
+                "action": "wipe_follow_up_historical_retired",
+                "actor_type": "coordinator",
+                "timestamp": retired_at,
+                "details": retirement_details,
+            },
+            *audit_events,
+        ]
+        updated_wipe_readiness = summarize_wipe_readiness(
+            members,
+            follow_up_resolutions=_wipe_follow_up_resolutions(audit_events),
+            follow_up_reviews=_wipe_follow_up_reviews(audit_events),
+            follow_up_retirements=_wipe_follow_up_retirements(audit_events),
+        )
+        updated_wipe_readiness = _decorate_wipe_readiness(
+            updated_wipe_readiness,
+            audit_events=audit_events,
+        )
+        updated_follow_up = next(
+            (
+                item
+                for item in updated_wipe_readiness["follow_up"]
+                if item.get("id") == str(member_id)
+            ),
+            None,
+        )
+        return JSONResponse(
+            {
+                "status": "retired",
+                "member_id": str(member_id),
+                "retired_at": retired_at_iso,
                 "follow_up": updated_follow_up,
                 "wipe_readiness": updated_wipe_readiness,
             },
@@ -2315,6 +2520,7 @@ def create_app(
                 members,
                 follow_up_resolutions=_wipe_follow_up_resolutions(audit_events),
                 follow_up_reviews=_wipe_follow_up_reviews(audit_events),
+                follow_up_retirements=_wipe_follow_up_retirements(audit_events),
             ),
             audit_events=audit_events,
         )
@@ -2810,7 +3016,24 @@ def create_app(
         if isinstance(wipe_readiness, dict):
             audit_events = await db.get_audit_events(op_manager.operation.id, limit=MAX_AUDIT_LIMIT)
             coverage["wipe_readiness"] = _decorate_wipe_readiness(
-                wipe_readiness,
+                summarize_wipe_readiness(
+                    [
+                        item
+                        for item in coverage.get("members") or []
+                        if isinstance(item, dict)
+                    ]
+                    if isinstance(coverage.get("members"), list)
+                    else [
+                        _member_dashboard_snapshot(
+                            row,
+                            heartbeat_timeout_seconds=config.member_heartbeat_timeout_seconds,
+                        )
+                        for row in op_manager.get_member_list()
+                    ],
+                    follow_up_resolutions=_wipe_follow_up_resolutions(audit_events),
+                    follow_up_reviews=_wipe_follow_up_reviews(audit_events),
+                    follow_up_retirements=_wipe_follow_up_retirements(audit_events),
+                ),
                 audit_events=audit_events,
             )
         await conn_manager.broadcast({"type": "wipe"})

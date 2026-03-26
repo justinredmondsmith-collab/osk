@@ -1223,6 +1223,8 @@ def _wipe_follow_up_counts_line(wipe_readiness: dict[str, object]) -> str:
         f"historical_drift={wipe_readiness.get('historical_drift_follow_up_count', 0)} "
         "reviewed_historical_drift="
         f"{wipe_readiness.get('reviewed_historical_drift_follow_up_count', 0)} "
+        "retired_historical_drift="
+        f"{wipe_readiness.get('retired_historical_drift_follow_up_count', 0)} "
         f"verified_current={wipe_readiness.get('verified_current_follow_up_count', 0)}"
     )
 
@@ -1236,9 +1238,15 @@ def _wipe_follow_up_reviewed_suffix(member: dict[str, object]) -> str:
 
 def _decorate_wipe_readiness_for_operation(
     operation_id: uuid.UUID,
+    members: list[dict[str, object]],
     wipe_readiness: dict[str, object],
 ) -> dict[str, object]:
-    from osk.server import _decorate_wipe_readiness
+    from osk.server import (
+        _decorate_wipe_readiness,
+        _wipe_follow_up_resolutions,
+        _wipe_follow_up_retirements,
+        _wipe_follow_up_reviews,
+    )
 
     try:
         audit_events = asyncio.run(
@@ -1250,7 +1258,15 @@ def _decorate_wipe_readiness_for_operation(
         )
     except Exception:
         return wipe_readiness
-    return _decorate_wipe_readiness(wipe_readiness, audit_events=audit_events)
+    return _decorate_wipe_readiness(
+        summarize_wipe_readiness(
+            members,
+            follow_up_resolutions=_wipe_follow_up_resolutions(audit_events),
+            follow_up_reviews=_wipe_follow_up_reviews(audit_events),
+            follow_up_retirements=_wipe_follow_up_retirements(audit_events),
+        ),
+        audit_events=audit_events,
+    )
 
 
 def _wipe_follow_up_history_line(item: dict[str, object]) -> str:
@@ -1258,6 +1274,9 @@ def _wipe_follow_up_history_line(item: dict[str, object]) -> str:
     if action == "wipe_follow_up_historical_reviewed":
         action_label = "reviewed"
         action_at = str(item.get("reviewed_at") or "unknown")
+    elif action == "wipe_follow_up_historical_retired":
+        action_label = "retired"
+        action_at = str(item.get("retired_at") or "unknown")
     else:
         action_label = "verified"
         action_at = str(item.get("verified_at") or "unknown")
@@ -1381,6 +1400,7 @@ def hub_status_snapshot(now: float | None = None) -> tuple[int, dict[str, object
             wipe_readiness = summarize_wipe_readiness(members)
             snapshot["wipe_readiness"] = _decorate_wipe_readiness_for_operation(
                 operation_uuid,
+                members,
                 wipe_readiness,
             )
         except Exception as exc:
@@ -1724,7 +1744,11 @@ def show_members(*, json_output: bool = False) -> int:
         for row in rows
     ]
     wipe_readiness = summarize_wipe_readiness(members)
-    wipe_readiness = _decorate_wipe_readiness_for_operation(operation_uuid, wipe_readiness)
+    wipe_readiness = _decorate_wipe_readiness_for_operation(
+        operation_uuid,
+        members,
+        wipe_readiness,
+    )
     if json_output:
         print(
             json.dumps(

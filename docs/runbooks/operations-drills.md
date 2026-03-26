@@ -119,7 +119,15 @@ decision.
 Operators can now record a non-destructive historical-drift review when an old
 follow-up item has been inspected and triaged. That review is a handoff aid,
 not a closure signal: the item remains unresolved until it is explicitly
-verified or otherwise cleared by real cleanup work.
+verified, retired as stale history, or otherwise cleared by real cleanup work.
+
+Use the two historical-drift actions differently:
+
+- `Record review`
+  Keep the item visible while preserving operator inspection context.
+- `Retire drift`
+  Remove explicitly stale historical drift from current readiness without
+  claiming current-boundary wipe verification.
 
 The read-only shell and drill surfaces now mirror that distinction too. Expect
 review-aware counts in terminal wipe-readiness summaries and a separate
@@ -138,11 +146,12 @@ captured explicitly in the audit trail. The coordinator wipe-readiness panel
 also surfaces that reopen timestamp and activity source in the recent
 follow-up trail. Historical-drift review records now join that same
 member-scoped trail so operators can see review, verification, and reopen
-context together. Treat the review entries as inspection evidence only: they
-do not close the wipe boundary. If you only need those follow-up transitions
-later, use
+context together. Historical-drift retirement records join that same trail as
+well: they close stale history for readiness, but they are not proof of
+current-boundary wipe verification. Treat review entries as inspection
+evidence only. If you only need those follow-up transitions later, use
 `osk audit --wipe-follow-up-only --json` or filter to explicit actions with
-`osk audit --action wipe_follow_up_verified --action wipe_follow_up_reopened --action wipe_follow_up_historical_reviewed`.
+`osk audit --action wipe_follow_up_verified --action wipe_follow_up_reopened --action wipe_follow_up_historical_reviewed --action wipe_follow_up_historical_retired`.
 The coordinator dashboard now mirrors that shell flow with an Audit Trail
 block that starts on the wipe follow-up slice and can copy the equivalent
 `osk audit` command for the current filter group. Those audit rows are now

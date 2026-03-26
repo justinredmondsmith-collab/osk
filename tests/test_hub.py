@@ -17,6 +17,7 @@ from osk.hub import (
     _compose_environment,
     _find_compose_command,
     _trigger_live_wipe_broadcast,
+    _wipe_follow_up_history_line,
     default_storage_manager,
     ensure_hub_not_running,
     ensure_local_services,
@@ -538,7 +539,8 @@ def test_wipe_hub_triggers_broadcast_and_stop(
     assert "Resolve 2 unresolved member wipe follow-up items" in out
     assert (
         "wipe_follow_up_counts active_unresolved=1 historical_drift=1 "
-        "reviewed_historical_drift=1 verified_current=0" in out
+        "reviewed_historical_drift=1 retired_historical_drift=0 "
+        "verified_current=0" in out
     )
     assert (
         "wipe_follow_up name=Sensor Two reason=disconnected "
@@ -884,6 +886,7 @@ def test_show_audit_events_filters_actions(tmp_path: Path) -> None:
             "wipe_follow_up_verified",
             "wipe_follow_up_reopened",
             "wipe_follow_up_historical_reviewed",
+            "wipe_follow_up_historical_retired",
         ],
     )
 
@@ -1184,9 +1187,86 @@ def test_status_hub_reports_wipe_readiness(
     assert "Resolve 1 unresolved member wipe follow-up item" in out
     assert (
         "wipe_follow_up_counts active_unresolved=1 historical_drift=0 "
-        "reviewed_historical_drift=0 verified_current=0" in out
+        "reviewed_historical_drift=0 retired_historical_drift=0 "
+        "verified_current=0" in out
     )
     assert "wipe_follow_up_history_summary = Recent follow-up trail: 1 reviewed." in out
+
+
+def test_status_hub_excludes_retired_historical_drift_from_current_counts(
+    tmp_path: Path,
+    capsys,
+) -> None:
+    current = dt.datetime.now(dt.timezone.utc)
+    historical_seen = current - dt.timedelta(hours=9)
+    retired_at = current - dt.timedelta(hours=4)
+    member_rows = [
+        {
+            "id": "22222222-2222-2222-2222-222222222222",
+            "name": "Sensor Two",
+            "role": "sensor",
+            "status": "disconnected",
+            "reconnect_token": "resume-token-2",
+            "connected_at": current,
+            "last_seen_at": historical_seen,
+            "last_gps_at": None,
+            "latitude": None,
+            "longitude": None,
+        },
+    ]
+    audit_events = [
+        {
+            "action": "wipe_follow_up_historical_retired",
+            "timestamp": retired_at,
+            "details": {
+                "member_id": "22222222-2222-2222-2222-222222222222",
+                "member_name": "Sensor Two",
+                "reason": "disconnected",
+                "classification": "historical_drift",
+                "last_seen_at": historical_seen.isoformat().replace("+00:00", "Z"),
+            },
+        }
+    ]
+
+    with (
+        patch("osk.hub._get_members", AsyncMock(return_value=member_rows)),
+        patch("osk.hub._get_audit_events", AsyncMock(return_value=audit_events)),
+        patch("osk.hub._config_root", return_value=tmp_path),
+        patch("osk.hub._pid_is_running", return_value=True),
+        patch("osk.hub.load_config", return_value=OskConfig(member_heartbeat_timeout_seconds=60)),
+    ):
+        (tmp_path / "hub-state.json").write_text(
+            '{"pid":4321,"operation_name":"March","operation_id":"11111111-1111-1111-1111-111111111111"}\n'
+        )
+
+        from osk.hub import status_hub
+
+        code = status_hub()
+
+    out = capsys.readouterr().out
+    assert code == 0
+    assert "wipe_follow_up_required = false" in out
+    assert (
+        "wipe_follow_up_counts active_unresolved=0 historical_drift=0 "
+        "reviewed_historical_drift=0 retired_historical_drift=1 "
+        "verified_current=0" in out
+    )
+    assert "wipe_follow_up_history_summary = Recent follow-up trail: 1 retired." in out
+
+
+def test_wipe_follow_up_history_line_formats_retired_action() -> None:
+    line = _wipe_follow_up_history_line(
+        {
+            "member_name": "Observer Retired",
+            "reason": "disconnected",
+            "status": "retired",
+            "action": "wipe_follow_up_historical_retired",
+            "retired_at": "2026-03-23T08:05:00Z",
+        }
+    )
+
+    assert "action=retired" in line
+    assert "at=2026-03-23T08:05:00Z" in line
 
 
 @patch("osk.hub.asyncio.run")

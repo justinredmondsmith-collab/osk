@@ -112,3 +112,53 @@ def test_summarize_wipe_readiness_marks_reviewed_historical_drift_without_resolv
     assert payload["historical_drift_follow_up_count"] == 1
     assert payload["reviewed_historical_drift_follow_up_count"] == 1
     assert payload["unreviewed_historical_drift_follow_up_count"] == 0
+
+
+def test_summarize_wipe_readiness_excludes_retired_historical_drift() -> None:
+    members = [
+        {
+            "id": "observer-1",
+            "name": "Observer One",
+            "role": "observer",
+            "status": "disconnected",
+            "heartbeat_state": "disconnected",
+            "seconds_since_last_seen": 60 * 60 * 8,
+            "last_seen_at": "2026-03-23T00:00:00Z",
+        }
+    ]
+
+    payload = summarize_wipe_readiness(
+        members,
+        follow_up_retirements={"observer-1": {"retired_at": "2026-03-23T08:15:00Z"}},
+    )
+
+    assert payload["follow_up_required"] is False
+    assert payload["follow_up"] == []
+    assert payload["unresolved_follow_up_count"] == 0
+    assert payload["historical_drift_follow_up_count"] == 0
+    assert payload["retired_historical_drift_follow_up_count"] == 1
+    assert "retired from readiness" in payload["follow_up_summary"].lower()
+
+
+def test_summarize_wipe_readiness_reopens_retired_historical_drift_after_new_activity() -> None:
+    members = [
+        {
+            "id": "observer-1",
+            "name": "Observer One",
+            "role": "observer",
+            "status": "disconnected",
+            "heartbeat_state": "disconnected",
+            "seconds_since_last_seen": 60 * 60 * 8,
+            "last_seen_at": "2026-03-23T09:00:00Z",
+        }
+    ]
+
+    payload = summarize_wipe_readiness(
+        members,
+        follow_up_retirements={"observer-1": {"retired_at": "2026-03-23T08:15:00Z"}},
+    )
+
+    assert payload["follow_up_required"] is True
+    assert payload["follow_up"][0]["resolution"] == "unresolved"
+    assert payload["follow_up"][0]["classification"] == "historical_drift"
+    assert payload["retired_historical_drift_follow_up_count"] == 0

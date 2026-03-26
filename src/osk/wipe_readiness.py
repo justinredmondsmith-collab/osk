@@ -103,11 +103,37 @@ def _historical_follow_up_review(
     }
 
 
+def _retired_historical_follow_up(
+    member: dict[str, object],
+    follow_up_retirement: dict[str, object] | None,
+) -> dict[str, object] | None:
+    if not follow_up_retirement:
+        return None
+    if _follow_up_classification(member) != "historical_drift":
+        return None
+    retired_at = _parse_timestamp(follow_up_retirement.get("retired_at"))
+    if retired_at is None:
+        return None
+    last_seen_at = _parse_timestamp(member.get("last_seen_at"))
+    if last_seen_at is not None and retired_at < last_seen_at:
+        return None
+    retired_at_iso = _isoformat_utc(retired_at)
+    return {
+        "retired_at": retired_at_iso,
+        "resolution_detail": (
+            f"Historical drift retired from current readiness at {retired_at_iso}."
+            if retired_at_iso
+            else "Historical drift retired from current readiness."
+        ),
+    }
+
+
 def summarize_wipe_readiness(
     members: list[dict[str, object]],
     *,
     follow_up_resolutions: dict[str, dict[str, object]] | None = None,
     follow_up_reviews: dict[str, dict[str, object]] | None = None,
+    follow_up_retirements: dict[str, dict[str, object]] | None = None,
 ) -> dict[str, object]:
     fresh_members = 0
     stale_members = 0
@@ -157,8 +183,17 @@ def summarize_wipe_readiness(
     at_risk_members = len(at_risk)
     resolution_index = follow_up_resolutions or {}
     review_index = follow_up_reviews or {}
+    retirement_index = follow_up_retirements or {}
     follow_up = []
+    retired_historical_drift_follow_up_count = 0
     for member in at_risk:
+        retired = _retired_historical_follow_up(
+            member,
+            retirement_index.get(str(member.get("id") or "").strip()),
+        )
+        if retired is not None:
+            retired_historical_drift_follow_up_count += 1
+            continue
         follow_up_item = {
             **member,
             "resolution": "unresolved",
@@ -247,11 +282,29 @@ def summarize_wipe_readiness(
                 f" {reviewed_historical_drift_follow_up_count} historical-drift review"
                 f"{'' if reviewed_historical_drift_follow_up_count == 1 else 's'} recorded."
             )
+        if retired_historical_drift_follow_up_count > 0:
+            follow_up_summary += (
+                f" {retired_historical_drift_follow_up_count} historical-drift retirement"
+                f"{'' if retired_historical_drift_follow_up_count == 1 else 's'} recorded."
+            )
     elif verified_follow_up_count > 0:
         follow_up_summary = (
             f"All {verified_follow_up_count} member wipe follow-up item"
             f"{'' if verified_follow_up_count == 1 else 's'} are verified "
             "for the current cleanup boundary."
+        )
+        if retired_historical_drift_follow_up_count > 0:
+            follow_up_summary += (
+                f" {retired_historical_drift_follow_up_count} historical-drift item"
+                f"{'' if retired_historical_drift_follow_up_count == 1 else 's'} retired "
+                "from readiness."
+            )
+    elif retired_historical_drift_follow_up_count > 0:
+        follow_up_summary = (
+            "No unresolved member wipe follow-up remains."
+            f" {retired_historical_drift_follow_up_count} historical-drift item"
+            f"{'' if retired_historical_drift_follow_up_count == 1 else 's'} retired "
+            "from readiness."
         )
     else:
         follow_up_summary = "No unresolved member wipe follow-up remains."
@@ -276,5 +329,6 @@ def summarize_wipe_readiness(
         "historical_drift_follow_up_count": historical_drift_follow_up_count,
         "reviewed_historical_drift_follow_up_count": reviewed_historical_drift_follow_up_count,
         "unreviewed_historical_drift_follow_up_count": unreviewed_historical_drift_follow_up_count,
+        "retired_historical_drift_follow_up_count": retired_historical_drift_follow_up_count,
         "follow_up": follow_up,
     }

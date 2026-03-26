@@ -16,12 +16,25 @@ This workflow validates the real Osk runtime path:
 
 This workflow does not yet automate:
 
-- live wipe confirmation on the remote member device
-- operator-side closure capture when no local operator session is available
+- live wipe confirmation inside the same real-hub browser-driving slice
+- operator-side closure capture after local bootstrap expiry or wrong-operation
+  state
 - cleanup of older unresolved wipe follow-up members left by prior runs
 
 Keep those boundaries explicit in review notes, commit messages, and runtime
 claims.
+
+The current contract can now reuse the latest passing
+[`output/chromebook/member-shell-smoke/latest.json`](/var/home/bazzite/osk/output/chromebook/member-shell-smoke/latest.json)
+artifact for the same Chromebook when that companion flow already proved the
+connected-browser `wipe-clear` step on hardware. Treat that as evidence reuse,
+not as a same-run wipe probe.
+
+The current contract can also attempt a repo-owned local operator bootstrap by
+running `osk operator login --json` when closure capture needs workstation
+credentials and the active hub still exposes a valid one-time bootstrap. Treat
+that as automation of the existing local operator flow, not as a bypass around
+expired or missing bootstrap state.
 
 ## Prerequisites
 
@@ -87,6 +100,14 @@ Important files per run:
 - `hub-preflight.json`
   Host-side target and local snapshot metadata. Local snapshots now include
   `doctor --json`, `status --json`, and `members --json`.
+- `captures.member_shell_smoke_latest_path` and
+  `captures.member_shell_smoke_result_path`
+  Optional pointers to the latest passing companion member-shell smoke artifact
+  reused to satisfy `wipe_observed` for the same Chromebook.
+- `operator-session-bootstrap.json`
+  Captured result of any runner-owned `osk operator login --json` attempt used
+  to bootstrap local closure capture when no operator session was already
+  present.
 - `cdp-version.json`
   Chrome remote debugging metadata for the Chromebook browser.
 - `restart-stop.json`
@@ -133,9 +154,20 @@ The restart step is specifically considered verified when:
 
 ## Known Limits
 
-- `wipe_observed` remains `manual_follow_up`.
+- `wipe_observed` remains `manual_follow_up` when no qualifying companion
+  member-shell smoke artifact exists for the same Chromebook.
+- When `wipe_observed` is satisfied from companion smoke evidence, the claim is
+  still scoped to the connected-browser live wipe path previously exercised on
+  that hardware. It is not a same-run wipe probe and it does not prove cleanup
+  for disconnected browsers, OS-level browser data, or preserved evidence
+  destruction.
 - `operator_closure_captured` remains `manual_follow_up` when no local operator
-  session is present.
+  session is present and the runner cannot bootstrap one from the active local
+  operator bootstrap.
+- Automatic closure bootstrap only covers the existing local operator session
+  path. If the bootstrap file is expired, belongs to a different operation, or
+  has already been consumed without a replacement, closure capture still falls
+  back to `manual_follow_up`.
 - `closure-summary.json` now distinguishes capture success from closure state.
   `captured_open_follow_up` means the runner reached the operator surfaces but
   the cleanup boundary is still open. Treat that as incomplete closure, not as

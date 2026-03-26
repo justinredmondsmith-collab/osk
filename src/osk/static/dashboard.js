@@ -10,8 +10,8 @@
       label: "Wipe follow-up",
       limit: 8,
       wipeFollowUpOnly: true,
-      emptyMessage: "No wipe follow-up verification, reopen, or review events yet.",
-      summary: "Recent wipe verification, reopen, and historical-drift review transitions from the audit trail.",
+      emptyMessage: "No wipe follow-up verification, reopen, review, or retirement events yet.",
+      summary: "Recent wipe verification, reopen, historical-drift review, and retirement transitions from the audit trail.",
     },
     operator_auth: {
       label: "Operator auth",
@@ -683,6 +683,7 @@
       current: "pill pill--resolved",
       reopened: "pill pill--critical",
       cleared: "pill pill--accent",
+      retired: "pill pill--accent",
       superseded: "pill pill--warning",
       reviewed: "pill pill--warning",
     };
@@ -691,6 +692,13 @@
 
   function wipeHistoryActionMeta(item) {
     const action = String(item?.action || "wipe_follow_up_verified");
+    if (action === "wipe_follow_up_historical_retired") {
+      return {
+        label: "Retired",
+        timestamp: item?.retired_at || item?.action_at || null,
+        fallback: "Historical drift retirement event recorded in the audit trail.",
+      };
+    }
     if (action === "wipe_follow_up_historical_reviewed") {
       return {
         label: "Reviewed",
@@ -711,6 +719,7 @@
       wipe_follow_up_verified: "pill pill--resolved",
       wipe_follow_up_reopened: "pill pill--critical",
       wipe_follow_up_historical_reviewed: "pill pill--warning",
+      wipe_follow_up_historical_retired: "pill pill--accent",
       operator_session_created: "pill pill--accent",
       operator_session_refreshed: "pill pill--accent",
       operator_session_logged_out: "pill pill--warning",
@@ -791,6 +800,9 @@
     if (action === "wipe_follow_up_historical_reviewed") {
       return `${memberName} historical drift reviewed`;
     }
+    if (action === "wipe_follow_up_historical_retired") {
+      return `${memberName} historical drift retired`;
+    }
     if (action === "operator_session_created") {
       return "Operator session created";
     }
@@ -828,7 +840,8 @@
       (
         action === "wipe_follow_up_verified" ||
         action === "wipe_follow_up_reopened" ||
-        action === "wipe_follow_up_historical_reviewed"
+        action === "wipe_follow_up_historical_reviewed" ||
+        action === "wipe_follow_up_historical_retired"
       ) &&
       details.member_id
     ) {
@@ -857,6 +870,9 @@
       return `Verified ${formatLongTimestamp(details.verified_at)}${activityKind}`;
     }
     if (action === "wipe_follow_up_historical_reviewed") {
+      return `Reason ${String(details.reason || "unknown")} • classification ${String(details.classification || "historical_drift")}`;
+    }
+    if (action === "wipe_follow_up_historical_retired") {
       return `Reason ${String(details.reason || "unknown")} • classification ${String(details.classification || "historical_drift")}`;
     }
     if (action === "operator_session_created" || action === "operator_session_refreshed") {
@@ -1331,6 +1347,10 @@
       followUp.resolution !== "verified" &&
       followUp.classification === "historical_drift" &&
       !followUp.historical_reviewed;
+    const canRetireHistoricalDrift =
+      followUp &&
+      followUp.resolution !== "verified" &&
+      followUp.classification === "historical_drift";
     const currentMarkup = followUp
       ? `
         <div class="detail-item">
@@ -1345,6 +1365,11 @@
           ${
             canReviewHistoricalDrift
               ? `<button type="button" class="ghost-button ghost-button--compact detail-item__button" data-wipe-follow-up-action="review" data-member-id="${escapeHtml(detail.member_id)}">Record review</button>`
+              : ""
+          }
+          ${
+            canRetireHistoricalDrift
+              ? `<button type="button" class="ghost-button ghost-button--compact detail-item__button" data-wipe-follow-up-action="retire" data-member-id="${escapeHtml(detail.member_id)}">Retire drift</button>`
               : ""
           }
         </div>
@@ -1470,7 +1495,7 @@
   }
 
   async function postWipeFollowUpAction(memberId, action) {
-    if (!memberId || !["verify", "review"].includes(action)) {
+    if (!memberId || !["verify", "review", "retire"].includes(action)) {
       return;
     }
     try {
@@ -1480,7 +1505,9 @@
       setBanner(
         action === "verify"
           ? "Wipe follow-up marked verified."
-          : "Historical drift review recorded.",
+          : action === "review"
+            ? "Historical drift review recorded."
+            : "Historical drift retired from readiness.",
         "info",
       );
       await refreshDashboard();
@@ -1560,6 +1587,7 @@
       ["Active follow-up", wipeReadiness.active_unresolved_follow_up_count ?? wipeReadiness.unresolved_follow_up_count ?? "--"],
       ["Historical drift", wipeReadiness.historical_drift_follow_up_count ?? "--"],
       ["Reviewed drift", wipeReadiness.reviewed_historical_drift_follow_up_count ?? "--"],
+      ["Retired drift", wipeReadiness.retired_historical_drift_follow_up_count ?? "--"],
       ["Verified", wipeReadiness.verified_current_follow_up_count ?? wipeReadiness.verified_follow_up_count ?? "--"],
     ]
       .map(
@@ -1590,6 +1618,9 @@
             member.resolution !== "verified" &&
             member.classification === "historical_drift" &&
             !member.historical_reviewed;
+          const canRetireHistoricalDrift =
+            member.resolution !== "verified" &&
+            member.classification === "historical_drift";
           return `
             <div class="detail-item">
               <p>${escapeHtml(member.name)} ${wipeReasonPill(member.reason)} ${wipeResolutionPill(member.resolution)} ${wipeClassificationPill(member.classification)}</p>
@@ -1605,6 +1636,11 @@
               ${
                 canReviewHistoricalDrift
                   ? `<button type="button" class="ghost-button detail-item__button" data-wipe-follow-up-action="review" data-member-id="${escapeHtml(member.id)}">Record review</button>`
+                  : ""
+              }
+              ${
+                canRetireHistoricalDrift
+                  ? `<button type="button" class="ghost-button detail-item__button" data-wipe-follow-up-action="retire" data-member-id="${escapeHtml(member.id)}">Retire drift</button>`
                   : ""
               }
             </div>
