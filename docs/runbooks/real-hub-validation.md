@@ -78,6 +78,26 @@ On successful runs the wrapper now prints the `operator-handoff.json` path
 first. Use that as the first artifact to inspect from the shell before opening
 `result.json` or the underlying closure and audit artifacts.
 
+Run the repo-owned gate wrapper when you want the validation flow to stamp git
+provenance and print the indexed closure summary immediately after the run:
+
+```bash
+bash scripts/chromebook_real_hub_gate.sh \
+  --trigger workflow_dispatch \
+  --chromebook-host chromebook-lab \
+  --hub-url https://10.0.0.60:8444 \
+  --join-url 'https://10.0.0.60:8444/join?token=<token>' \
+  --ssh-target jrsmith@localhost \
+  --ssh-port 22022 \
+  --ssh-identity /var/home/bazzite/.ssh/osk_chromebook_lab \
+  --scenario restart
+```
+
+The gate wrapper requires a clean git worktree unless you pass `--allow-dirty`.
+After the wrapper finishes, it prints the indexed `latest.json` summary,
+including `operator_handoff` closure and wipe status, so operators can see the
+current boundary without manually opening run-local JSON files first.
+
 To inspect the latest indexed real-hub result without opening run-local JSON
 files directly:
 
