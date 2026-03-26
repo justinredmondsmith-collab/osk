@@ -317,6 +317,24 @@ def wipe_drill_report(
             "evidence image to shred."
         )
 
+    closure_interpretation = {
+        "active_unresolved": (
+            "Current follow-up work tied to the live cleanup boundary and requiring "
+            "explicit operator action."
+        ),
+        "historical_drift": (
+            "Older unresolved follow-up that still pollutes readiness and should be reviewed, "
+            "but is not silently resolved by age alone."
+        ),
+        "verified_current": (
+            "A manual verification that still closes the current cleanup boundary."
+        ),
+        "reviewed_historical_drift": (
+            "Historical drift that has been inspected and documented for handoff, but still "
+            "leaves the cleanup boundary open until separately verified or cleared."
+        ),
+    }
+
     return {
         "drill": "wipe",
         "status": "partial",
@@ -329,5 +347,6 @@ def wipe_drill_report(
         "evidence_bundle": evidence_bundle,
         "gaps": gaps,
         "next_steps": next_steps,
+        "closure_interpretation": closure_interpretation,
         "read_only": True,
     }

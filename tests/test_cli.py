@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
-from osk.cli import main, parse_args
+from osk.cli import build_parser, main, parse_args
 
 
 def test_parse_start() -> None:
@@ -95,6 +95,18 @@ def test_parse_audit() -> None:
     assert args.actions == ["operator_session_created"]
     assert args.wipe_follow_up_only is True
     assert args.json_output is True
+
+
+def test_audit_help_mentions_review_events_for_wipe_follow_up_filter() -> None:
+    parser = build_parser()
+    subparsers = next(
+        action for action in parser._actions if getattr(action, "choices", None)
+    )
+    audit_parser = subparsers.choices["audit"]
+    help_text = audit_parser.format_help()
+
+    assert "--wipe-follow-up-only" in help_text
+    assert "review" in help_text.lower()
 
 
 def test_parse_logs() -> None:

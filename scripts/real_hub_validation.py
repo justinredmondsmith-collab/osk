@@ -854,13 +854,21 @@ def _collect_local_snapshots(repo_root: Path, artifact_dir: Path) -> dict[str, A
         name="status",
         cli_args=["status", "--json"],
     )
+    members_path, members_meta = _capture_local_snapshot(
+        repo_root,
+        artifact_dir,
+        name="members",
+        cli_args=["members", "--json"],
+    )
     return {
         "captures": {
             "doctor_snapshot_path": doctor_path,
+            "members_snapshot_path": members_path,
             "status_snapshot_path": status_path,
         },
         "local_snapshots": {
             "doctor": doctor_meta,
+            "members": members_meta,
             "status": status_meta,
         },
     }
@@ -933,11 +941,90 @@ def _local_admin_headers() -> tuple[dict[str, str] | None, str | None]:
     return None, None
 
 
+def _write_closure_summary(
+    path: Path,
+    *,
+    closure_state: str,
+    credential_source: str | None,
+    message: str | None = None,
+    wipe_readiness: dict[str, Any] | None = None,
+    audit_events: list[dict[str, Any]] | None = None,
+    follow_up_detail_paths: dict[str, str] | None = None,
+) -> str:
+    payload = {
+        "captured_at_utc": datetime.now(timezone.utc).isoformat(),
+        "closure_state": closure_state,
+        "credential_source": credential_source,
+        "message": message,
+        "wipe_readiness_status": (
+            wipe_readiness.get("status") if isinstance(wipe_readiness, dict) else None
+        ),
+        "follow_up_required": (
+            wipe_readiness.get("follow_up_required") if isinstance(wipe_readiness, dict) else None
+        ),
+        "unresolved_follow_up_count": (
+            wipe_readiness.get("unresolved_follow_up_count")
+            if isinstance(wipe_readiness, dict)
+            else None
+        ),
+        "active_unresolved_follow_up_count": (
+            wipe_readiness.get("active_unresolved_follow_up_count")
+            if isinstance(wipe_readiness, dict)
+            else None
+        ),
+        "historical_drift_follow_up_count": (
+            wipe_readiness.get("historical_drift_follow_up_count")
+            if isinstance(wipe_readiness, dict)
+            else None
+        ),
+        "reviewed_historical_drift_follow_up_count": (
+            wipe_readiness.get("reviewed_historical_drift_follow_up_count")
+            if isinstance(wipe_readiness, dict)
+            else None
+        ),
+        "unreviewed_historical_drift_follow_up_count": (
+            wipe_readiness.get("unreviewed_historical_drift_follow_up_count")
+            if isinstance(wipe_readiness, dict)
+            else None
+        ),
+        "verified_current_follow_up_count": (
+            wipe_readiness.get("verified_current_follow_up_count")
+            if isinstance(wipe_readiness, dict)
+            else None
+        ),
+        "follow_up_summary": (
+            wipe_readiness.get("follow_up_summary") if isinstance(wipe_readiness, dict) else None
+        ),
+        "follow_up_history_count": (
+            wipe_readiness.get("follow_up_history_count")
+            if isinstance(wipe_readiness, dict)
+            else None
+        ),
+        "follow_up_history_summary": (
+            wipe_readiness.get("follow_up_history_summary")
+            if isinstance(wipe_readiness, dict)
+            else None
+        ),
+        "audit_event_count": len(audit_events or []),
+        "follow_up_detail_paths": follow_up_detail_paths or {},
+    }
+    _write_json(path, payload)
+    return str(path)
+
+
 def _capture_operator_closure(*, args: argparse.Namespace, artifact_dir: Path) -> dict[str, Any]:
+    closure_summary_path = artifact_dir / "closure-summary.json"
     headers, credential_source = _local_admin_headers()
     if headers is None:
+        _write_closure_summary(
+            closure_summary_path,
+            closure_state="unavailable",
+            credential_source=None,
+            message="Local operator credentials unavailable.",
+        )
         return {
             "captures": {
+                "closure_summary_path": str(closure_summary_path),
                 "wipe_readiness_path": None,
                 "audit_slice_path": None,
             },
@@ -945,10 +1032,14 @@ def _capture_operator_closure(*, args: argparse.Namespace, artifact_dir: Path) -
                 "id": "operator_closure_captured",
                 "status": "manual_follow_up",
                 "automated": False,
-                "detail": {"message": "Local operator credentials unavailable."},
+                "detail": {
+                    "message": "Local operator credentials unavailable.",
+                    "closure_state": "unavailable",
+                },
             },
             "summary": {
                 "operator_closure_status": "unavailable",
+                "operator_closure_state": "unavailable",
             },
         }
 
@@ -980,8 +1071,15 @@ def _capture_operator_closure(*, args: argparse.Namespace, artifact_dir: Path) -
             if not isinstance(audit_events, list):
                 raise ValueError("Audit slice response was not a list.")
     except Exception as exc:
+        _write_closure_summary(
+            closure_summary_path,
+            closure_state="error",
+            credential_source=credential_source,
+            message=str(exc),
+        )
         return {
             "captures": {
+                "closure_summary_path": str(closure_summary_path),
                 "wipe_readiness_path": None,
                 "audit_slice_path": None,
             },
@@ -989,10 +1087,14 @@ def _capture_operator_closure(*, args: argparse.Namespace, artifact_dir: Path) -
                 "id": "operator_closure_captured",
                 "status": "manual_follow_up",
                 "automated": False,
-                "detail": {"message": str(exc)},
+                "detail": {
+                    "message": str(exc),
+                    "closure_state": "error",
+                },
             },
             "summary": {
                 "operator_closure_status": "error",
+                "operator_closure_state": "error",
             },
         }
 
@@ -1014,8 +1116,61 @@ def _capture_operator_closure(*, args: argparse.Namespace, artifact_dir: Path) -
             "events": audit_events,
         },
     )
+    follow_up_detail_paths: dict[str, str] = {}
+    detail_member_ids: list[str] = []
+    seen_detail_member_ids: set[str] = set()
+
+    for item in wipe_readiness.get("follow_up") or []:
+        if not isinstance(item, dict):
+            continue
+        if str(item.get("resolution") or "unresolved") == "verified":
+            continue
+        member_id = str(item.get("id") or "").strip()
+        if not member_id or member_id in seen_detail_member_ids:
+            continue
+        seen_detail_member_ids.add(member_id)
+        detail_member_ids.append(member_id)
+
+    for item in wipe_readiness.get("follow_up_history") or []:
+        if not isinstance(item, dict):
+            continue
+        member_id = str(item.get("member_id") or "").strip()
+        if not member_id or member_id in seen_detail_member_ids:
+            continue
+        seen_detail_member_ids.add(member_id)
+        detail_member_ids.append(member_id)
+
+    with httpx.Client(
+        headers=headers,
+        timeout=max(args.timeout_seconds, 5.0),
+        verify=verify,
+        follow_redirects=True,
+    ) as client:
+        for member_id in detail_member_ids:
+            detail_response = client.get(
+                urljoin(args.hub_url, f"/api/coordinator/wipe-follow-up/{member_id}")
+            )
+            detail_response.raise_for_status()
+            detail_payload = detail_response.json()
+            detail_path = artifact_dir / f"wipe-follow-up-{member_id}.json"
+            _write_json(detail_path, detail_payload)
+            follow_up_detail_paths[member_id] = str(detail_path)
+
+    unresolved_follow_up_count = int(wipe_readiness.get("unresolved_follow_up_count") or 0)
+    closure_state = "captured_clear"
+    if unresolved_follow_up_count > 0:
+        closure_state = "captured_open_follow_up"
+    _write_closure_summary(
+        closure_summary_path,
+        closure_state=closure_state,
+        credential_source=credential_source,
+        wipe_readiness=wipe_readiness,
+        audit_events=audit_events,
+        follow_up_detail_paths=follow_up_detail_paths,
+    )
     return {
         "captures": {
+            "closure_summary_path": str(closure_summary_path),
             "wipe_readiness_path": str(wipe_readiness_path),
             "audit_slice_path": str(audit_slice_path),
         },
@@ -1024,6 +1179,7 @@ def _capture_operator_closure(*, args: argparse.Namespace, artifact_dir: Path) -
             "status": "passed",
             "automated": True,
             "detail": {
+                "closure_state": closure_state,
                 "credential_source": credential_source,
                 "wipe_readiness_status": wipe_readiness.get("status"),
                 "unresolved_follow_up_count": wipe_readiness.get("unresolved_follow_up_count"),
@@ -1032,6 +1188,7 @@ def _capture_operator_closure(*, args: argparse.Namespace, artifact_dir: Path) -
         },
         "summary": {
             "operator_closure_status": "captured",
+            "operator_closure_state": closure_state,
             "wipe_readiness_status": wipe_readiness.get("status"),
             "unresolved_follow_up_count": wipe_readiness.get("unresolved_follow_up_count"),
             "audit_event_count": len(audit_events),
@@ -1256,8 +1413,10 @@ def _build_result_payload(
         "artifact_dir": str(artifact_dir),
         "result_path": str(result_path),
         "captures": {
+            "closure_summary_path": None,
             "doctor_snapshot_path": capture_paths.get("doctor_snapshot_path"),
             "hub_preflight_path": capture_paths.get("hub_preflight_path"),
+            "members_snapshot_path": capture_paths.get("members_snapshot_path"),
             "status_snapshot_path": capture_paths.get("status_snapshot_path"),
             "cdp_version_path": capture_paths.get("cdp_version_path"),
             "audit_slice_path": None,
@@ -1383,6 +1542,9 @@ def main(argv: list[str] | None = None) -> int:
         diagnostic_paths=live_result.get("diagnostic_paths"),
     )
     operator_closure = _capture_operator_closure(args=args, artifact_dir=artifact_dir)
+    payload["captures"]["closure_summary_path"] = operator_closure["captures"][
+        "closure_summary_path"
+    ]
     payload["captures"]["wipe_readiness_path"] = operator_closure["captures"]["wipe_readiness_path"]
     payload["captures"]["audit_slice_path"] = operator_closure["captures"]["audit_slice_path"]
     payload["steps"] = _merge_step_updates(

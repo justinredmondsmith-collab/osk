@@ -237,6 +237,12 @@ result_payload = {
     "local_debug_port": None,
     "artifact_dir": artifact_dir,
     "result_path": result_path,
+    "captures": {
+        "cdp_version_path": None,
+        "launch_preflight_path": str(preflight_file) if preflight_file.exists() else None,
+        "result_path": result_path,
+        "smoke_metadata_path": str(metadata_file),
+    },
     "smoke_metadata": smoke_metadata,
     "launch_preflight": launch_preflight,
     "cdp_version": None,

@@ -103,6 +103,31 @@ manually checked. Recent verification events are also shown in that same panel
 so you can see whether a prior closure still holds or has reopened after newer
 member activity.
 
+Current wipe-follow-up surfaces now also distinguish:
+
+- `active_unresolved`
+  Current cleanup work tied to the live boundary.
+- `historical_drift`
+  Old unresolved follow-up that still pollutes readiness and needs explicit
+  review, but should not be treated as silently resolved.
+- `verified_current`
+  A manual verification that still closes the current cleanup boundary.
+
+Treat `historical_drift` as an interpretation aid, not an automatic cleanup
+decision.
+
+Operators can now record a non-destructive historical-drift review when an old
+follow-up item has been inspected and triaged. That review is a handoff aid,
+not a closure signal: the item remains unresolved until it is explicitly
+verified or otherwise cleared by real cleanup work.
+
+The read-only shell and drill surfaces now mirror that distinction too. Expect
+review-aware counts in terminal wipe-readiness summaries and a separate
+`reviewed_historical_drift` interpretation in `osk drill wipe --json`.
+Shell surfaces now also include a compact recent follow-up trail summary, so
+`osk status`, `osk members`, and wipe output can show recent review,
+verification, and reopen context instead of only the current unresolved counts.
+
 When you do run `osk wipe`, the audit trail now records the same trigger-time
 coverage snapshot: broadcast target count plus the stale/disconnected member
 browsers already at risk. Use `osk audit --limit ... --json` if you need that
@@ -111,9 +136,13 @@ event as well, and newer member activity that invalidates a prior manual
 verification now records `wipe_follow_up_reopened` so the reopened boundary is
 captured explicitly in the audit trail. The coordinator wipe-readiness panel
 also surfaces that reopen timestamp and activity source in the recent
-verification trail. If you only need those follow-up transitions later, use
+follow-up trail. Historical-drift review records now join that same
+member-scoped trail so operators can see review, verification, and reopen
+context together. Treat the review entries as inspection evidence only: they
+do not close the wipe boundary. If you only need those follow-up transitions
+later, use
 `osk audit --wipe-follow-up-only --json` or filter to explicit actions with
-`osk audit --action wipe_follow_up_verified --action wipe_follow_up_reopened`.
+`osk audit --action wipe_follow_up_verified --action wipe_follow_up_reopened --action wipe_follow_up_historical_reviewed`.
 The coordinator dashboard now mirrors that shell flow with an Audit Trail
 block that starts on the wipe follow-up slice and can copy the equivalent
 `osk audit` command for the current filter group. Those audit rows are now
@@ -133,8 +162,9 @@ true now" and "why did it change":
    the main review pane. If the member still has unresolved follow-up, the
    card shows the current record and lets you mark it verified there. If the
    boundary has already cleared, the card can still show the retained
-   verification trail with `follow_up: null`; treat that as historical context,
-   not an active task.
+   follow-up trail with `follow_up: null`; treat that as historical context,
+   not an active task. Review entries in that trail are handoff notes, not
+   closure records.
 3. Click a finding-triage audit row when you need to move from a status change
    back into the underlying finding. The finding opens in the same main pane
    with the normal acknowledge / resolve / reopen / escalate and note actions.

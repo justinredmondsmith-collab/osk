@@ -62,6 +62,7 @@ from osk.tls import generate_self_signed_cert
 from osk.wipe_readiness import summarize_wipe_readiness
 
 logger = logging.getLogger(__name__)
+WIPE_FOLLOW_UP_TRAIL_AUDIT_LIMIT = 20
 LOCAL_DEV_DATABASE_URL = "postgresql://osk:osk@localhost:5432/osk"
 LOCAL_DEV_OLLAMA_URL = "http://localhost:11434"
 DEFAULT_LOCAL_SERVICE_NAMES = ("db",)
@@ -1160,10 +1161,15 @@ def wipe_hub(
             follow_up_required = str(wipe_readiness.get("follow_up_required")).lower()
             print(f"wipe_follow_up_required = {follow_up_required}")
             print(f"wipe_follow_up_summary = {wipe_readiness.get('follow_up_summary')}")
+            print(_wipe_follow_up_counts_line(wipe_readiness))
+            _print_wipe_follow_up_history(wipe_readiness)
             for member in list(wipe_readiness.get("follow_up") or [])[:5]:
+                reviewed_suffix = _wipe_follow_up_reviewed_suffix(member)
                 print(
                     "wipe_follow_up "
                     f"name={member['name']} reason={member['reason']} "
+                    f"classification={member.get('classification', 'active_unresolved')}"
+                    f"{reviewed_suffix} "
                     f"last_seen={member['last_seen_at']} action={member['required_action']}"
                 )
     if stop_code != 0:
@@ -1208,6 +1214,82 @@ def _format_uptime(seconds: object) -> str | None:
         if value:
             parts.append(f"{value}{suffix}")
     return " ".join(parts)
+
+
+def _wipe_follow_up_counts_line(wipe_readiness: dict[str, object]) -> str:
+    return (
+        "wipe_follow_up_counts "
+        f"active_unresolved={wipe_readiness.get('active_unresolved_follow_up_count', 0)} "
+        f"historical_drift={wipe_readiness.get('historical_drift_follow_up_count', 0)} "
+        "reviewed_historical_drift="
+        f"{wipe_readiness.get('reviewed_historical_drift_follow_up_count', 0)} "
+        f"verified_current={wipe_readiness.get('verified_current_follow_up_count', 0)}"
+    )
+
+
+def _wipe_follow_up_reviewed_suffix(member: dict[str, object]) -> str:
+    if member.get("classification") != "historical_drift":
+        return ""
+    reviewed = str(bool(member.get("historical_reviewed"))).lower()
+    return f" reviewed={reviewed}"
+
+
+def _decorate_wipe_readiness_for_operation(
+    operation_id: uuid.UUID,
+    wipe_readiness: dict[str, object],
+) -> dict[str, object]:
+    from osk.server import _decorate_wipe_readiness
+
+    try:
+        audit_events = asyncio.run(
+            _get_audit_events(
+                operation_id,
+                WIPE_FOLLOW_UP_TRAIL_AUDIT_LIMIT,
+                actions=build_audit_action_filter(None, wipe_follow_up_only=True),
+            )
+        )
+    except Exception:
+        return wipe_readiness
+    return _decorate_wipe_readiness(wipe_readiness, audit_events=audit_events)
+
+
+def _wipe_follow_up_history_line(item: dict[str, object]) -> str:
+    action = str(item.get("action") or "")
+    if action == "wipe_follow_up_historical_reviewed":
+        action_label = "reviewed"
+        action_at = str(item.get("reviewed_at") or "unknown")
+    else:
+        action_label = "verified"
+        action_at = str(item.get("verified_at") or "unknown")
+
+    line = (
+        "wipe_follow_up_history "
+        f"name={item.get('member_name', 'Unknown member')} "
+        f"reason={item.get('reason', 'unknown')} "
+        f"status={item.get('status', 'unknown')} "
+        f"action={action_label} at={action_at}"
+    )
+    reopened_at = str(item.get("reopened_at") or "").strip()
+    if reopened_at:
+        line += f" reopened_at={reopened_at}"
+    reopened_activity_kind = str(item.get("reopened_activity_kind") or "").strip()
+    if reopened_activity_kind:
+        line += f" reopened_activity={reopened_activity_kind}"
+    return line
+
+
+def _print_wipe_follow_up_history(wipe_readiness: dict[str, object], *, limit: int = 3) -> None:
+    history_summary = str(wipe_readiness.get("follow_up_history_summary") or "").strip()
+    if history_summary:
+        print(f"wipe_follow_up_history_summary = {history_summary}")
+
+    history = wipe_readiness.get("follow_up_history") or []
+    if not isinstance(history, list):
+        return
+    for item in history[:limit]:
+        if not isinstance(item, dict):
+            continue
+        print(_wipe_follow_up_history_line(item))
 
 
 def hub_status_snapshot(now: float | None = None) -> tuple[int, dict[str, object]]:
@@ -1296,7 +1378,11 @@ def hub_status_snapshot(now: float | None = None) -> tuple[int, dict[str, object
                 )
                 for row in rows
             ]
-            snapshot["wipe_readiness"] = summarize_wipe_readiness(members)
+            wipe_readiness = summarize_wipe_readiness(members)
+            snapshot["wipe_readiness"] = _decorate_wipe_readiness_for_operation(
+                operation_uuid,
+                wipe_readiness,
+            )
         except Exception as exc:
             snapshot["wipe_readiness"] = {
                 "available": False,
@@ -1377,6 +1463,8 @@ def status_hub(*, json_output: bool = False) -> int:
             follow_up_required = str(wipe_readiness.get("follow_up_required")).lower()
             print(f"wipe_follow_up_required = {follow_up_required}")
             print(f"wipe_follow_up_summary = {wipe_readiness.get('follow_up_summary')}")
+            print(_wipe_follow_up_counts_line(wipe_readiness))
+            _print_wipe_follow_up_history(wipe_readiness)
 
     return code
 
@@ -1636,8 +1724,18 @@ def show_members(*, json_output: bool = False) -> int:
         for row in rows
     ]
     wipe_readiness = summarize_wipe_readiness(members)
+    wipe_readiness = _decorate_wipe_readiness_for_operation(operation_uuid, wipe_readiness)
     if json_output:
-        print(json.dumps(members, indent=2, sort_keys=True))
+        print(
+            json.dumps(
+                {
+                    "members": members,
+                    "wipe_readiness": wipe_readiness,
+                },
+                indent=2,
+                sort_keys=True,
+            )
+        )
         return 0
 
     if not members:
@@ -1645,6 +1743,8 @@ def show_members(*, json_output: bool = False) -> int:
         print(f"wipe_readiness = {wipe_readiness['status']}")
         print(f"wipe_summary = {wipe_readiness['summary']}")
         print(f"wipe_follow_up_summary = {wipe_readiness['follow_up_summary']}")
+        print(_wipe_follow_up_counts_line(wipe_readiness))
+        _print_wipe_follow_up_history(wipe_readiness)
         return 0
 
     for member in members:
@@ -1659,11 +1759,16 @@ def show_members(*, json_output: bool = False) -> int:
     print(f"wipe_readiness = {wipe_readiness['status']}")
     print(f"wipe_summary = {wipe_readiness['summary']}")
     print(f"wipe_follow_up_summary = {wipe_readiness['follow_up_summary']}")
+    print(_wipe_follow_up_counts_line(wipe_readiness))
+    _print_wipe_follow_up_history(wipe_readiness)
     if wipe_readiness["at_risk"]:
         for member in wipe_readiness["follow_up"][:5]:
+            reviewed_suffix = _wipe_follow_up_reviewed_suffix(member)
             print(
                 "wipe_follow_up "
                 f"name={member['name']} reason={member['reason']} "
+                f"classification={member.get('classification', 'active_unresolved')}"
+                f"{reviewed_suffix} "
                 f"last_seen={member['last_seen_at']} action={member['required_action']}"
             )
     return 0

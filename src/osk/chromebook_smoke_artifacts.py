@@ -124,6 +124,14 @@ def build_run_index_entry(payload: Mapping[str, Any]) -> dict[str, Any]:
     if not isinstance(failure, dict):
         failure = {}
 
+    captures = payload.get("captures")
+    if not isinstance(captures, dict):
+        captures = None
+
+    launch_preflight = payload.get("launch_preflight")
+    if not isinstance(launch_preflight, dict):
+        launch_preflight = None
+
     summary = payload.get("summary")
     if not isinstance(summary, dict):
         summary = None
@@ -142,6 +150,8 @@ def build_run_index_entry(payload: Mapping[str, Any]) -> dict[str, Any]:
         "failure_stage": failure.get("stage"),
         "failure_type": failure.get("type"),
         "failure_message": failure.get("message"),
+        "captures": captures,
+        "launch_preflight": launch_preflight,
         "summary": summary,
         "provenance": provenance,
     }

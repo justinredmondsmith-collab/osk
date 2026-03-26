@@ -65,8 +65,10 @@ def _write_validation_runner_stub(path: Path) -> Path:
                 "artifact_dir": str(result_path.parent),
                 "result_path": str(result_path),
                 "captures": {
+                    "closure_summary_path": None,
                     "doctor_snapshot_path": None,
                     "hub_preflight_path": None,
+                    "members_snapshot_path": None,
                     "status_snapshot_path": None,
                     "cdp_version_path": None,
                     "audit_slice_path": None,
@@ -196,9 +198,21 @@ def test_wrapper_prepares_launches_and_forwards_real_hub_args(tmp_path: Path) ->
         "wayland_display": "wayland-0",
         "xdg_runtime_dir": "/run/user/1000",
     }
+    assert latest["launch_preflight"] == payload["launch_preflight"]
     assert payload["provenance"]["git_branch"] == (
         "justinredmondsmith-collab/feat/chromebook-real-hub-wrapper"
     )
+    assert payload["captures"] == {
+        "audit_slice_path": None,
+        "cdp_version_path": None,
+        "closure_summary_path": None,
+        "doctor_snapshot_path": None,
+        "hub_preflight_path": None,
+        "members_snapshot_path": None,
+        "status_snapshot_path": None,
+        "wipe_readiness_path": None,
+    }
+    assert latest["captures"] == payload["captures"]
     assert latest["status"] == "passed"
 
 
@@ -225,5 +239,16 @@ def test_wrapper_records_prepare_failure_before_runner_executes(tmp_path: Path) 
     assert payload["hub_url"] == "https://127.0.0.1:8443"
     assert payload["join_url"] == "https://osk.local/join?token=test"
     assert payload["device_id"] == "lab-book"
+    assert payload["captures"] == {
+        "audit_slice_path": None,
+        "cdp_version_path": None,
+        "closure_summary_path": None,
+        "doctor_snapshot_path": None,
+        "hub_preflight_path": None,
+        "members_snapshot_path": None,
+        "status_snapshot_path": None,
+        "wipe_readiness_path": None,
+    }
+    assert latest["captures"] == payload["captures"]
     assert latest["failure_stage"] == "prepare"
     assert log_lines == ["prepare", "cleanup"]

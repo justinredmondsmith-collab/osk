@@ -77,8 +77,16 @@ Important files per run:
 
 - `result.json`
   Final contract result for the run.
+- `closure-summary.json`
+  Operator-closure artifact summarizing whether closure capture was unavailable,
+  captured with open follow-up, or captured with a clear current boundary.
+  It now also carries review-aware follow-up counts so reviewed historical
+  drift is visible separately from active unresolved follow-up, plus
+  follow-up-trail count and summary fields so recent member-scoped history is
+  preserved in the handoff artifact.
 - `hub-preflight.json`
-  Host-side target and local snapshot metadata.
+  Host-side target and local snapshot metadata. Local snapshots now include
+  `doctor --json`, `status --json`, and `members --json`.
 - `cdp-version.json`
   Chrome remote debugging metadata for the Chromebook browser.
 - `restart-stop.json`
@@ -87,6 +95,16 @@ Important files per run:
   Restart boot logs from the workstation hub.
 - `restart-resume-probe.json`
   Post-restart member runtime probe.
+- `wipe-follow-up-<member-id>.json`
+  Member-scoped follow-up detail captured for unresolved items and recent
+  follow-up-trail members when local operator credentials are available.
+  A captured file may therefore show `follow_up: null` with retained history
+  when the current boundary has already cleared.
+
+The `members.json` local snapshot now mirrors the live shell parity work by
+capturing both the member list and the decorated `wipe_readiness` payload, so
+artifact-only review can see recent follow-up trail context without separately
+recomputing it from status output.
 
 Latest successful restart-validation run:
 
@@ -118,6 +136,21 @@ The restart step is specifically considered verified when:
 - `wipe_observed` remains `manual_follow_up`.
 - `operator_closure_captured` remains `manual_follow_up` when no local operator
   session is present.
+- `closure-summary.json` now distinguishes capture success from closure state.
+  `captured_open_follow_up` means the runner reached the operator surfaces but
+  the cleanup boundary is still open. Treat that as incomplete closure, not as
+  a pass on member cleanup.
+- Historical-drift review markers can now be recorded on old unresolved
+  follow-up items, but those markers do not close the boundary by themselves.
+  Treat them as operator handoff evidence, not as wipe verification.
+- Member-scoped wipe follow-up detail now retains those review events in the
+  same follow-up trail used for verification and reopen entries, so handoff
+  artifacts can reconstruct why an old unresolved item was inspected without
+  overstating closure.
+- `closure-summary.json` now mirrors that distinction explicitly with separate
+  active-unresolved, historical-drift, reviewed-historical-drift, and
+  verified-current follow-up counts so terminal and artifact handoff stay in
+  sync with the dashboard view.
 - `python -m osk status --json` may show `state_only` from this sandboxed host
   context after a live host-launched restart. Treat the run artifact and
   restart logs as the source of truth for the live pass.

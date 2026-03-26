@@ -99,10 +99,12 @@ def test_dry_run_writes_real_hub_contract_result(
         lambda repo_root, artifact_dir: {
             "captures": {
                 "doctor_snapshot_path": None,
+                "members_snapshot_path": None,
                 "status_snapshot_path": None,
             },
             "local_snapshots": {
                 "doctor": {"available": False, "path": None},
+                "members": {"available": False, "path": None},
                 "status": {"available": False, "path": None},
             },
         },
@@ -140,8 +142,10 @@ def test_dry_run_writes_real_hub_contract_result(
     assert payload["captures"] == {
         "audit_slice_path": None,
         "cdp_version_path": None,
+        "closure_summary_path": None,
         "doctor_snapshot_path": None,
         "hub_preflight_path": str(preflight_path),
+        "members_snapshot_path": None,
         "status_snapshot_path": None,
         "wipe_readiness_path": None,
     }
@@ -161,6 +165,7 @@ def test_dry_run_writes_real_hub_contract_result(
     assert preflight["scenario"] == "baseline"
     assert preflight["local_snapshots"] == {
         "doctor": {"available": False, "path": None},
+        "members": {"available": False, "path": None},
         "status": {"available": False, "path": None},
     }
     assert payload["provenance"] == {
@@ -192,10 +197,12 @@ def test_non_dry_run_executes_real_hub_browser_flow(
         lambda repo_root, artifact_dir: {
             "captures": {
                 "doctor_snapshot_path": None,
+                "members_snapshot_path": None,
                 "status_snapshot_path": None,
             },
             "local_snapshots": {
                 "doctor": {"available": False, "path": None},
+                "members": {"available": False, "path": None},
                 "status": {"available": False, "path": None},
             },
         },
@@ -278,12 +285,17 @@ def test_non_dry_run_executes_real_hub_browser_flow(
     monkeypatch.setattr(validation, "run_live_flow", fake_run_live_flow)
 
     def fake_capture_operator_closure(*, args, artifact_dir: Path) -> dict[str, object]:
+        closure_summary_path = artifact_dir / "closure-summary.json"
         wipe_readiness_path = artifact_dir / "wipe-readiness.json"
         audit_slice_path = artifact_dir / "audit-slice.json"
+        closure_summary_path.write_text(
+            '{"closure_state":"captured_open_follow_up","unresolved_follow_up_count":1}\n'
+        )
         wipe_readiness_path.write_text('{"status":"blocked","follow_up_required":true}\n')
         audit_slice_path.write_text('{"events":[{"action":"wipe_follow_up_verified"}]}\n')
         return {
             "captures": {
+                "closure_summary_path": str(closure_summary_path),
                 "wipe_readiness_path": str(wipe_readiness_path),
                 "audit_slice_path": str(audit_slice_path),
             },
@@ -292,12 +304,14 @@ def test_non_dry_run_executes_real_hub_browser_flow(
                 "status": "passed",
                 "automated": True,
                 "detail": {
+                    "closure_state": "captured_open_follow_up",
                     "wipe_readiness_status": "blocked",
                     "audit_event_count": 1,
                 },
             },
             "summary": {
                 "operator_closure_status": "captured",
+                "operator_closure_state": "captured_open_follow_up",
                 "wipe_readiness_status": "blocked",
                 "audit_event_count": 1,
             },
@@ -324,6 +338,7 @@ def test_non_dry_run_executes_real_hub_browser_flow(
     result_path = artifact_root / "20260323T190405Z" / "result.json"
     preflight_path = artifact_root / "20260323T190405Z" / "hub-preflight.json"
     cdp_version_path = artifact_root / "20260323T190405Z" / "cdp-version.json"
+    closure_summary_path = artifact_root / "20260323T190405Z" / "closure-summary.json"
     wipe_readiness_path = artifact_root / "20260323T190405Z" / "wipe-readiness.json"
     audit_slice_path = artifact_root / "20260323T190405Z" / "audit-slice.json"
     payload = json.loads(result_path.read_text())
@@ -339,6 +354,7 @@ def test_non_dry_run_executes_real_hub_browser_flow(
     assert payload["cdp_version"]["Browser"] == "Chrome/146"
     assert payload["captures"]["hub_preflight_path"] == str(preflight_path)
     assert payload["captures"]["cdp_version_path"] == str(cdp_version_path)
+    assert payload["captures"]["closure_summary_path"] == str(closure_summary_path)
     assert payload["captures"]["wipe_readiness_path"] == str(wipe_readiness_path)
     assert payload["captures"]["audit_slice_path"] == str(audit_slice_path)
     assert len(payload["steps"]) == 6
@@ -352,8 +368,10 @@ def test_non_dry_run_executes_real_hub_browser_flow(
     ]
     assert payload["summary"]["member_id"] == "member-123"
     assert payload["summary"]["operator_closure_status"] == "captured"
+    assert payload["summary"]["operator_closure_state"] == "captured_open_follow_up"
     assert payload["failure"] is None
     assert preflight["local_snapshots"]["doctor"]["available"] is False
+    assert preflight["local_snapshots"]["members"]["available"] is False
     assert preflight["local_snapshots"]["status"]["available"] is False
     assert cdp_version["webSocketDebuggerUrl"] == "ws://127.0.0.1:9333/devtools/browser/test"
 
@@ -371,10 +389,12 @@ def test_non_dry_run_records_partial_operator_closure_when_unavailable(
         lambda repo_root, artifact_dir: {
             "captures": {
                 "doctor_snapshot_path": None,
+                "members_snapshot_path": None,
                 "status_snapshot_path": None,
             },
             "local_snapshots": {
                 "doctor": {"available": False, "path": None},
+                "members": {"available": False, "path": None},
                 "status": {"available": False, "path": None},
             },
         },
@@ -441,6 +461,9 @@ def test_non_dry_run_records_partial_operator_closure_when_unavailable(
         "_capture_operator_closure",
         lambda **_kwargs: {
             "captures": {
+                "closure_summary_path": str(
+                    artifact_root / "20260323T190405Z" / "closure-summary.json"
+                ),
                 "wipe_readiness_path": None,
                 "audit_slice_path": None,
             },
@@ -448,10 +471,14 @@ def test_non_dry_run_records_partial_operator_closure_when_unavailable(
                 "id": "operator_closure_captured",
                 "status": "manual_follow_up",
                 "automated": False,
-                "detail": {"message": "Local operator credentials unavailable."},
+                "detail": {
+                    "message": "Local operator credentials unavailable.",
+                    "closure_state": "unavailable",
+                },
             },
             "summary": {
                 "operator_closure_status": "unavailable",
+                "operator_closure_state": "unavailable",
             },
         },
     )
@@ -475,11 +502,268 @@ def test_non_dry_run_records_partial_operator_closure_when_unavailable(
 
     assert code == 0
     assert payload["status"] == "passed"
+    assert payload["captures"]["closure_summary_path"] == str(
+        artifact_root / "20260323T190405Z" / "closure-summary.json"
+    )
     assert payload["captures"]["wipe_readiness_path"] is None
     assert payload["captures"]["audit_slice_path"] is None
     assert payload["steps"][-1]["id"] == "operator_closure_captured"
     assert payload["steps"][-1]["status"] == "manual_follow_up"
     assert payload["summary"]["operator_closure_status"] == "unavailable"
+    assert payload["summary"]["operator_closure_state"] == "unavailable"
+
+
+def test_capture_operator_closure_writes_open_follow_up_summary_and_detail_artifacts(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    validation = _load_module()
+
+    member_id = "11111111-1111-1111-1111-111111111111"
+    detail_path = tmp_path / f"wipe-follow-up-{member_id}.json"
+
+    monkeypatch.setattr(
+        validation,
+        "_local_admin_headers",
+        lambda: ({"X-Test-Auth": "ok"}, "test_credentials"),
+    )
+    monkeypatch.setattr(validation, "_httpx_verify_for_url", lambda _url: True)
+
+    class FakeResponse:
+        def __init__(self, payload: object):
+            self._payload = payload
+
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> object:
+            return self._payload
+
+    class FakeClient:
+        def __init__(self, *args, **kwargs):
+            self.calls: list[tuple[str, object | None]] = []
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def get(self, url: str, params: object | None = None):
+            self.calls.append((url, params))
+            if url.endswith("/api/coordinator/dashboard-state"):
+                return FakeResponse(
+                    {
+                        "wipe_readiness": {
+                            "status": "blocked",
+                            "unresolved_follow_up_count": 1,
+                            "follow_up_required": True,
+                            "active_unresolved_follow_up_count": 0,
+                            "historical_drift_follow_up_count": 1,
+                            "reviewed_historical_drift_follow_up_count": 1,
+                            "unreviewed_historical_drift_follow_up_count": 0,
+                            "verified_current_follow_up_count": 0,
+                            "follow_up_summary": (
+                                "Resolve 1 unresolved member wipe follow-up item before closing "
+                                "the cleanup boundary. 1 item may be historical drift. "
+                                "1 historical-drift review recorded."
+                            ),
+                            "follow_up_history_count": 1,
+                            "follow_up_history_summary": (
+                                "Recent follow-up trail: 1 reviewed."
+                            ),
+                            "follow_up": [
+                                {
+                                    "id": member_id,
+                                    "name": "Observer One",
+                                    "reason": "disconnected",
+                                    "classification": "historical_drift",
+                                    "historical_reviewed": True,
+                                    "historical_reviewed_at": "2026-03-23T08:15:00Z",
+                                    "resolution": "unresolved",
+                                }
+                            ],
+                        }
+                    }
+                )
+            if url.endswith("/api/audit"):
+                return FakeResponse([{"action": "wipe_follow_up_verified"}])
+            if url.endswith(f"/api/coordinator/wipe-follow-up/{member_id}"):
+                return FakeResponse(
+                    {
+                        "member_id": member_id,
+                        "member_name": "Observer One",
+                        "summary": "Member follow-up still open.",
+                        "follow_up": {
+                            "id": member_id,
+                            "resolution": "unresolved",
+                        },
+                        "history": [],
+                    }
+                )
+            raise AssertionError(f"Unexpected URL: {url}")
+
+    monkeypatch.setattr(validation.httpx, "Client", FakeClient)
+
+    result = validation._capture_operator_closure(
+        args=SimpleNamespace(hub_url="https://10.0.0.60:8444", timeout_seconds=20.0),
+        artifact_dir=tmp_path,
+    )
+
+    closure_summary_path = tmp_path / "closure-summary.json"
+    wipe_readiness_path = tmp_path / "wipe-readiness.json"
+    audit_slice_path = tmp_path / "audit-slice.json"
+    payload = json.loads(closure_summary_path.read_text())
+    detail = json.loads(detail_path.read_text())
+
+    assert result["captures"]["closure_summary_path"] == str(closure_summary_path)
+    assert result["captures"]["wipe_readiness_path"] == str(wipe_readiness_path)
+    assert result["captures"]["audit_slice_path"] == str(audit_slice_path)
+    assert payload["closure_state"] == "captured_open_follow_up"
+    assert payload["credential_source"] == "test_credentials"
+    assert payload["unresolved_follow_up_count"] == 1
+    assert payload["active_unresolved_follow_up_count"] == 0
+    assert payload["historical_drift_follow_up_count"] == 1
+    assert payload["reviewed_historical_drift_follow_up_count"] == 1
+    assert payload["unreviewed_historical_drift_follow_up_count"] == 0
+    assert payload["follow_up_summary"].startswith("Resolve 1 unresolved")
+    assert payload["follow_up_history_count"] == 1
+    assert payload["follow_up_history_summary"] == "Recent follow-up trail: 1 reviewed."
+    assert payload["follow_up_detail_paths"] == {member_id: str(detail_path)}
+    assert result["summary"]["operator_closure_state"] == "captured_open_follow_up"
+    assert result["step_update"]["detail"]["closure_state"] == "captured_open_follow_up"
+    assert detail["member_id"] == member_id
+    assert detail["follow_up"]["resolution"] == "unresolved"
+
+
+def test_capture_operator_closure_writes_detail_artifacts_for_recent_history_members(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    validation = _load_module()
+
+    history_member_id = "22222222-2222-2222-2222-222222222222"
+    history_detail_path = tmp_path / f"wipe-follow-up-{history_member_id}.json"
+
+    monkeypatch.setattr(
+        validation,
+        "_local_admin_headers",
+        lambda: ({"X-Test-Auth": "ok"}, "test_credentials"),
+    )
+    monkeypatch.setattr(validation, "_httpx_verify_for_url", lambda _url: True)
+
+    class FakeResponse:
+        def __init__(self, payload: object):
+            self._payload = payload
+
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> object:
+            return self._payload
+
+    class FakeClient:
+        def __init__(self, *args, **kwargs):
+            self.calls: list[tuple[str, object | None]] = []
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def get(self, url: str, params: object | None = None):
+            self.calls.append((url, params))
+            if url.endswith("/api/coordinator/dashboard-state"):
+                return FakeResponse(
+                    {
+                        "wipe_readiness": {
+                            "status": "ready",
+                            "unresolved_follow_up_count": 0,
+                            "follow_up_required": False,
+                            "active_unresolved_follow_up_count": 0,
+                            "historical_drift_follow_up_count": 0,
+                            "reviewed_historical_drift_follow_up_count": 0,
+                            "unreviewed_historical_drift_follow_up_count": 0,
+                            "verified_current_follow_up_count": 0,
+                            "follow_up_summary": "No unresolved member wipe follow-up remains.",
+                            "follow_up_history_count": 1,
+                            "follow_up_history_summary": "Recent follow-up trail: 1 cleared.",
+                            "follow_up": [],
+                            "follow_up_history": [
+                                {
+                                    "member_id": history_member_id,
+                                    "member_name": "Observer Trail",
+                                    "action": "wipe_follow_up_verified",
+                                    "status": "cleared",
+                                    "verified_at": "2026-03-23T08:00:00Z",
+                                }
+                            ],
+                        }
+                    }
+                )
+            if url.endswith("/api/audit"):
+                return FakeResponse([{"action": "wipe_follow_up_verified"}])
+            if url.endswith(f"/api/coordinator/wipe-follow-up/{history_member_id}"):
+                return FakeResponse(
+                    {
+                        "member_id": history_member_id,
+                        "member_name": "Observer Trail",
+                        "summary": "Verification remains historical context only.",
+                        "follow_up": None,
+                        "history": [
+                            {
+                                "member_id": history_member_id,
+                                "action": "wipe_follow_up_verified",
+                                "status": "cleared",
+                            }
+                        ],
+                    }
+                )
+            raise AssertionError(f"Unexpected URL: {url}")
+
+    monkeypatch.setattr(validation.httpx, "Client", FakeClient)
+
+    result = validation._capture_operator_closure(
+        args=SimpleNamespace(hub_url="https://10.0.0.60:8444", timeout_seconds=20.0),
+        artifact_dir=tmp_path,
+    )
+
+    closure_summary_path = tmp_path / "closure-summary.json"
+    payload = json.loads(closure_summary_path.read_text())
+    detail = json.loads(history_detail_path.read_text())
+
+    assert result["summary"]["operator_closure_state"] == "captured_clear"
+    assert payload["closure_state"] == "captured_clear"
+    assert payload["follow_up_history_count"] == 1
+    assert payload["follow_up_history_summary"] == "Recent follow-up trail: 1 cleared."
+    assert payload["follow_up_detail_paths"] == {history_member_id: str(history_detail_path)}
+    assert detail["member_id"] == history_member_id
+    assert detail["follow_up"] is None
+    assert detail["history"][0]["status"] == "cleared"
+
+
+def test_capture_operator_closure_writes_unavailable_summary_when_credentials_missing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    validation = _load_module()
+
+    monkeypatch.setattr(validation, "_local_admin_headers", lambda: (None, None))
+
+    result = validation._capture_operator_closure(
+        args=SimpleNamespace(hub_url="https://10.0.0.60:8444", timeout_seconds=20.0),
+        artifact_dir=tmp_path,
+    )
+
+    closure_summary_path = tmp_path / "closure-summary.json"
+    payload = json.loads(closure_summary_path.read_text())
+
+    assert result["captures"]["closure_summary_path"] == str(closure_summary_path)
+    assert result["captures"]["wipe_readiness_path"] is None
+    assert result["captures"]["audit_slice_path"] is None
+    assert payload["closure_state"] == "unavailable"
+    assert payload["credential_source"] is None
+    assert payload["follow_up_detail_paths"] == {}
+    assert result["summary"]["operator_closure_state"] == "unavailable"
+    assert result["step_update"]["detail"]["closure_state"] == "unavailable"
 
 
 def test_restart_scenario_records_resume_step_and_hardening_tasks(
@@ -496,10 +780,12 @@ def test_restart_scenario_records_resume_step_and_hardening_tasks(
         lambda repo_root, artifact_dir: {
             "captures": {
                 "doctor_snapshot_path": None,
+                "members_snapshot_path": None,
                 "status_snapshot_path": None,
             },
             "local_snapshots": {
                 "doctor": {"available": False, "path": None},
+                "members": {"available": False, "path": None},
                 "status": {"available": False, "path": None},
             },
         },
@@ -552,6 +838,9 @@ def test_restart_scenario_records_resume_step_and_hardening_tasks(
         "_capture_operator_closure",
         lambda **_kwargs: {
             "captures": {
+                "closure_summary_path": str(
+                    artifact_root / "20260323T190405Z" / "closure-summary.json"
+                ),
                 "wipe_readiness_path": None,
                 "audit_slice_path": None,
             },
@@ -559,10 +848,14 @@ def test_restart_scenario_records_resume_step_and_hardening_tasks(
                 "id": "operator_closure_captured",
                 "status": "manual_follow_up",
                 "automated": False,
-                "detail": {"message": "Local operator credentials unavailable."},
+                "detail": {
+                    "message": "Local operator credentials unavailable.",
+                    "closure_state": "unavailable",
+                },
             },
             "summary": {
                 "operator_closure_status": "unavailable",
+                "operator_closure_state": "unavailable",
             },
         },
     )
@@ -753,16 +1046,20 @@ def test_dry_run_records_available_local_snapshot_paths(
 
     def fake_collect_local_snapshots(repo_root: Path, artifact_dir: Path) -> dict[str, object]:
         doctor_path = artifact_dir / "doctor.json"
+        members_path = artifact_dir / "members.json"
         status_path = artifact_dir / "status.json"
         doctor_path.write_text('{"status":"ok"}\n')
+        members_path.write_text('{"members":[],"wipe_readiness":{"status":"ready"}}\n')
         status_path.write_text('{"running":false}\n')
         return {
             "captures": {
                 "doctor_snapshot_path": str(doctor_path),
+                "members_snapshot_path": str(members_path),
                 "status_snapshot_path": str(status_path),
             },
             "local_snapshots": {
                 "doctor": {"available": True, "path": str(doctor_path)},
+                "members": {"available": True, "path": str(members_path)},
                 "status": {"available": True, "path": str(status_path)},
             },
         }
@@ -794,6 +1091,9 @@ def test_dry_run_records_available_local_snapshot_paths(
     assert payload["captures"]["doctor_snapshot_path"] == str(
         artifact_root / "20260323T190405Z" / "doctor.json"
     )
+    assert payload["captures"]["members_snapshot_path"] == str(
+        artifact_root / "20260323T190405Z" / "members.json"
+    )
     assert payload["captures"]["status_snapshot_path"] == str(
         artifact_root / "20260323T190405Z" / "status.json"
     )
@@ -801,6 +1101,10 @@ def test_dry_run_records_available_local_snapshot_paths(
         "doctor": {
             "available": True,
             "path": str(artifact_root / "20260323T190405Z" / "doctor.json"),
+        },
+        "members": {
+            "available": True,
+            "path": str(artifact_root / "20260323T190405Z" / "members.json"),
         },
         "status": {
             "available": True,

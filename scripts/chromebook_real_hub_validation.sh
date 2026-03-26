@@ -217,9 +217,12 @@ result_payload = {
     "artifact_dir": artifact_dir,
     "result_path": result_path,
     "captures": {
+        "closure_summary_path": None,
         "doctor_snapshot_path": None,
         "hub_preflight_path": None,
+        "members_snapshot_path": None,
         "status_snapshot_path": None,
+        "cdp_version_path": None,
         "audit_slice_path": None,
         "wipe_readiness_path": None,
     },
