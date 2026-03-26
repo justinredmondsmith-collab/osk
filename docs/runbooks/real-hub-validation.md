@@ -98,6 +98,15 @@ After the wrapper finishes, it prints the indexed `latest.json` summary,
 including `operator_handoff` closure and wipe status, so operators can see the
 current boundary without manually opening run-local JSON files first.
 
+For repeatable GitHub-side operation, the repo now includes a manual
+`workflow_dispatch` workflow at
+[`chromebook-real-hub-gate.yml`](../../.github/workflows/chromebook-real-hub-gate.yml).
+That workflow is intended for a self-hosted runner with network reachability to
+both the real hub target and the dedicated Chromebook. Operators should provide
+the current real `join_url` as a workflow input for each run; the indexed
+closure summary is then published back into the workflow job summary and the
+resolved run artifacts are uploaded from the runner.
+
 To inspect the latest indexed real-hub result without opening run-local JSON
 files directly:
 
