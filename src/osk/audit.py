@@ -5,6 +5,8 @@ from __future__ import annotations
 WIPE_FOLLOW_UP_AUDIT_ACTIONS = (
     "wipe_follow_up_verified",
     "wipe_follow_up_reopened",
+    "wipe_follow_up_historical_reviewed",
+    "wipe_follow_up_historical_retired",
 )
 
 

@@ -102,6 +102,21 @@ async def test_disconnect_member(conn_mgr: ConnectionManager, mock_ws: MagicMock
     assert member_id not in conn_mgr.connections
 
 
+async def test_disconnect_all_members(conn_mgr: ConnectionManager) -> None:
+    ws1 = MagicMock(close=AsyncMock())
+    ws2 = MagicMock(close=AsyncMock())
+    member1 = uuid.uuid4()
+    member2 = uuid.uuid4()
+    conn_mgr.register(member1, ws1, MemberRole.OBSERVER)
+    conn_mgr.register(member2, ws2, MemberRole.SENSOR)
+
+    await conn_mgr.disconnect_all()
+
+    ws1.close.assert_called_once()
+    ws2.close.assert_called_once()
+    assert conn_mgr.connected_count == 0
+
+
 def test_connected_count(conn_mgr: ConnectionManager) -> None:
     conn_mgr.register(uuid.uuid4(), MagicMock(), MemberRole.OBSERVER)
     conn_mgr.register(uuid.uuid4(), MagicMock(), MemberRole.SENSOR)

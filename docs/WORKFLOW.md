@@ -49,8 +49,11 @@ Before merging, confirm:
 ## Current Gate
 
 The repo now has meaningful implementation slices across Phases 1 through 6.
-The current major phase is field validation and operational hardening, so the
-next stage should stay disciplined in a different way:
+Phase 8 is now partially closed as well: the repo owns a real-hub validation
+runner, a Chromebook wrapper, and a verified coordinator restart/session-resume
+artifact on real hardware. The current major phase is still field validation
+and operational hardening, but the next stage should stay disciplined in a
+different way:
 
 - Prefer operational hardening and real-world validation over new surface area
 - Keep fake and real adapters behind the same owned service boundary
@@ -69,6 +72,9 @@ next stage should stay disciplined in a different way:
   new coordinator-facing intelligence features
 - Validate real browser/device behavior outside the sandbox before claiming
   mobile or PWA flows are field-ready
+- Treat [`docs/runbooks/real-hub-validation.md`](/var/home/bazzite/osk/docs/runbooks/real-hub-validation.md)
+  as the source of truth for the current real-device validation loop and its
+  remaining manual boundaries
 
 ## Suggested Order For The Next Stage
 
@@ -79,8 +85,9 @@ For the current implementation stage, follow this order:
 2. Operations and runbook hardening around the current install/start/wipe
    flows, using the existing drills and audit/readiness surfaces as the source
    of truth
-3. Broader resend/session hardening across hub restarts so member/mobile
-   capture survives more than transient reconnects
+3. Operator-side closure automation and cleanup discipline for wipe-readiness
+   follow-up so live validation results can close the loop without manual
+   artifact digging
 4. Deployment/field ergonomics only where validation shows they are needed,
    such as opt-in hotspot orchestration or richer export/restore drills
 5. Higher-quality synthesis and broader dashboard/mobile UX only after those

@@ -62,6 +62,7 @@ from osk.tls import generate_self_signed_cert
 from osk.wipe_readiness import summarize_wipe_readiness
 
 logger = logging.getLogger(__name__)
+WIPE_FOLLOW_UP_TRAIL_AUDIT_LIMIT = 20
 LOCAL_DEV_DATABASE_URL = "postgresql://osk:osk@localhost:5432/osk"
 LOCAL_DEV_OLLAMA_URL = "http://localhost:11434"
 DEFAULT_LOCAL_SERVICE_NAMES = ("db",)
@@ -308,10 +309,31 @@ def _clear_hub_state() -> None:
     _hub_state_path().unlink(missing_ok=True)
 
 
-def _request_hub_shutdown() -> None:
+def _request_hub_shutdown(*, preserve_operation: bool = False) -> None:
     request_path = _hub_stop_request_path()
     request_path.parent.mkdir(parents=True, exist_ok=True)
-    request_path.write_text(json.dumps({"requested_at": int(time.time())}) + "\n")
+    request_path.write_text(
+        json.dumps(
+            {
+                "requested_at": int(time.time()),
+                "preserve_operation": preserve_operation,
+            }
+        )
+        + "\n"
+    )
+
+
+def _read_stop_request() -> dict[str, object] | None:
+    request_path = _hub_stop_request_path()
+    if not request_path.exists():
+        return None
+    try:
+        payload = json.loads(request_path.read_text())
+    except json.JSONDecodeError:
+        return {"preserve_operation": False}
+    if not isinstance(payload, dict):
+        return {"preserve_operation": False}
+    return payload
 
 
 def _clear_stop_request() -> None:
@@ -395,10 +417,32 @@ async def wait_for_database(database_url: str, timeout_seconds: float = 30.0) ->
     raise HubBootstrapError(f"Database did not become ready within {timeout_seconds:.0f}s{detail}")
 
 
-async def watch_for_stop_request(server: uvicorn.Server, poll_seconds: float = 0.2) -> None:
+async def watch_for_stop_request(
+    server: uvicorn.Server,
+    conn_manager: ConnectionManager | None = None,
+    poll_seconds: float = 0.2,
+) -> None:
     while not server.should_exit:
         if _shutdown_requested():
-            logger.info("Received graceful hub shutdown request.")
+            preserve_operation = bool((_read_stop_request() or {}).get("preserve_operation"))
+            logger.info(
+                "Received graceful hub shutdown request (preserve_operation=%s).",
+                preserve_operation,
+            )
+            if conn_manager is not None and conn_manager.connected_count:
+                if preserve_operation:
+                    logger.info(
+                        "Draining %s active member websocket(s) before shutdown.",
+                        conn_manager.connected_count,
+                    )
+                else:
+                    logger.info(
+                        "Broadcasting op_ended and draining %s active member websocket(s) "
+                        "before shutdown.",
+                        conn_manager.connected_count,
+                    )
+                    await conn_manager.broadcast({"type": "op_ended"})
+                await conn_manager.disconnect_all()
             server.should_exit = True
             return
         await asyncio.sleep(poll_seconds)
@@ -829,9 +873,10 @@ async def run_hub(name: str) -> None:
                 ssl_certfile=config.tls_cert_path,
                 ssl_keyfile=config.tls_key_path,
                 log_level="info",
+                timeout_graceful_shutdown=config.hub_graceful_shutdown_timeout_seconds,
             )
         )
-        stop_watcher = asyncio.create_task(watch_for_stop_request(server))
+        stop_watcher = asyncio.create_task(watch_for_stop_request(server, conn_manager))
         heartbeat_watcher = asyncio.create_task(
             watch_member_heartbeats(
                 op_manager,
@@ -847,6 +892,8 @@ async def run_hub(name: str) -> None:
             heartbeat_watcher.cancel()
             await asyncio.gather(stop_watcher, heartbeat_watcher, return_exceptions=True)
     finally:
+        stop_request = _read_stop_request() or {}
+        preserve_operation = bool(stop_request.get("preserve_operation"))
         print("\nShutting down...")
         _clear_hub_state()
         _clear_stop_request()
@@ -854,10 +901,16 @@ async def run_hub(name: str) -> None:
         clear_dashboard_session()
         clear_bootstrap_session()
         clear_operator_session()
-        await conn_manager.broadcast({"type": "op_ended"})
+        if not preserve_operation:
+            await conn_manager.broadcast({"type": "op_ended"})
         if intelligence_service is not None:
             await intelligence_service.stop()
-        if db_connected and op_manager is not None and op_manager.operation is not None:
+        if (
+            db_connected
+            and op_manager is not None
+            and op_manager.operation is not None
+            and not preserve_operation
+        ):
             await op_manager.stop()
         await db.close()
         if luks_open:
@@ -891,7 +944,12 @@ def run_hub_sync(name: str) -> int:
     return 0
 
 
-def stop_hub(wait_seconds: float = 10.0, *, stop_services: bool = False) -> int:
+def stop_hub(
+    wait_seconds: float = 10.0,
+    *,
+    stop_services: bool = False,
+    preserve_operation: bool = False,
+) -> int:
     config = load_config()
     state = read_hub_state()
     if state is None:
@@ -913,8 +971,11 @@ def stop_hub(wait_seconds: float = 10.0, *, stop_services: bool = False) -> int:
         return 0
 
     operation_name = state.get("operation_name", "unknown")
-    print(f"Stopping Osk hub for '{operation_name}' (pid {pid})...")
-    _request_hub_shutdown()
+    if preserve_operation:
+        print(f"Restarting Osk hub for '{operation_name}' (pid {pid})...")
+    else:
+        print(f"Stopping Osk hub for '{operation_name}' (pid {pid})...")
+    _request_hub_shutdown(preserve_operation=preserve_operation)
 
     deadline = time.monotonic() + wait_seconds
     while time.monotonic() < deadline:
@@ -925,7 +986,8 @@ def stop_hub(wait_seconds: float = 10.0, *, stop_services: bool = False) -> int:
     if _pid_is_running(pid):
         logger.warning("Graceful shutdown timed out; sending SIGTERM to pid %s", pid)
         os.kill(pid, signal.SIGTERM)
-        while time.monotonic() < deadline:
+        sigterm_deadline = time.monotonic() + wait_seconds
+        while time.monotonic() < sigterm_deadline:
             if not _pid_is_running(pid):
                 break
             time.sleep(0.2)
@@ -942,7 +1004,10 @@ def stop_hub(wait_seconds: float = 10.0, *, stop_services: bool = False) -> int:
     clear_operator_session()
     if stop_services:
         stop_local_services(config)
-    print("Osk hub stopped.")
+    if preserve_operation:
+        print("Osk hub stopped without ending the operation.")
+    else:
+        print("Osk hub stopped.")
     return 0
 
 
@@ -1096,10 +1161,15 @@ def wipe_hub(
             follow_up_required = str(wipe_readiness.get("follow_up_required")).lower()
             print(f"wipe_follow_up_required = {follow_up_required}")
             print(f"wipe_follow_up_summary = {wipe_readiness.get('follow_up_summary')}")
+            print(_wipe_follow_up_counts_line(wipe_readiness))
+            _print_wipe_follow_up_history(wipe_readiness)
             for member in list(wipe_readiness.get("follow_up") or [])[:5]:
+                reviewed_suffix = _wipe_follow_up_reviewed_suffix(member)
                 print(
                     "wipe_follow_up "
                     f"name={member['name']} reason={member['reason']} "
+                    f"classification={member.get('classification', 'active_unresolved')}"
+                    f"{reviewed_suffix} "
                     f"last_seen={member['last_seen_at']} action={member['required_action']}"
                 )
     if stop_code != 0:
@@ -1144,6 +1214,101 @@ def _format_uptime(seconds: object) -> str | None:
         if value:
             parts.append(f"{value}{suffix}")
     return " ".join(parts)
+
+
+def _wipe_follow_up_counts_line(wipe_readiness: dict[str, object]) -> str:
+    return (
+        "wipe_follow_up_counts "
+        f"active_unresolved={wipe_readiness.get('active_unresolved_follow_up_count', 0)} "
+        f"historical_drift={wipe_readiness.get('historical_drift_follow_up_count', 0)} "
+        "reviewed_historical_drift="
+        f"{wipe_readiness.get('reviewed_historical_drift_follow_up_count', 0)} "
+        "retired_historical_drift="
+        f"{wipe_readiness.get('retired_historical_drift_follow_up_count', 0)} "
+        f"verified_current={wipe_readiness.get('verified_current_follow_up_count', 0)}"
+    )
+
+
+def _wipe_follow_up_reviewed_suffix(member: dict[str, object]) -> str:
+    if member.get("classification") != "historical_drift":
+        return ""
+    reviewed = str(bool(member.get("historical_reviewed"))).lower()
+    return f" reviewed={reviewed}"
+
+
+def _decorate_wipe_readiness_for_operation(
+    operation_id: uuid.UUID,
+    members: list[dict[str, object]],
+    wipe_readiness: dict[str, object],
+) -> dict[str, object]:
+    from osk.server import (
+        _decorate_wipe_readiness,
+        _wipe_follow_up_resolutions,
+        _wipe_follow_up_retirements,
+        _wipe_follow_up_reviews,
+    )
+
+    try:
+        audit_events = asyncio.run(
+            _get_audit_events(
+                operation_id,
+                WIPE_FOLLOW_UP_TRAIL_AUDIT_LIMIT,
+                actions=build_audit_action_filter(None, wipe_follow_up_only=True),
+            )
+        )
+    except Exception:
+        return wipe_readiness
+    return _decorate_wipe_readiness(
+        summarize_wipe_readiness(
+            members,
+            follow_up_resolutions=_wipe_follow_up_resolutions(audit_events),
+            follow_up_reviews=_wipe_follow_up_reviews(audit_events),
+            follow_up_retirements=_wipe_follow_up_retirements(audit_events),
+        ),
+        audit_events=audit_events,
+    )
+
+
+def _wipe_follow_up_history_line(item: dict[str, object]) -> str:
+    action = str(item.get("action") or "")
+    if action == "wipe_follow_up_historical_reviewed":
+        action_label = "reviewed"
+        action_at = str(item.get("reviewed_at") or "unknown")
+    elif action == "wipe_follow_up_historical_retired":
+        action_label = "retired"
+        action_at = str(item.get("retired_at") or "unknown")
+    else:
+        action_label = "verified"
+        action_at = str(item.get("verified_at") or "unknown")
+
+    line = (
+        "wipe_follow_up_history "
+        f"name={item.get('member_name', 'Unknown member')} "
+        f"reason={item.get('reason', 'unknown')} "
+        f"status={item.get('status', 'unknown')} "
+        f"action={action_label} at={action_at}"
+    )
+    reopened_at = str(item.get("reopened_at") or "").strip()
+    if reopened_at:
+        line += f" reopened_at={reopened_at}"
+    reopened_activity_kind = str(item.get("reopened_activity_kind") or "").strip()
+    if reopened_activity_kind:
+        line += f" reopened_activity={reopened_activity_kind}"
+    return line
+
+
+def _print_wipe_follow_up_history(wipe_readiness: dict[str, object], *, limit: int = 3) -> None:
+    history_summary = str(wipe_readiness.get("follow_up_history_summary") or "").strip()
+    if history_summary:
+        print(f"wipe_follow_up_history_summary = {history_summary}")
+
+    history = wipe_readiness.get("follow_up_history") or []
+    if not isinstance(history, list):
+        return
+    for item in history[:limit]:
+        if not isinstance(item, dict):
+            continue
+        print(_wipe_follow_up_history_line(item))
 
 
 def hub_status_snapshot(now: float | None = None) -> tuple[int, dict[str, object]]:
@@ -1232,7 +1397,12 @@ def hub_status_snapshot(now: float | None = None) -> tuple[int, dict[str, object
                 )
                 for row in rows
             ]
-            snapshot["wipe_readiness"] = summarize_wipe_readiness(members)
+            wipe_readiness = summarize_wipe_readiness(members)
+            snapshot["wipe_readiness"] = _decorate_wipe_readiness_for_operation(
+                operation_uuid,
+                members,
+                wipe_readiness,
+            )
         except Exception as exc:
             snapshot["wipe_readiness"] = {
                 "available": False,
@@ -1313,6 +1483,8 @@ def status_hub(*, json_output: bool = False) -> int:
             follow_up_required = str(wipe_readiness.get("follow_up_required")).lower()
             print(f"wipe_follow_up_required = {follow_up_required}")
             print(f"wipe_follow_up_summary = {wipe_readiness.get('follow_up_summary')}")
+            print(_wipe_follow_up_counts_line(wipe_readiness))
+            _print_wipe_follow_up_history(wipe_readiness)
 
     return code
 
@@ -1572,8 +1744,22 @@ def show_members(*, json_output: bool = False) -> int:
         for row in rows
     ]
     wipe_readiness = summarize_wipe_readiness(members)
+    wipe_readiness = _decorate_wipe_readiness_for_operation(
+        operation_uuid,
+        members,
+        wipe_readiness,
+    )
     if json_output:
-        print(json.dumps(members, indent=2, sort_keys=True))
+        print(
+            json.dumps(
+                {
+                    "members": members,
+                    "wipe_readiness": wipe_readiness,
+                },
+                indent=2,
+                sort_keys=True,
+            )
+        )
         return 0
 
     if not members:
@@ -1581,6 +1767,8 @@ def show_members(*, json_output: bool = False) -> int:
         print(f"wipe_readiness = {wipe_readiness['status']}")
         print(f"wipe_summary = {wipe_readiness['summary']}")
         print(f"wipe_follow_up_summary = {wipe_readiness['follow_up_summary']}")
+        print(_wipe_follow_up_counts_line(wipe_readiness))
+        _print_wipe_follow_up_history(wipe_readiness)
         return 0
 
     for member in members:
@@ -1595,11 +1783,16 @@ def show_members(*, json_output: bool = False) -> int:
     print(f"wipe_readiness = {wipe_readiness['status']}")
     print(f"wipe_summary = {wipe_readiness['summary']}")
     print(f"wipe_follow_up_summary = {wipe_readiness['follow_up_summary']}")
+    print(_wipe_follow_up_counts_line(wipe_readiness))
+    _print_wipe_follow_up_history(wipe_readiness)
     if wipe_readiness["at_risk"]:
         for member in wipe_readiness["follow_up"][:5]:
+            reviewed_suffix = _wipe_follow_up_reviewed_suffix(member)
             print(
                 "wipe_follow_up "
                 f"name={member['name']} reason={member['reason']} "
+                f"classification={member.get('classification', 'active_unresolved')}"
+                f"{reviewed_suffix} "
                 f"last_seen={member['last_seen_at']} action={member['required_action']}"
             )
     return 0

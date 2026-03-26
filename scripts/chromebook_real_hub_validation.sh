@@ -3,25 +3,24 @@ set -euo pipefail
 
 usage() {
   cat <<'EOF'
-Usage: scripts/chromebook_member_shell_smoke.sh [options]
+Usage: scripts/chromebook_real_hub_validation.sh [options]
 
-Start the mocked member-shell smoke helper on the host, prepare and launch the
-dedicated Chromebook lab browser, then drive the real Chromebook browser over
-an SSH-tunnelled CDP session.
+Prepare and launch the dedicated Chromebook lab browser, capture launch
+preflight details, and run the real-hub validation contract runner against a
+real Osk hub target.
 
 Options:
   --chromebook-host HOST   Chromebook host or IP (required)
+  --hub-url URL            Base URL for the real Osk hub (required)
+  --join-url URL           Real join URL for the operation (required)
   --ssh-target TARGET      Optional SSH target. Defaults to --chromebook-host
   --ssh-port PORT          Optional SSH port for the Chromebook control path
   --ssh-identity PATH      Optional SSH private key for the Chromebook control path
-  --advertise-host HOST    Host/IP the Chromebook can use to reach the smoke helper (required)
-  --host HOST              Bind host for the smoke helper (default: 0.0.0.0)
-  --port PORT              Bind port for the smoke helper (default: 8123)
-  --artifact-root PATH     Artifact root (default: output/chromebook/member-shell-smoke)
+  --artifact-root PATH     Artifact root (default: output/chromebook/real-hub-validation)
   --chrome-binary PATH     Chromebook browser command (default: chromium)
   --debug-port PORT        Chromebook remote debugging port (default: 9222)
-  --keep-browser           Leave the Chromebook lab browser running after the smoke finishes
-  --keep-server            Leave the smoke helper running after the smoke finishes
+  --scenario LABEL         Scenario label passed to the runner (default: baseline)
+  --keep-browser           Leave the Chromebook lab browser running after the validation finishes
   -h, --help               Show this help text
 EOF
 }
@@ -29,29 +28,32 @@ EOF
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 PYTHON_BIN="${OSK_PYTHON_BIN:-python}"
-CURL_BIN="${OSK_CURL_BIN:-curl}"
 LAB_CONTROL_SCRIPT="${OSK_LAB_CONTROL_SCRIPT:-${SCRIPT_DIR}/chromebook_lab_control.sh}"
-CDP_RUNNER_SCRIPT="${OSK_CDP_RUNNER_SCRIPT:-${SCRIPT_DIR}/chromebook_member_shell_smoke.py}"
-MEMBER_SMOKE_SCRIPT="${OSK_MEMBER_SMOKE_SCRIPT:-scripts/member_shell_smoke.py}"
-HELPER_READY_ATTEMPTS="${OSK_HELPER_READY_ATTEMPTS:-40}"
-HELPER_READY_SLEEP_SECONDS="${OSK_HELPER_READY_SLEEP_SECONDS:-1}"
+VALIDATION_RUNNER="${OSK_REAL_HUB_VALIDATION_RUNNER:-${SCRIPT_DIR}/real_hub_validation.py}"
 CHROMEBOOK_HOST=""
+HUB_URL=""
+JOIN_URL=""
 SSH_TARGET=""
 SSH_PORT=""
 SSH_IDENTITY=""
-ADVERTISE_HOST=""
-HOST="0.0.0.0"
-PORT="8123"
-ARTIFACT_ROOT="${REPO_ROOT}/output/chromebook/member-shell-smoke"
+ARTIFACT_ROOT="${REPO_ROOT}/output/chromebook/real-hub-validation"
 CHROME_BINARY="chromium"
 DEBUG_PORT="9222"
+SCENARIO="baseline"
 KEEP_BROWSER="0"
-KEEP_SERVER="0"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --chromebook-host)
       CHROMEBOOK_HOST="${2:?missing value for --chromebook-host}"
+      shift 2
+      ;;
+    --hub-url)
+      HUB_URL="${2:?missing value for --hub-url}"
+      shift 2
+      ;;
+    --join-url)
+      JOIN_URL="${2:?missing value for --join-url}"
       shift 2
       ;;
     --ssh-target)
@@ -66,18 +68,6 @@ while [[ $# -gt 0 ]]; do
       SSH_IDENTITY="${2:?missing value for --ssh-identity}"
       shift 2
       ;;
-    --advertise-host)
-      ADVERTISE_HOST="${2:?missing value for --advertise-host}"
-      shift 2
-      ;;
-    --host)
-      HOST="${2:?missing value for --host}"
-      shift 2
-      ;;
-    --port)
-      PORT="${2:?missing value for --port}"
-      shift 2
-      ;;
     --artifact-root)
       ARTIFACT_ROOT="${2:?missing value for --artifact-root}"
       shift 2
@@ -90,12 +80,12 @@ while [[ $# -gt 0 ]]; do
       DEBUG_PORT="${2:?missing value for --debug-port}"
       shift 2
       ;;
+    --scenario)
+      SCENARIO="${2:?missing value for --scenario}"
+      shift 2
+      ;;
     --keep-browser)
       KEEP_BROWSER="1"
-      shift
-      ;;
-    --keep-server)
-      KEEP_SERVER="1"
       shift
       ;;
     -h|--help)
@@ -115,8 +105,13 @@ if [[ -z "${CHROMEBOOK_HOST}" ]]; then
   exit 1
 fi
 
-if [[ -z "${ADVERTISE_HOST}" ]]; then
-  echo "--advertise-host is required" >&2
+if [[ -z "${HUB_URL}" ]]; then
+  echo "--hub-url is required" >&2
+  exit 1
+fi
+
+if [[ -z "${JOIN_URL}" ]]; then
+  echo "--join-url is required" >&2
   exit 1
 fi
 
@@ -128,37 +123,40 @@ RUN_LABEL="$(date -u +%Y%m%dT%H%M%SZ)"
 RUN_STARTED_AT_UTC="${OSK_SMOKE_STARTED_AT_UTC:-$(date -u +%Y-%m-%dT%H:%M:%SZ)}"
 export OSK_SMOKE_STARTED_AT_UTC="${RUN_STARTED_AT_UTC}"
 export OSK_SMOKE_TRIGGER="${OSK_SMOKE_TRIGGER:-manual}"
-export OSK_SMOKE_INVOCATION="${OSK_SMOKE_INVOCATION:-chromebook_member_shell_smoke.sh}"
+export OSK_SMOKE_INVOCATION="${OSK_SMOKE_INVOCATION:-chromebook_real_hub_validation.sh}"
 RUN_DIR="${ARTIFACT_ROOT}/${RUN_LABEL}"
 mkdir -p "${RUN_DIR}"
-METADATA_PATH="${RUN_DIR}/metadata.json"
-HELPER_LOG="${RUN_DIR}/helper.log"
-HELPER_PID=""
 RESULT_PATH="${RUN_DIR}/result.json"
+HANDOFF_PATH="${RUN_DIR}/operator-handoff.json"
 PREFLIGHT_RAW_PATH="${RUN_DIR}/launch-preflight.txt"
 PREFLIGHT_JSON_PATH="${RUN_DIR}/launch-preflight.json"
+
 LAB_CONTROL_ARGS=(
   --ssh-target "${SSH_TARGET}"
   --chrome-binary "${CHROME_BINARY}"
+  --chrome-flag "--ignore-certificate-errors"
+  --chrome-flag "--allow-insecure-localhost"
   --debug-port "${DEBUG_PORT}"
 )
-PYTHON_SMOKE_ARGS=(
-  --chromebook-host "${CHROMEBOOK_HOST}"
+RUNNER_ARGS=(
+  --hub-url "${HUB_URL}"
+  --join-url "${JOIN_URL}"
+  --device-id "${CHROMEBOOK_HOST}"
   --ssh-target "${SSH_TARGET}"
-  --smoke-metadata "${METADATA_PATH}"
   --artifact-root "${ARTIFACT_ROOT}"
+  --scenario "${SCENARIO}"
   --debug-port "${DEBUG_PORT}"
   --timestamp "${RUN_LABEL}"
 )
 
 if [[ -n "${SSH_PORT}" ]]; then
   LAB_CONTROL_ARGS+=(--ssh-port "${SSH_PORT}")
-  PYTHON_SMOKE_ARGS+=(--ssh-port "${SSH_PORT}")
+  RUNNER_ARGS+=(--ssh-port "${SSH_PORT}")
 fi
 
 if [[ -n "${SSH_IDENTITY}" ]]; then
   LAB_CONTROL_ARGS+=(--ssh-identity "${SSH_IDENTITY}")
-  PYTHON_SMOKE_ARGS+=(--ssh-identity "${SSH_IDENTITY}")
+  RUNNER_ARGS+=(--ssh-identity "${SSH_IDENTITY}")
 fi
 
 write_failure_result() {
@@ -173,18 +171,16 @@ write_failure_result() {
   (
     cd "${REPO_ROOT}"
     PYTHONPATH=src "${PYTHON_BIN}" - <<'PY' \
-    "${RESULT_PATH}" \
-    "${RUN_DIR}" \
-    "${CHROMEBOOK_HOST}" \
-    "${SSH_TARGET}" \
-    "${SSH_PORT}" \
-    "${SSH_IDENTITY}" \
-    "${DEBUG_PORT}" \
-    "${METADATA_PATH}" \
-    "${PREFLIGHT_JSON_PATH}" \
-    "${stage}" \
-    "${message}" \
-    "${failure_type}"
+      "${RESULT_PATH}" \
+      "${RUN_DIR}" \
+      "${HUB_URL}" \
+      "${JOIN_URL}" \
+      "${CHROMEBOOK_HOST}" \
+      "${PREFLIGHT_JSON_PATH}" \
+      "${SCENARIO}" \
+      "${stage}" \
+      "${message}" \
+      "${failure_type}"
 import json
 import sys
 from pathlib import Path
@@ -192,33 +188,17 @@ from pathlib import Path
 (
     result_path,
     artifact_dir,
-    chromebook_host,
-    ssh_target,
-    ssh_port,
-    ssh_identity,
-    debug_port,
-    metadata_path,
+    hub_url,
+    join_url,
+    device_id,
     preflight_path,
+    scenario,
     stage,
     message,
     failure_type,
 ) = sys.argv[1:]
 
-smoke_metadata: dict[str, object] = {}
-launch_preflight: dict[str, object] | None = None
-metadata_file = Path(metadata_path)
-if metadata_file.exists():
-    try:
-        payload = json.loads(metadata_file.read_text())
-        controls = payload.get("controls")
-        smoke_metadata = {
-            "join_url": str(payload.get("join_url") or "").strip(),
-            "operation_name": str(payload.get("operation_name") or "").strip() or None,
-            "controls": controls if isinstance(controls, dict) else {},
-        }
-    except Exception:
-        smoke_metadata = {}
-
+launch_preflight = None
 preflight_file = Path(preflight_path)
 if preflight_file.exists():
     try:
@@ -228,30 +208,39 @@ if preflight_file.exists():
         launch_preflight = None
 
 result_payload = {
+    "contract_version": 1,
     "status": "failed",
-    "chromebook_host": chromebook_host,
-    "ssh_target": ssh_target,
-    "ssh_port": int(ssh_port) if ssh_port else None,
-    "ssh_identity": ssh_identity or None,
-    "debug_port": int(debug_port),
-    "local_debug_port": None,
+    "execution_mode": "contract_only",
+    "scenario": scenario,
+    "hub_url": hub_url,
+    "join_url": join_url,
+    "device_id": device_id,
     "artifact_dir": artifact_dir,
     "result_path": result_path,
     "captures": {
+        "closure_summary_path": None,
+        "doctor_snapshot_path": None,
+        "hub_preflight_path": None,
+        "members_snapshot_path": None,
+        "member_shell_smoke_latest_path": None,
+        "member_shell_smoke_result_path": None,
+        "operator_handoff_path": None,
+        "operator_session_bootstrap_path": None,
+        "status_snapshot_path": None,
         "cdp_version_path": None,
-        "launch_preflight_path": str(preflight_file) if preflight_file.exists() else None,
-        "result_path": result_path,
-        "smoke_metadata_path": str(metadata_file),
+        "audit_slice_path": None,
+        "wipe_readiness_path": None,
     },
-    "smoke_metadata": smoke_metadata,
-    "launch_preflight": launch_preflight,
-    "cdp_version": None,
     "steps": [],
+    "summary": {
+        "message": "Chromebook real-hub wrapper failed before browser-driving could begin.",
+    },
     "failure": {
         "message": message,
         "type": failure_type,
         "stage": stage,
     },
+    "launch_preflight": launch_preflight,
 }
 
 Path(result_path).write_text(json.dumps(result_payload, indent=2, sort_keys=True) + "\n")
@@ -383,76 +372,20 @@ run_stage() {
   fi
 
   write_failure_result "${stage}" "${description} (exit ${exit_code})"
-  if [[ "${stage}" == "launch" || "${stage}" == "smoke-runner" ]]; then
+  if [[ "${stage}" == "launch" || "${stage}" == "real-hub-runner" ]]; then
     emit_launch_preflight_summary
   fi
   return "${exit_code}"
 }
 
 cleanup() {
-  local cleanup_args=(
-    "${LAB_CONTROL_ARGS[@]}"
-  )
-
   if [[ "${KEEP_BROWSER}" != "1" ]]; then
     bash "${LAB_CONTROL_SCRIPT}" cleanup \
-      "${cleanup_args[@]}" \
+      "${LAB_CONTROL_ARGS[@]}" \
       >/dev/null 2>&1 || true
-  fi
-
-  if [[ "${KEEP_SERVER}" != "1" ]] && [[ -n "${HELPER_PID}" ]]; then
-    kill "${HELPER_PID}" >/dev/null 2>&1 || true
-    wait "${HELPER_PID}" >/dev/null 2>&1 || true
   fi
 }
 trap cleanup EXIT
-
-(
-  cd "${REPO_ROOT}"
-  PYTHONPATH=src "${PYTHON_BIN}" "${MEMBER_SMOKE_SCRIPT}" \
-    --host "${HOST}" \
-    --port "${PORT}" \
-    --advertise-host "${ADVERTISE_HOST}" \
-    --operation-name "Chromebook Member Smoke" \
-    --metadata-path "${METADATA_PATH}" \
-    >"${HELPER_LOG}" 2>&1
-) &
-HELPER_PID="$!"
-
-JOIN_URL=""
-HELPER_READY="0"
-for _ in $(seq 1 "${HELPER_READY_ATTEMPTS}"); do
-  if [[ -f "${METADATA_PATH}" ]]; then
-    JOIN_URL="$("${PYTHON_BIN}" - <<'PY' "${METADATA_PATH}"
-import json
-import sys
-from pathlib import Path
-
-payload = json.loads(Path(sys.argv[1]).read_text())
-print(payload.get("join_url", ""))
-PY
-)"
-    if [[ -n "${JOIN_URL}" ]] && "${CURL_BIN}" -sS -I "${JOIN_URL}" >/dev/null; then
-      HELPER_READY="1"
-      break
-    fi
-  fi
-  sleep "${HELPER_READY_SLEEP_SECONDS}"
-done
-
-if [[ "${HELPER_READY}" != "1" ]]; then
-  write_failure_result \
-    "helper-ready" \
-    "Smoke helper never became reachable at ${JOIN_URL:-<missing join_url>}."
-  if [[ -z "${JOIN_URL}" ]]; then
-    echo "Failed to resolve join URL from ${METADATA_PATH}" >&2
-  else
-    echo "Smoke helper never became reachable at ${JOIN_URL}" >&2
-  fi
-  cat "${HELPER_LOG}" >&2 || true
-  sync_result_metadata
-  exit 1
-fi
 
 if run_stage \
   "prepare" \
@@ -488,10 +421,10 @@ else
 fi
 
 if run_stage \
-  "smoke-runner" \
-  "Chromebook smoke runner failed." \
-  "${PYTHON_BIN}" "${CDP_RUNNER_SCRIPT}" \
-  "${PYTHON_SMOKE_ARGS[@]}"; then
+  "real-hub-runner" \
+  "Real-hub validation runner failed." \
+  "${PYTHON_BIN}" "${VALIDATION_RUNNER}" \
+  "${RUNNER_ARGS[@]}"; then
   :
 else
   exit_code="$?"
@@ -502,9 +435,15 @@ fi
 sync_result_metadata
 
 echo
-echo "Chromebook smoke artifacts:"
+echo "Chromebook real-hub validation artifacts:"
 echo "  run dir:    ${RUN_DIR}"
-echo "  helper log: ${HELPER_LOG}"
-echo "  metadata:   ${METADATA_PATH}"
-echo "  result:     ${RUN_DIR}/result.json"
+if [[ -f "${HANDOFF_PATH}" ]]; then
+  echo "  handoff:    ${HANDOFF_PATH}"
+fi
+echo "  result:     ${RESULT_PATH}"
 echo "  latest:     ${ARTIFACT_ROOT}/latest.json"
+if [[ -f "${HANDOFF_PATH}" ]]; then
+  echo "  note:       inspect operator-handoff.json first, then follow its recommended artifacts"
+else
+  echo "  note:       inspect result.json for scenario-specific restart and wipe follow-up states"
+fi

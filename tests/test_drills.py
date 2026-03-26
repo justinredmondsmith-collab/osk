@@ -146,6 +146,13 @@ def test_wipe_drill_report_surfaces_current_partial_state(tmp_path: Path) -> Non
     )
     assert any("Run `osk wipe --yes`" in step for step in report["next_steps"])
     assert any("directory-backed development storage" in step for step in report["next_steps"])
+    assert "historical_drift" in report["closure_interpretation"]
+    assert "not silently resolved" in report["closure_interpretation"]["historical_drift"]
+    assert "reviewed_historical_drift" in report["closure_interpretation"]
+    assert (
+        "still leaves the cleanup boundary open"
+        in report["closure_interpretation"]["reviewed_historical_drift"]
+    )
 
 
 def test_wipe_drill_report_verifies_supplied_bundle(tmp_path: Path) -> None:

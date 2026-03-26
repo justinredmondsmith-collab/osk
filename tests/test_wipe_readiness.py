@@ -26,6 +26,10 @@ def test_summarize_wipe_readiness_marks_follow_up_verified() -> None:
     assert payload["unresolved_follow_up_count"] == 0
     assert payload["follow_up"][0]["resolution"] == "verified"
     assert payload["follow_up"][0]["verified_at"] == "2026-03-23T02:05:00Z"
+    assert payload["follow_up"][0]["classification"] == "verified_current"
+    assert payload["verified_current_follow_up_count"] == 1
+    assert payload["active_unresolved_follow_up_count"] == 0
+    assert payload["historical_drift_follow_up_count"] == 0
 
 
 def test_summarize_wipe_readiness_reopens_follow_up_after_new_activity() -> None:
@@ -51,3 +55,137 @@ def test_summarize_wipe_readiness_reopens_follow_up_after_new_activity() -> None
     assert payload["unresolved_follow_up_count"] == 1
     assert payload["follow_up"][0]["resolution"] == "unresolved"
     assert payload["follow_up"][0]["verified_at"] is None
+    assert payload["follow_up"][0]["classification"] == "active_unresolved"
+    assert payload["verified_current_follow_up_count"] == 0
+    assert payload["active_unresolved_follow_up_count"] == 1
+    assert payload["historical_drift_follow_up_count"] == 0
+
+
+def test_summarize_wipe_readiness_marks_old_unresolved_follow_up_as_historical_drift() -> None:
+    members = [
+        {
+            "id": "observer-1",
+            "name": "Observer One",
+            "role": "observer",
+            "status": "disconnected",
+            "heartbeat_state": "disconnected",
+            "seconds_since_last_seen": 60 * 60 * 8,
+            "last_seen_at": "2026-03-23T00:00:00Z",
+        }
+    ]
+
+    payload = summarize_wipe_readiness(members)
+
+    assert payload["follow_up_required"] is True
+    assert payload["follow_up"][0]["resolution"] == "unresolved"
+    assert payload["follow_up"][0]["classification"] == "historical_drift"
+    assert "historical drift" in payload["follow_up"][0]["resolution_detail"].lower()
+    assert payload["active_unresolved_follow_up_count"] == 0
+    assert payload["historical_drift_follow_up_count"] == 1
+    assert payload["follow_up_summary"].startswith("Resolve 1 unresolved")
+
+
+def test_summarize_wipe_readiness_marks_reviewed_historical_drift_without_resolving() -> None:
+    members = [
+        {
+            "id": "observer-1",
+            "name": "Observer One",
+            "role": "observer",
+            "status": "disconnected",
+            "heartbeat_state": "disconnected",
+            "seconds_since_last_seen": 60 * 60 * 8,
+            "last_seen_at": "2026-03-23T00:00:00Z",
+        }
+    ]
+
+    payload = summarize_wipe_readiness(
+        members,
+        follow_up_reviews={"observer-1": {"reviewed_at": "2026-03-23T08:15:00Z"}},
+    )
+
+    assert payload["follow_up_required"] is True
+    assert payload["follow_up"][0]["resolution"] == "unresolved"
+    assert payload["follow_up"][0]["classification"] == "historical_drift"
+    assert payload["follow_up"][0]["historical_reviewed"] is True
+    assert payload["follow_up"][0]["historical_reviewed_at"] == "2026-03-23T08:15:00Z"
+    assert "review" in payload["follow_up"][0]["resolution_detail"].lower()
+    assert payload["historical_drift_follow_up_count"] == 1
+    assert payload["reviewed_historical_drift_follow_up_count"] == 1
+    assert payload["unreviewed_historical_drift_follow_up_count"] == 0
+
+
+def test_summarize_wipe_readiness_ignores_stale_historical_review_after_new_activity() -> None:
+    members = [
+        {
+            "id": "observer-1",
+            "name": "Observer One",
+            "role": "observer",
+            "status": "disconnected",
+            "heartbeat_state": "disconnected",
+            "seconds_since_last_seen": 60 * 60 * 8,
+            "last_seen_at": "2026-03-23T09:00:00Z",
+        }
+    ]
+
+    payload = summarize_wipe_readiness(
+        members,
+        follow_up_reviews={"observer-1": {"reviewed_at": "2026-03-23T08:15:00Z"}},
+    )
+
+    assert payload["follow_up_required"] is True
+    assert payload["follow_up"][0]["resolution"] == "unresolved"
+    assert payload["follow_up"][0]["classification"] == "historical_drift"
+    assert payload["follow_up"][0]["historical_reviewed"] is False
+    assert payload["follow_up"][0]["historical_reviewed_at"] is None
+    assert payload["reviewed_historical_drift_follow_up_count"] == 0
+    assert payload["unreviewed_historical_drift_follow_up_count"] == 1
+
+
+def test_summarize_wipe_readiness_excludes_retired_historical_drift() -> None:
+    members = [
+        {
+            "id": "observer-1",
+            "name": "Observer One",
+            "role": "observer",
+            "status": "disconnected",
+            "heartbeat_state": "disconnected",
+            "seconds_since_last_seen": 60 * 60 * 8,
+            "last_seen_at": "2026-03-23T00:00:00Z",
+        }
+    ]
+
+    payload = summarize_wipe_readiness(
+        members,
+        follow_up_retirements={"observer-1": {"retired_at": "2026-03-23T08:15:00Z"}},
+    )
+
+    assert payload["follow_up_required"] is False
+    assert payload["follow_up"] == []
+    assert payload["unresolved_follow_up_count"] == 0
+    assert payload["historical_drift_follow_up_count"] == 0
+    assert payload["retired_historical_drift_follow_up_count"] == 1
+    assert "retired from readiness" in payload["follow_up_summary"].lower()
+
+
+def test_summarize_wipe_readiness_reopens_retired_historical_drift_after_new_activity() -> None:
+    members = [
+        {
+            "id": "observer-1",
+            "name": "Observer One",
+            "role": "observer",
+            "status": "disconnected",
+            "heartbeat_state": "disconnected",
+            "seconds_since_last_seen": 60 * 60 * 8,
+            "last_seen_at": "2026-03-23T09:00:00Z",
+        }
+    ]
+
+    payload = summarize_wipe_readiness(
+        members,
+        follow_up_retirements={"observer-1": {"retired_at": "2026-03-23T08:15:00Z"}},
+    )
+
+    assert payload["follow_up_required"] is True
+    assert payload["follow_up"][0]["resolution"] == "unresolved"
+    assert payload["follow_up"][0]["classification"] == "historical_drift"
+    assert payload["retired_historical_drift_follow_up_count"] == 0

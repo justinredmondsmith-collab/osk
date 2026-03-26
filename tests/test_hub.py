@@ -17,6 +17,7 @@ from osk.hub import (
     _compose_environment,
     _find_compose_command,
     _trigger_live_wipe_broadcast,
+    _wipe_follow_up_history_line,
     default_storage_manager,
     ensure_hub_not_running,
     ensure_local_services,
@@ -356,7 +357,7 @@ def test_stop_hub_falls_back_to_sigterm(
             "osk.hub._pid_is_running",
             side_effect=[True, True, True, False, False],
         ),
-        patch("osk.hub.time.monotonic", side_effect=[0.0, 0.0, 0.3, 0.1]),
+        patch("osk.hub.time.monotonic", side_effect=[0.0, 0.0, 0.3, 0.3, 0.4]),
         patch(
             "osk.hub.load_config",
             return_value=OskConfig(),
@@ -392,6 +393,31 @@ def test_stop_hub_cleans_stale_state(tmp_path: Path) -> None:
     assert not state_path.exists()
     assert not bootstrap_path.exists()
     assert not session_path.exists()
+
+
+@patch("osk.hub.time.sleep")
+def test_stop_hub_preserves_operation_for_restart(
+    mock_sleep: MagicMock,
+    tmp_path: Path,
+    capsys,
+) -> None:
+    state_path = tmp_path / "hub-state.json"
+    stop_path = tmp_path / "hub-stop-request.json"
+    state_path.write_text('{"pid": 4321, "operation_name": "March"}\n')
+    with (
+        patch("osk.hub._config_root", return_value=tmp_path),
+        patch("osk.hub._pid_is_running", side_effect=[True, False, False, False]),
+        patch("osk.hub.time.monotonic", side_effect=[0.0, 0.0, 0.1]),
+        patch("osk.hub.load_config", return_value=OskConfig()),
+    ):
+        code = stop_hub(wait_seconds=1, preserve_operation=True)
+
+    out = capsys.readouterr().out
+    assert code == 0
+    assert "Restarting Osk hub for 'March'" in out
+    assert "without ending the operation" in out
+    assert not state_path.exists()
+    assert not stop_path.exists()
 
 
 @patch("osk.hub.read_operator_session", return_value=None)
@@ -452,20 +478,48 @@ def test_wipe_hub_triggers_broadcast_and_stop(
                 "status": "blocked",
                 "summary": "1 member browser may miss a live wipe.",
                 "follow_up_required": True,
+                "active_unresolved_follow_up_count": 1,
+                "historical_drift_follow_up_count": 1,
+                "reviewed_historical_drift_follow_up_count": 1,
+                "verified_current_follow_up_count": 0,
                 "follow_up_summary": (
-                    "Resolve 1 unresolved member wipe follow-up item before closing the "
-                    "cleanup boundary."
+                    "Resolve 2 unresolved member wipe follow-up items before closing the "
+                    "cleanup boundary. 1 item may be historical drift. "
+                    "1 historical-drift review recorded."
                 ),
+                "follow_up_history_count": 1,
+                "follow_up_history_summary": "Recent follow-up trail: 1 reviewed.",
+                "follow_up_history": [
+                    {
+                        "member_name": "Observer One",
+                        "reason": "disconnected",
+                        "status": "reviewed",
+                        "action": "wipe_follow_up_historical_reviewed",
+                        "reviewed_at": "2026-03-21T08:00:00Z",
+                    }
+                ],
                 "follow_up": [
                     {
                         "name": "Sensor Two",
                         "reason": "disconnected",
+                        "classification": "active_unresolved",
                         "last_seen_at": "2026-03-21T12:00:00Z",
                         "required_action": (
                             "Reconnect this member browser and confirm wipe, or record a "
                             "manual cleanup verification before closing the cleanup boundary."
                         ),
-                    }
+                    },
+                    {
+                        "name": "Observer One",
+                        "reason": "disconnected",
+                        "classification": "historical_drift",
+                        "historical_reviewed": True,
+                        "last_seen_at": "2026-03-21T03:00:00Z",
+                        "required_action": (
+                            "Reconnect this member browser and confirm wipe, or record a "
+                            "manual cleanup verification before closing the cleanup boundary."
+                        ),
+                    },
                 ],
             },
         },
@@ -482,8 +536,24 @@ def test_wipe_hub_triggers_broadcast_and_stop(
     assert "broadcast_target_count = 2" in out
     assert "wipe_readiness = blocked" in out
     assert "wipe_follow_up_required = true" in out
-    assert "Resolve 1 unresolved member wipe follow-up item" in out
-    assert "wipe_follow_up name=Sensor Two reason=disconnected" in out
+    assert "Resolve 2 unresolved member wipe follow-up items" in out
+    assert (
+        "wipe_follow_up_counts active_unresolved=1 historical_drift=1 "
+        "reviewed_historical_drift=1 retired_historical_drift=0 "
+        "verified_current=0" in out
+    )
+    assert (
+        "wipe_follow_up name=Sensor Two reason=disconnected classification=active_unresolved" in out
+    )
+    assert (
+        "wipe_follow_up name=Observer One reason=disconnected "
+        "classification=historical_drift reviewed=true" in out
+    )
+    assert "wipe_follow_up_history_summary = Recent follow-up trail: 1 reviewed." in out
+    assert (
+        "wipe_follow_up_history name=Observer One reason=disconnected "
+        "status=reviewed action=reviewed" in out
+    )
     assert "Preserved evidence retained" in out
     mock_trigger_live_wipe.assert_called_once_with(8443, "op-123")
     mock_stop_hub.assert_called_once_with(wait_seconds=4.0, stop_services=True)
@@ -814,6 +884,8 @@ def test_show_audit_events_filters_actions(tmp_path: Path) -> None:
             "operator_session_created",
             "wipe_follow_up_verified",
             "wipe_follow_up_reopened",
+            "wipe_follow_up_historical_reviewed",
+            "wipe_follow_up_historical_retired",
         ],
     )
 
@@ -877,10 +949,28 @@ def test_show_members_formats_rows(mock_asyncio_run: MagicMock, tmp_path: Path, 
             "longitude": -104.99,
         }
     ]
+    audit_events = [
+        {
+            "action": "wipe_follow_up_historical_reviewed",
+            "timestamp": dt.datetime(2026, 3, 21, 8, 0, tzinfo=dt.timezone.utc),
+            "details": {
+                "member_id": "11111111-1111-1111-1111-111111111111",
+                "member_name": "Jay",
+                "reason": "stale",
+                "classification": "historical_drift",
+                "last_seen_at": "2026-03-21T07:30:00Z",
+            },
+        }
+    ]
 
     def return_member_rows(coro):
+        coro_name = coro.cr_code.co_name
         coro.close()
-        return member_rows
+        if coro_name == "_get_members":
+            return member_rows
+        if coro_name == "_get_audit_events":
+            return audit_events
+        raise AssertionError(f"Unexpected coroutine: {coro_name}")
 
     mock_asyncio_run.side_effect = return_member_rows
 
@@ -906,6 +996,77 @@ def test_show_members_formats_rows(mock_asyncio_run: MagicMock, tmp_path: Path, 
     assert "gps=39.75,-104.99" in out
     assert "wipe_readiness = ready" in out
     assert "All 1 current member browsers are reachable for a live wipe." in out
+    assert "wipe_follow_up_history_summary = Recent follow-up trail: 1 reviewed." in out
+
+
+@patch("osk.hub.asyncio.run")
+def test_show_members_json_includes_wipe_readiness(
+    mock_asyncio_run: MagicMock,
+    tmp_path: Path,
+    capsys,
+) -> None:
+    member_rows = [
+        {
+            "id": "11111111-1111-1111-1111-111111111111",
+            "name": "Jay",
+            "role": "observer",
+            "status": "connected",
+            "reconnect_token": "resume-token",
+            "connected_at": dt.datetime(2026, 3, 21, 12, 0, tzinfo=dt.timezone.utc),
+            "last_seen_at": dt.datetime(2026, 3, 21, 12, 0, 30, tzinfo=dt.timezone.utc),
+            "last_gps_at": None,
+            "latitude": 39.75,
+            "longitude": -104.99,
+        }
+    ]
+    audit_events = [
+        {
+            "action": "wipe_follow_up_historical_reviewed",
+            "timestamp": dt.datetime(2026, 3, 21, 8, 0, tzinfo=dt.timezone.utc),
+            "details": {
+                "member_id": "11111111-1111-1111-1111-111111111111",
+                "member_name": "Jay",
+                "reason": "stale",
+                "classification": "historical_drift",
+                "last_seen_at": "2026-03-21T07:30:00Z",
+            },
+        }
+    ]
+
+    def return_member_rows(coro):
+        coro_name = coro.cr_code.co_name
+        coro.close()
+        if coro_name == "_get_members":
+            return member_rows
+        if coro_name == "_get_audit_events":
+            return audit_events
+        raise AssertionError(f"Unexpected coroutine: {coro_name}")
+
+    mock_asyncio_run.side_effect = return_member_rows
+
+    with (
+        patch("osk.hub._config_root", return_value=tmp_path),
+        patch("osk.hub.load_config", return_value=OskConfig(member_heartbeat_timeout_seconds=45)),
+        patch("osk.hub.dt.datetime") as mock_datetime,
+    ):
+        mock_datetime.now.return_value = dt.datetime(2026, 3, 21, 12, 1, tzinfo=dt.timezone.utc)
+        mock_datetime.side_effect = lambda *args, **kwargs: dt.datetime(*args, **kwargs)
+        (tmp_path / "hub-state.json").write_text(
+            '{"operation_id":"11111111-1111-1111-1111-111111111111"}\n'
+        )
+
+        from osk.hub import show_members
+
+        code = show_members(json_output=True)
+
+    payload = json.loads(capsys.readouterr().out)
+    assert code == 0
+    assert payload["members"][0]["name"] == "Jay"
+    assert payload["wipe_readiness"]["status"] == "ready"
+    assert payload["wipe_readiness"]["follow_up_history_count"] == 1
+    assert payload["wipe_readiness"]["follow_up_history_summary"].startswith(
+        "Recent follow-up trail:"
+    )
 
 
 @patch("osk.hub.asyncio.run")
@@ -915,8 +1076,13 @@ def test_show_members_idle_still_reports_wipe_readiness(
     capsys,
 ) -> None:
     def return_member_rows(coro):
+        coro_name = coro.cr_code.co_name
         coro.close()
-        return []
+        if coro_name == "_get_members":
+            return []
+        if coro_name == "_get_audit_events":
+            return []
+        raise AssertionError(f"Unexpected coroutine: {coro_name}")
 
     mock_asyncio_run.side_effect = return_member_rows
 
@@ -971,10 +1137,28 @@ def test_status_hub_reports_wipe_readiness(
             "longitude": None,
         },
     ]
+    audit_events = [
+        {
+            "action": "wipe_follow_up_historical_reviewed",
+            "timestamp": dt.datetime(2026, 3, 21, 8, 0, tzinfo=dt.timezone.utc),
+            "details": {
+                "member_id": "22222222-2222-2222-2222-222222222222",
+                "member_name": "Sensor Two",
+                "reason": "disconnected",
+                "classification": "historical_drift",
+                "last_seen_at": "2026-03-21T03:00:00Z",
+            },
+        }
+    ]
 
     def return_member_rows(coro):
+        coro_name = coro.cr_code.co_name
         coro.close()
-        return member_rows
+        if coro_name == "_get_members":
+            return member_rows
+        if coro_name == "_get_audit_events":
+            return audit_events
+        raise AssertionError(f"Unexpected coroutine: {coro_name}")
 
     mock_asyncio_run.side_effect = return_member_rows
 
@@ -1000,6 +1184,88 @@ def test_status_hub_reports_wipe_readiness(
     assert "wipe_at_risk_members = 1" in out
     assert "wipe_follow_up_required = true" in out
     assert "Resolve 1 unresolved member wipe follow-up item" in out
+    assert (
+        "wipe_follow_up_counts active_unresolved=1 historical_drift=0 "
+        "reviewed_historical_drift=0 retired_historical_drift=0 "
+        "verified_current=0" in out
+    )
+    assert "wipe_follow_up_history_summary = Recent follow-up trail: 1 reviewed." in out
+
+
+def test_status_hub_excludes_retired_historical_drift_from_current_counts(
+    tmp_path: Path,
+    capsys,
+) -> None:
+    current = dt.datetime.now(dt.timezone.utc)
+    historical_seen = current - dt.timedelta(hours=9)
+    retired_at = current - dt.timedelta(hours=4)
+    member_rows = [
+        {
+            "id": "22222222-2222-2222-2222-222222222222",
+            "name": "Sensor Two",
+            "role": "sensor",
+            "status": "disconnected",
+            "reconnect_token": "resume-token-2",
+            "connected_at": current,
+            "last_seen_at": historical_seen,
+            "last_gps_at": None,
+            "latitude": None,
+            "longitude": None,
+        },
+    ]
+    audit_events = [
+        {
+            "action": "wipe_follow_up_historical_retired",
+            "timestamp": retired_at,
+            "details": {
+                "member_id": "22222222-2222-2222-2222-222222222222",
+                "member_name": "Sensor Two",
+                "reason": "disconnected",
+                "classification": "historical_drift",
+                "last_seen_at": historical_seen.isoformat().replace("+00:00", "Z"),
+            },
+        }
+    ]
+
+    with (
+        patch("osk.hub._get_members", AsyncMock(return_value=member_rows)),
+        patch("osk.hub._get_audit_events", AsyncMock(return_value=audit_events)),
+        patch("osk.hub._config_root", return_value=tmp_path),
+        patch("osk.hub._pid_is_running", return_value=True),
+        patch("osk.hub.load_config", return_value=OskConfig(member_heartbeat_timeout_seconds=60)),
+    ):
+        (tmp_path / "hub-state.json").write_text(
+            '{"pid":4321,"operation_name":"March","operation_id":"11111111-1111-1111-1111-111111111111"}\n'
+        )
+
+        from osk.hub import status_hub
+
+        code = status_hub()
+
+    out = capsys.readouterr().out
+    assert code == 0
+    assert "wipe_follow_up_required = false" in out
+    assert (
+        "wipe_follow_up_counts active_unresolved=0 historical_drift=0 "
+        "reviewed_historical_drift=0 retired_historical_drift=1 "
+        "verified_current=0" in out
+    )
+    assert "wipe_follow_up_history_summary = Recent follow-up trail: 1 retired." in out
+
+
+def test_wipe_follow_up_history_line_formats_retired_action() -> None:
+    line = _wipe_follow_up_history_line(
+        {
+            "member_name": "Observer Retired",
+            "reason": "disconnected",
+            "status": "retired",
+            "action": "wipe_follow_up_historical_retired",
+            "retired_at": "2026-03-23T08:05:00Z",
+        }
+    )
+
+    assert "action=retired" in line
+    assert "at=2026-03-23T08:05:00Z" in line
 
 
 @patch("osk.hub.asyncio.run")
@@ -1314,3 +1580,48 @@ async def test_watch_for_stop_request_sets_server_should_exit(tmp_path: Path) ->
         await task
 
     assert server.should_exit is True
+
+
+async def test_watch_for_stop_request_drains_connections_before_exit(tmp_path: Path) -> None:
+    class DummyServer:
+        should_exit = False
+
+    server = DummyServer()
+    conn_manager = SimpleNamespace(connected_count=2, disconnect_all=AsyncMock())
+    stop_path = tmp_path / "hub-stop-request.json"
+    with patch("osk.hub._config_root", return_value=tmp_path):
+        task = asyncio.create_task(
+            watch_for_stop_request(server, conn_manager=conn_manager, poll_seconds=0.01)
+        )
+        await asyncio.sleep(0.02)
+        stop_path.write_text('{"requested_at": 1, "preserve_operation": true}\n')
+        await task
+
+    assert server.should_exit is True
+    conn_manager.disconnect_all.assert_awaited_once()
+
+
+async def test_watch_for_stop_request_broadcasts_op_ended_before_disconnect_on_full_stop(
+    tmp_path: Path,
+) -> None:
+    class DummyServer:
+        should_exit = False
+
+    server = DummyServer()
+    conn_manager = SimpleNamespace(
+        connected_count=2,
+        broadcast=AsyncMock(),
+        disconnect_all=AsyncMock(),
+    )
+    stop_path = tmp_path / "hub-stop-request.json"
+    with patch("osk.hub._config_root", return_value=tmp_path):
+        task = asyncio.create_task(
+            watch_for_stop_request(server, conn_manager=conn_manager, poll_seconds=0.01)
+        )
+        await asyncio.sleep(0.02)
+        stop_path.write_text('{"requested_at": 1, "preserve_operation": false}\n')
+        await task
+
+    assert server.should_exit is True
+    conn_manager.broadcast.assert_awaited_once_with({"type": "op_ended"})
+    conn_manager.disconnect_all.assert_awaited_once()

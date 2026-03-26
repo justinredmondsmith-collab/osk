@@ -1,0 +1,226 @@
+name: Chromebook Real Hub Gate
+
+on:
+  workflow_dispatch:
+    inputs:
+      chromebook_host:
+        description: Optional override for the Chromebook host or IP
+        required: false
+        type: string
+      hub_url:
+        description: Optional override for the real hub base URL
+        required: false
+        type: string
+      join_url:
+        description: Real join URL for the operation
+        required: true
+        type: string
+      ssh_target:
+        description: Optional override for the SSH target
+        required: false
+        type: string
+      ssh_port:
+        description: Optional override for the SSH port
+        required: false
+        type: string
+      artifact_root:
+        description: Optional override for the artifact root
+        required: false
+        type: string
+      scenario:
+        description: Optional real-hub scenario label
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: chromebook-real-hub-gate
+  cancel-in-progress: false
+
+jobs:
+  chromebook-real-hub-gate:
+    runs-on: self-hosted
+    timeout-minutes: 45
+    outputs:
+      status: ${{ steps.summary.outputs.status }}
+      operator_closure_status: ${{ steps.summary.outputs.operator_closure_status }}
+      operator_closure_state: ${{ steps.summary.outputs.operator_closure_state }}
+      wipe_observed_status: ${{ steps.summary.outputs.wipe_observed_status }}
+      follow_up_required: ${{ steps.summary.outputs.follow_up_required }}
+      unresolved_follow_up_count: ${{ steps.summary.outputs.unresolved_follow_up_count }}
+      latest_path: ${{ steps.artifacts.outputs.latest_path }}
+      artifact_dir: ${{ steps.artifacts.outputs.artifact_dir }}
+      handoff_path: ${{ steps.summary.outputs.handoff_path }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install package and test dependencies
+        run: python -m pip install --upgrade pip && python -m pip install -e ".[dev]"
+
+      - name: Resolve gate arguments
+        id: args
+        env:
+          INPUT_CHROMEBOOK_HOST: ${{ inputs.chromebook_host }}
+          INPUT_HUB_URL: ${{ inputs.hub_url }}
+          INPUT_JOIN_URL: ${{ inputs.join_url }}
+          INPUT_SSH_TARGET: ${{ inputs.ssh_target }}
+          INPUT_SSH_PORT: ${{ inputs.ssh_port }}
+          INPUT_ARTIFACT_ROOT: ${{ inputs.artifact_root }}
+          INPUT_SCENARIO: ${{ inputs.scenario }}
+          VAR_CHROMEBOOK_HOST: ${{ vars.OSK_CHROMEBOOK_HOST }}
+          VAR_HUB_URL: ${{ vars.OSK_REAL_HUB_URL }}
+          VAR_SSH_TARGET: ${{ vars.OSK_CHROMEBOOK_SSH_TARGET }}
+          VAR_SSH_PORT: ${{ vars.OSK_CHROMEBOOK_SSH_PORT }}
+          VAR_ARTIFACT_ROOT: ${{ vars.OSK_REAL_HUB_ARTIFACT_ROOT }}
+          VAR_SSH_IDENTITY: ${{ vars.OSK_CHROMEBOOK_SSH_IDENTITY }}
+          VAR_CHROME_BINARY: ${{ vars.OSK_CHROMEBOOK_CHROME_BINARY }}
+          VAR_DEBUG_PORT: ${{ vars.OSK_CHROMEBOOK_DEBUG_PORT }}
+        run: |
+          python - <<'PY'
+          import os
+          import shlex
+          from pathlib import Path
+
+          def pick(input_key: str, var_key: str | None = None) -> str:
+              value = os.environ.get(input_key) or ""
+              if value.strip():
+                  return value.strip()
+              if var_key:
+                  return (os.environ.get(var_key) or "").strip()
+              return ""
+
+          chromebook_host = pick("INPUT_CHROMEBOOK_HOST", "VAR_CHROMEBOOK_HOST")
+          hub_url = pick("INPUT_HUB_URL", "VAR_HUB_URL")
+          join_url = pick("INPUT_JOIN_URL")
+          if not chromebook_host:
+              raise SystemExit(
+                  "Missing Chromebook host. Set a workflow input or OSK_CHROMEBOOK_HOST repo variable."
+              )
+          if not hub_url:
+              raise SystemExit(
+                  "Missing real hub URL. Set a workflow input or OSK_REAL_HUB_URL repo variable."
+              )
+          if not join_url:
+              raise SystemExit("Missing join URL. Provide the workflow input.")
+          print(f"::add-mask::{join_url}")
+
+          args = [
+              "--trigger",
+              "workflow_dispatch",
+              "--chromebook-host",
+              chromebook_host,
+              "--hub-url",
+              hub_url,
+          ]
+
+          ssh_target = pick("INPUT_SSH_TARGET", "VAR_SSH_TARGET")
+          if ssh_target:
+              args.extend(["--ssh-target", ssh_target])
+
+          ssh_port = pick("INPUT_SSH_PORT", "VAR_SSH_PORT")
+          if ssh_port:
+              args.extend(["--ssh-port", ssh_port])
+
+          artifact_root = pick("INPUT_ARTIFACT_ROOT", "VAR_ARTIFACT_ROOT")
+          if artifact_root:
+              args.extend(["--artifact-root", artifact_root])
+          else:
+              artifact_root = "output/chromebook/real-hub-validation"
+
+          scenario = pick("INPUT_SCENARIO")
+          if scenario:
+              args.extend(["--scenario", scenario])
+
+          ssh_identity = (os.environ.get("VAR_SSH_IDENTITY") or "").strip()
+          if ssh_identity:
+              args.extend(["--ssh-identity", ssh_identity])
+
+          chrome_binary = (os.environ.get("VAR_CHROME_BINARY") or "").strip()
+          if chrome_binary:
+              args.extend(["--chrome-binary", chrome_binary])
+
+          debug_port = (os.environ.get("VAR_DEBUG_PORT") or "").strip()
+          if debug_port:
+              args.extend(["--debug-port", debug_port])
+
+          output_path = Path(os.environ["GITHUB_OUTPUT"])
+          output_path.write_text(
+              f"args={shlex.join(args)}\nartifact_root={artifact_root}\n",
+              encoding="utf-8",
+          )
+          PY
+
+      - name: Run Chromebook real-hub gate
+        id: gate
+        continue-on-error: true
+        env:
+          INPUT_JOIN_URL: ${{ inputs.join_url }}
+        run: ./scripts/chromebook_real_hub_gate.sh ${{ steps.args.outputs.args }} --join-url "$INPUT_JOIN_URL"
+
+      - name: Resolve artifact path
+        id: artifacts
+        if: ${{ always() }}
+        continue-on-error: true
+        env:
+          ARTIFACT_ROOT: ${{ steps.args.outputs.artifact_root }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          latest_path = Path(os.environ["ARTIFACT_ROOT"]) / "latest.json"
+          if not latest_path.exists():
+              raise SystemExit(f"Missing artifact index: {latest_path}")
+
+          payload = json.loads(latest_path.read_text())
+          artifact_dir = str(payload["artifact_dir"])
+
+          output_path = Path(os.environ["GITHUB_OUTPUT"])
+          output_path.write_text(
+              f"artifact_dir={artifact_dir}\nlatest_path={latest_path}\n",
+              encoding="utf-8",
+          )
+          PY
+
+      - name: Publish real-hub gate summary
+        id: summary
+        if: ${{ always() && steps.artifacts.outcome == 'success' }}
+        env:
+          LATEST_PATH: ${{ steps.artifacts.outputs.latest_path }}
+        run: |
+          python scripts/chromebook_real_hub_workflow_summary.py \
+            --latest-path "$LATEST_PATH" \
+            --github-output "$GITHUB_OUTPUT" \
+            --github-step-summary "$GITHUB_STEP_SUMMARY" \
+            --annotate-github
+
+      - name: Upload real-hub artifacts
+        if: ${{ always() && steps.artifacts.outcome == 'success' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: chromebook-real-hub-gate
+          path: |
+            ${{ steps.artifacts.outputs.artifact_dir }}
+            ${{ steps.artifacts.outputs.latest_path }}
+
+      - name: Enforce gate result
+        if: ${{ always() }}
+        run: |
+          if [[ "${{ steps.gate.outcome }}" != "success" ]]; then
+            echo "Chromebook real-hub gate failed." >&2
+            exit 1
+          fi
+          if [[ "${{ steps.artifacts.outcome }}" != "success" ]]; then
+            echo "Chromebook real-hub gate did not resolve latest.json." >&2
+            exit 1
+          fi

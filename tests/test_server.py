@@ -592,13 +592,17 @@ def test_coordinator_dashboard_state_surfaces_wipe_readiness_risk(
     assert payload["wipe_readiness"]["follow_up_count"] == 2
     assert payload["wipe_readiness"]["unresolved_follow_up_count"] == 1
     assert payload["wipe_readiness"]["verified_follow_up_count"] == 1
+    assert payload["wipe_readiness"]["verified_current_follow_up_count"] == 1
+    assert payload["wipe_readiness"]["active_unresolved_follow_up_count"] == 1
+    assert payload["wipe_readiness"]["historical_drift_follow_up_count"] == 0
     assert payload["wipe_readiness"]["follow_up_summary"].startswith("Resolve 1 unresolved")
     assert payload["wipe_readiness"]["follow_up"][0]["name"] == "Sensor Two"
     assert payload["wipe_readiness"]["follow_up"][0]["resolution"] == "verified"
+    assert payload["wipe_readiness"]["follow_up"][0]["classification"] == "verified_current"
     assert payload["wipe_readiness"]["follow_up"][0]["verified_at"] is not None
     assert payload["wipe_readiness"]["follow_up_history_count"] == 1
     assert payload["wipe_readiness"]["follow_up_history_summary"].startswith(
-        "Recent verification trail:"
+        "Recent follow-up trail:"
     )
     assert payload["wipe_readiness"]["follow_up_history"][0]["member_name"] == "Sensor Two"
     assert payload["wipe_readiness"]["follow_up_history"][0]["status"] == "current"
@@ -655,6 +659,7 @@ def test_coordinator_dashboard_state_marks_reopened_follow_up_history(
     payload = resp.json()
     assert payload["wipe_readiness"]["follow_up_required"] is True
     assert payload["wipe_readiness"]["follow_up"][0]["resolution"] == "unresolved"
+    assert payload["wipe_readiness"]["follow_up"][0]["classification"] == "active_unresolved"
     assert payload["wipe_readiness"]["follow_up_history_count"] == 1
     assert payload["wipe_readiness"]["follow_up_history"][0]["member_name"] == "Observer One"
     assert payload["wipe_readiness"]["follow_up_history"][0]["status"] == "reopened"
@@ -832,6 +837,239 @@ def test_verify_wipe_follow_up_records_audit_and_returns_closed_item(
     assert audit_details["last_seen_at"] is not None
 
 
+def test_review_historical_drift_follow_up_records_audit_and_returns_reviewed_item(
+    client: TestClient,
+    mock_db: MagicMock,
+    mock_op_manager: MagicMock,
+) -> None:
+    current = dt.datetime.now(dt.timezone.utc)
+    disconnected_seen = current - dt.timedelta(hours=8)
+    member_id = uuid.uuid4()
+    mock_op_manager.get_member_list.return_value = [
+        {
+            "id": str(member_id),
+            "name": "Observer Two",
+            "role": "observer",
+            "connected_at": current,
+            "last_seen_at": disconnected_seen,
+            "status": "disconnected",
+            "last_gps_at": None,
+            "latitude": None,
+            "longitude": None,
+            "buffer_status": {},
+        },
+    ]
+    mock_db.get_audit_events.return_value = []
+
+    with patch(
+        "osk.server.load_config",
+        return_value=OskConfig(member_heartbeat_timeout_seconds=60),
+    ):
+        resp = client.post(f"/api/coordinator/wipe-follow-up/{member_id}/review")
+
+    assert resp.status_code == 200
+    payload = resp.json()
+    assert payload["status"] == "reviewed"
+    assert payload["member_id"] == str(member_id)
+    assert payload["follow_up"]["resolution"] == "unresolved"
+    assert payload["follow_up"]["classification"] == "historical_drift"
+    assert payload["follow_up"]["historical_reviewed"] is True
+    assert payload["follow_up"]["historical_reviewed_at"] is not None
+    assert payload["wipe_readiness"]["follow_up_required"] is True
+    assert payload["wipe_readiness"]["reviewed_historical_drift_follow_up_count"] == 1
+    assert payload["wipe_readiness"]["unreviewed_historical_drift_follow_up_count"] == 0
+    mock_db.insert_audit_event.assert_awaited_once()
+    assert mock_db.insert_audit_event.await_args.args[2] == "wipe_follow_up_historical_reviewed"
+    audit_details = mock_db.insert_audit_event.await_args.kwargs["details"]
+    assert audit_details["member_id"] == str(member_id)
+    assert audit_details["classification"] == "historical_drift"
+
+
+def test_retire_historical_drift_follow_up_records_audit_and_clears_item(
+    client: TestClient,
+    mock_db: MagicMock,
+    mock_op_manager: MagicMock,
+) -> None:
+    current = dt.datetime.now(dt.timezone.utc)
+    disconnected_seen = current - dt.timedelta(hours=8)
+    member_id = uuid.uuid4()
+    mock_op_manager.get_member_list.return_value = [
+        {
+            "id": str(member_id),
+            "name": "Observer Retired",
+            "role": "observer",
+            "connected_at": current,
+            "last_seen_at": disconnected_seen,
+            "status": "disconnected",
+            "last_gps_at": None,
+            "latitude": None,
+            "longitude": None,
+            "buffer_status": {},
+        },
+    ]
+    mock_db.get_audit_events.return_value = []
+
+    with patch(
+        "osk.server.load_config",
+        return_value=OskConfig(member_heartbeat_timeout_seconds=60),
+    ):
+        resp = client.post(f"/api/coordinator/wipe-follow-up/{member_id}/retire")
+
+    assert resp.status_code == 200
+    payload = resp.json()
+    assert payload["status"] == "retired"
+    assert payload["member_id"] == str(member_id)
+    assert payload["follow_up"] is None
+    assert payload["wipe_readiness"]["follow_up_required"] is False
+    assert payload["wipe_readiness"]["historical_drift_follow_up_count"] == 0
+    assert payload["wipe_readiness"]["retired_historical_drift_follow_up_count"] == 1
+    assert payload["wipe_readiness"]["follow_up_history_count"] == 1
+    assert payload["wipe_readiness"]["follow_up_history"][0]["status"] == "retired"
+    mock_db.insert_audit_event.assert_awaited_once()
+    assert mock_db.insert_audit_event.await_args.args[2] == "wipe_follow_up_historical_retired"
+    audit_details = mock_db.insert_audit_event.await_args.kwargs["details"]
+    assert audit_details["member_id"] == str(member_id)
+    assert audit_details["classification"] == "historical_drift"
+
+
+def test_coordinator_dashboard_state_includes_reviewed_historical_drift_history(
+    client: TestClient,
+    mock_db: MagicMock,
+    mock_op_manager: MagicMock,
+    mock_intelligence_service: MagicMock,
+) -> None:
+    current = dt.datetime(2026, 3, 23, 8, 12, tzinfo=dt.timezone.utc)
+    historical_seen = dt.datetime(2026, 3, 23, 0, 8, tzinfo=dt.timezone.utc)
+    reviewed_at = dt.datetime(2026, 3, 23, 8, 0, tzinfo=dt.timezone.utc)
+    member_id = uuid.uuid4()
+    mock_db.get_latest_sitrep.return_value = None
+    mock_db.get_review_feed.return_value = []
+    mock_intelligence_service.snapshot.return_value = {"running": True}
+    mock_db.get_audit_events.return_value = [
+        {
+            "action": "wipe_follow_up_historical_reviewed",
+            "actor_type": "coordinator",
+            "timestamp": reviewed_at,
+            "details": {
+                "member_id": str(member_id),
+                "member_name": "Observer Two",
+                "reason": "disconnected",
+                "classification": "historical_drift",
+                "last_seen_at": historical_seen.isoformat().replace("+00:00", "Z"),
+            },
+        }
+    ]
+    mock_op_manager.get_member_list.return_value = [
+        {
+            "id": str(member_id),
+            "name": "Observer Two",
+            "role": "observer",
+            "connected_at": current,
+            "last_seen_at": historical_seen,
+            "status": "disconnected",
+            "last_gps_at": None,
+            "latitude": None,
+            "longitude": None,
+            "buffer_status": {},
+        }
+    ]
+
+    with patch(
+        "osk.server.load_config",
+        return_value=OskConfig(member_heartbeat_timeout_seconds=60),
+    ):
+        resp = client.get("/api/coordinator/dashboard-state")
+
+    assert resp.status_code == 200
+    payload = resp.json()
+    assert payload["wipe_readiness"]["follow_up_history_count"] == 1
+    assert payload["wipe_readiness"]["follow_up_history_summary"].startswith(
+        "Recent follow-up trail:"
+    )
+    item = payload["wipe_readiness"]["follow_up_history"][0]
+    assert item["member_id"] == str(member_id)
+    assert item["action"] == "wipe_follow_up_historical_reviewed"
+    assert item["status"] == "reviewed"
+    assert item["reviewed_at"] == "2026-03-23T08:00:00Z"
+    assert "did not close" in item["status_detail"]
+
+
+def test_review_historical_drift_follow_up_rejects_active_item(
+    client: TestClient,
+    mock_db: MagicMock,
+    mock_op_manager: MagicMock,
+) -> None:
+    current = dt.datetime.now(dt.timezone.utc)
+    disconnected_seen = current - dt.timedelta(minutes=7)
+    member_id = uuid.uuid4()
+    mock_op_manager.get_member_list.return_value = [
+        {
+            "id": str(member_id),
+            "name": "Sensor Two",
+            "role": "sensor",
+            "connected_at": current,
+            "last_seen_at": disconnected_seen,
+            "status": "disconnected",
+            "last_gps_at": None,
+            "latitude": None,
+            "longitude": None,
+            "buffer_status": {},
+        },
+    ]
+    mock_db.get_audit_events.return_value = []
+
+    with patch(
+        "osk.server.load_config",
+        return_value=OskConfig(member_heartbeat_timeout_seconds=60),
+    ):
+        resp = client.post(f"/api/coordinator/wipe-follow-up/{member_id}/review")
+
+    assert resp.status_code == 409
+    assert (
+        resp.json()["error"]
+        == "Historical drift review is only available for historical drift items"
+    )
+    mock_db.insert_audit_event.assert_not_awaited()
+
+
+def test_retire_historical_drift_follow_up_rejects_active_item(
+    client: TestClient,
+    mock_db: MagicMock,
+    mock_op_manager: MagicMock,
+) -> None:
+    current = dt.datetime.now(dt.timezone.utc)
+    disconnected_seen = current - dt.timedelta(minutes=7)
+    member_id = uuid.uuid4()
+    mock_op_manager.get_member_list.return_value = [
+        {
+            "id": str(member_id),
+            "name": "Sensor Two",
+            "role": "sensor",
+            "connected_at": current,
+            "last_seen_at": disconnected_seen,
+            "status": "disconnected",
+            "last_gps_at": None,
+            "latitude": None,
+            "longitude": None,
+            "buffer_status": {},
+        },
+    ]
+    mock_db.get_audit_events.return_value = []
+
+    with patch(
+        "osk.server.load_config",
+        return_value=OskConfig(member_heartbeat_timeout_seconds=60),
+    ):
+        resp = client.post(f"/api/coordinator/wipe-follow-up/{member_id}/retire")
+
+    assert resp.status_code == 409
+    assert (
+        resp.json()["error"]
+        == "Historical drift retirement is only available for historical drift items"
+    )
+    mock_db.insert_audit_event.assert_not_awaited()
+
+
 def test_get_wipe_follow_up_detail_returns_current_item_and_history(
     client: TestClient,
     mock_db: MagicMock,
@@ -898,6 +1136,117 @@ def test_get_wipe_follow_up_detail_returns_current_item_and_history(
     assert payload["history"][0]["member_id"] == str(member_id)
     assert payload["history"][0]["status"] == "reopened"
     assert payload["history"][0]["reopened_activity_kind"] == "resume"
+
+
+def test_get_wipe_follow_up_detail_includes_historical_review_marker(
+    client: TestClient,
+    mock_db: MagicMock,
+    mock_op_manager: MagicMock,
+) -> None:
+    current = dt.datetime(2026, 3, 23, 8, 12, tzinfo=dt.timezone.utc)
+    historical_seen = dt.datetime(2026, 3, 23, 0, 8, tzinfo=dt.timezone.utc)
+    reviewed_at = dt.datetime(2026, 3, 23, 8, 0, tzinfo=dt.timezone.utc)
+    member_id = uuid.uuid4()
+    mock_op_manager.get_member_list.return_value = [
+        {
+            "id": str(member_id),
+            "name": "Observer One",
+            "role": "observer",
+            "connected_at": current,
+            "last_seen_at": historical_seen,
+            "status": "disconnected",
+            "last_gps_at": None,
+            "latitude": None,
+            "longitude": None,
+            "buffer_status": {},
+        },
+    ]
+    mock_db.get_audit_events.return_value = [
+        {
+            "action": "wipe_follow_up_historical_reviewed",
+            "actor_type": "coordinator",
+            "timestamp": reviewed_at,
+            "details": {
+                "member_id": str(member_id),
+                "member_name": "Observer One",
+                "reason": "disconnected",
+                "classification": "historical_drift",
+                "last_seen_at": historical_seen.isoformat().replace("+00:00", "Z"),
+            },
+        }
+    ]
+
+    with patch(
+        "osk.server.load_config",
+        return_value=OskConfig(member_heartbeat_timeout_seconds=60),
+    ):
+        resp = client.get(f"/api/coordinator/wipe-follow-up/{member_id}")
+
+    assert resp.status_code == 200
+    payload = resp.json()
+    assert payload["follow_up"] is not None
+    assert payload["follow_up"]["classification"] == "historical_drift"
+    assert payload["follow_up"]["historical_reviewed"] is True
+    assert payload["follow_up"]["historical_reviewed_at"] == "2026-03-23T08:00:00Z"
+    assert payload["history_count"] == 1
+    assert payload["history"][0]["action"] == "wipe_follow_up_historical_reviewed"
+    assert payload["history"][0]["status"] == "reviewed"
+    assert payload["history"][0]["reviewed_at"] == "2026-03-23T08:00:00Z"
+    assert "review" in payload["summary"].lower()
+
+
+def test_get_wipe_follow_up_detail_includes_historical_retirement_marker(
+    client: TestClient,
+    mock_db: MagicMock,
+    mock_op_manager: MagicMock,
+) -> None:
+    current = dt.datetime(2026, 3, 23, 8, 12, tzinfo=dt.timezone.utc)
+    historical_seen = dt.datetime(2026, 3, 23, 0, 8, tzinfo=dt.timezone.utc)
+    retired_at = dt.datetime(2026, 3, 23, 8, 5, tzinfo=dt.timezone.utc)
+    member_id = uuid.uuid4()
+    mock_op_manager.get_member_list.return_value = [
+        {
+            "id": str(member_id),
+            "name": "Observer Retired",
+            "role": "observer",
+            "connected_at": current,
+            "last_seen_at": historical_seen,
+            "status": "disconnected",
+            "last_gps_at": None,
+            "latitude": None,
+            "longitude": None,
+            "buffer_status": {},
+        },
+    ]
+    mock_db.get_audit_events.return_value = [
+        {
+            "action": "wipe_follow_up_historical_retired",
+            "actor_type": "coordinator",
+            "timestamp": retired_at,
+            "details": {
+                "member_id": str(member_id),
+                "member_name": "Observer Retired",
+                "reason": "disconnected",
+                "classification": "historical_drift",
+                "last_seen_at": historical_seen.isoformat().replace("+00:00", "Z"),
+            },
+        }
+    ]
+
+    with patch(
+        "osk.server.load_config",
+        return_value=OskConfig(member_heartbeat_timeout_seconds=60),
+    ):
+        resp = client.get(f"/api/coordinator/wipe-follow-up/{member_id}")
+
+    assert resp.status_code == 200
+    payload = resp.json()
+    assert payload["follow_up"] is None
+    assert payload["history_count"] == 1
+    assert payload["history"][0]["action"] == "wipe_follow_up_historical_retired"
+    assert payload["history"][0]["status"] == "retired"
+    assert payload["history"][0]["retired_at"] == "2026-03-23T08:05:00Z"
+    assert "retirement" in payload["summary"].lower()
 
 
 def test_get_wipe_follow_up_detail_returns_cleared_member_history(
@@ -1623,6 +1972,8 @@ def test_list_audit_events_filters_actions(client: TestClient, mock_db: MagicMoc
             "operator_session_created",
             "wipe_follow_up_verified",
             "wipe_follow_up_reopened",
+            "wipe_follow_up_historical_reviewed",
+            "wipe_follow_up_historical_retired",
         ],
     )
 
@@ -1828,6 +2179,7 @@ def test_wipe_returns_and_records_coverage(
     stale_seen = current - dt.timedelta(seconds=180)
     disconnected_seen = current - dt.timedelta(seconds=420)
     mock_conn_mgr.connected_count = 1
+    mock_db.get_audit_events.return_value = []
     mock_op_manager.get_member_list.return_value = [
         {
             "id": str(uuid.uuid4()),
@@ -1880,6 +2232,117 @@ def test_wipe_returns_and_records_coverage(
     assert audit_details["wipe_readiness"]["follow_up"][0]["required_action"].startswith(
         "Reconnect this member browser and confirm wipe"
     )
+
+
+def test_wipe_returns_decorated_follow_up_history(
+    client: TestClient,
+    mock_db: MagicMock,
+    mock_conn_mgr: MagicMock,
+    mock_op_manager: MagicMock,
+) -> None:
+    current = dt.datetime(2026, 3, 23, 8, 12, tzinfo=dt.timezone.utc)
+    historical_seen = dt.datetime(2026, 3, 23, 0, 8, tzinfo=dt.timezone.utc)
+    member_id = uuid.uuid4()
+    mock_conn_mgr.connected_count = 1
+    mock_op_manager.get_member_list.return_value = [
+        {
+            "id": str(member_id),
+            "name": "Observer Trail",
+            "role": "observer",
+            "connected_at": current,
+            "last_seen_at": historical_seen,
+            "status": "disconnected",
+            "last_gps_at": None,
+            "latitude": None,
+            "longitude": None,
+            "buffer_status": {},
+        }
+    ]
+    mock_db.get_audit_events.return_value = [
+        {
+            "action": "wipe_follow_up_historical_reviewed",
+            "actor_type": "coordinator",
+            "timestamp": dt.datetime(2026, 3, 23, 8, 0, tzinfo=dt.timezone.utc),
+            "details": {
+                "member_id": str(member_id),
+                "member_name": "Observer Trail",
+                "reason": "disconnected",
+                "classification": "historical_drift",
+                "last_seen_at": historical_seen.isoformat().replace("+00:00", "Z"),
+            },
+        }
+    ]
+
+    with patch(
+        "osk.server.load_config",
+        return_value=OskConfig(member_heartbeat_timeout_seconds=60),
+    ):
+        resp = client.post("/api/wipe")
+
+    assert resp.status_code == 200
+    payload = resp.json()
+    assert payload["wipe_readiness"]["follow_up_history_count"] == 1
+    assert payload["wipe_readiness"]["follow_up_history_summary"].startswith(
+        "Recent follow-up trail:"
+    )
+    assert (
+        payload["wipe_readiness"]["follow_up_history"][0]["action"]
+        == "wipe_follow_up_historical_reviewed"
+    )
+
+
+def test_wipe_excludes_retired_historical_drift_from_current_follow_up(
+    client: TestClient,
+    mock_db: MagicMock,
+    mock_conn_mgr: MagicMock,
+    mock_op_manager: MagicMock,
+) -> None:
+    current = dt.datetime(2026, 3, 23, 8, 12, tzinfo=dt.timezone.utc)
+    historical_seen = dt.datetime(2026, 3, 23, 0, 8, tzinfo=dt.timezone.utc)
+    member_id = uuid.uuid4()
+    mock_conn_mgr.connected_count = 0
+    mock_op_manager.get_member_list.return_value = [
+        {
+            "id": str(member_id),
+            "name": "Observer Retired",
+            "role": "observer",
+            "connected_at": current,
+            "last_seen_at": historical_seen,
+            "status": "disconnected",
+            "last_gps_at": None,
+            "latitude": None,
+            "longitude": None,
+            "buffer_status": {},
+        }
+    ]
+    mock_db.get_audit_events.return_value = [
+        {
+            "action": "wipe_follow_up_historical_retired",
+            "actor_type": "coordinator",
+            "timestamp": dt.datetime(2026, 3, 23, 8, 5, tzinfo=dt.timezone.utc),
+            "details": {
+                "member_id": str(member_id),
+                "member_name": "Observer Retired",
+                "reason": "disconnected",
+                "classification": "historical_drift",
+                "last_seen_at": historical_seen.isoformat().replace("+00:00", "Z"),
+            },
+        }
+    ]
+
+    with patch(
+        "osk.server.load_config",
+        return_value=OskConfig(member_heartbeat_timeout_seconds=60),
+    ):
+        resp = client.post("/api/wipe")
+
+    assert resp.status_code == 200
+    payload = resp.json()
+    assert payload["wipe_readiness"]["follow_up_required"] is False
+    assert payload["wipe_readiness"]["follow_up_count"] == 0
+    assert payload["wipe_readiness"]["historical_drift_follow_up_count"] == 0
+    assert payload["wipe_readiness"]["retired_historical_drift_follow_up_count"] == 1
+    assert payload["wipe_readiness"]["follow_up_history"][0]["status"] == "retired"
 
 
 def test_websocket_auth_flow(

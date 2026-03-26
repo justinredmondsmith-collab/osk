@@ -118,3 +118,7 @@ class ConnectionManager:
             except Exception:
                 logger.warning("Failed to close websocket cleanly for %s", member_id)
         self.unregister(member_id)
+
+    async def disconnect_all(self) -> None:
+        for member_id in list(self.connections):
+            await self.disconnect(member_id)

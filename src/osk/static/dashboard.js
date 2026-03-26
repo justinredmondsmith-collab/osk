@@ -10,8 +10,8 @@
       label: "Wipe follow-up",
       limit: 8,
       wipeFollowUpOnly: true,
-      emptyMessage: "No wipe follow-up verification or reopen events yet.",
-      summary: "Recent wipe verification and reopen transitions from the audit trail.",
+      emptyMessage: "No wipe follow-up verification, reopen, review, or retirement events yet.",
+      summary: "Recent wipe verification, reopen, historical-drift review, and retirement transitions from the audit trail.",
     },
     operator_auth: {
       label: "Operator auth",
@@ -667,15 +667,50 @@
     return `<span class="${classMap[value] || "pill"}">${escapeHtml(value)}</span>`;
   }
 
+  function wipeClassificationPill(classification) {
+    const value = String(classification || "active_unresolved");
+    const classMap = {
+      verified_current: "pill pill--resolved",
+      active_unresolved: "pill pill--critical",
+      historical_drift: "pill pill--warning",
+    };
+    return `<span class="${classMap[value] || "pill"}">${escapeHtml(value)}</span>`;
+  }
+
   function wipeHistoryPill(status) {
     const value = String(status || "current");
     const classMap = {
       current: "pill pill--resolved",
       reopened: "pill pill--critical",
       cleared: "pill pill--accent",
+      retired: "pill pill--accent",
       superseded: "pill pill--warning",
+      reviewed: "pill pill--warning",
     };
     return `<span class="${classMap[value] || "pill"}">${escapeHtml(value)}</span>`;
+  }
+
+  function wipeHistoryActionMeta(item) {
+    const action = String(item?.action || "wipe_follow_up_verified");
+    if (action === "wipe_follow_up_historical_retired") {
+      return {
+        label: "Retired",
+        timestamp: item?.retired_at || item?.action_at || null,
+        fallback: "Historical drift retirement event recorded in the audit trail.",
+      };
+    }
+    if (action === "wipe_follow_up_historical_reviewed") {
+      return {
+        label: "Reviewed",
+        timestamp: item?.reviewed_at || item?.action_at || null,
+        fallback: "Historical drift review event recorded in the audit trail.",
+      };
+    }
+    return {
+      label: "Verified",
+      timestamp: item?.verified_at || item?.action_at || null,
+      fallback: "Verification event recorded in the audit trail.",
+    };
   }
 
   function auditActionPill(action) {
@@ -683,6 +718,8 @@
     const classMap = {
       wipe_follow_up_verified: "pill pill--resolved",
       wipe_follow_up_reopened: "pill pill--critical",
+      wipe_follow_up_historical_reviewed: "pill pill--warning",
+      wipe_follow_up_historical_retired: "pill pill--accent",
       operator_session_created: "pill pill--accent",
       operator_session_refreshed: "pill pill--accent",
       operator_session_logged_out: "pill pill--warning",
@@ -760,6 +797,12 @@
     if (action === "wipe_follow_up_reopened") {
       return `${memberName} follow-up reopened`;
     }
+    if (action === "wipe_follow_up_historical_reviewed") {
+      return `${memberName} historical drift reviewed`;
+    }
+    if (action === "wipe_follow_up_historical_retired") {
+      return `${memberName} historical drift retired`;
+    }
     if (action === "operator_session_created") {
       return "Operator session created";
     }
@@ -794,7 +837,12 @@
     const action = String(event.action || "");
     const details = event.details || {};
     if (
-      (action === "wipe_follow_up_verified" || action === "wipe_follow_up_reopened") &&
+      (
+        action === "wipe_follow_up_verified" ||
+        action === "wipe_follow_up_reopened" ||
+        action === "wipe_follow_up_historical_reviewed" ||
+        action === "wipe_follow_up_historical_retired"
+      ) &&
       details.member_id
     ) {
       return {
@@ -820,6 +868,12 @@
     if (action === "wipe_follow_up_reopened") {
       const activityKind = details.activity_kind ? ` • via ${details.activity_kind}` : "";
       return `Verified ${formatLongTimestamp(details.verified_at)}${activityKind}`;
+    }
+    if (action === "wipe_follow_up_historical_reviewed") {
+      return `Reason ${String(details.reason || "unknown")} • classification ${String(details.classification || "historical_drift")}`;
+    }
+    if (action === "wipe_follow_up_historical_retired") {
+      return `Reason ${String(details.reason || "unknown")} • classification ${String(details.classification || "historical_drift")}`;
     }
     if (action === "operator_session_created" || action === "operator_session_refreshed") {
       return `Issued from ${String(details.issued_from || "unknown")} • expires ${formatLongTimestamp(details.expires_at)}`;
@@ -1288,15 +1342,34 @@
   function renderWipeFollowUpDetail(detail, auditEvent) {
     const followUp = detail.follow_up || null;
     const history = Array.isArray(detail.history) ? detail.history : [];
+    const canReviewHistoricalDrift =
+      followUp &&
+      followUp.resolution !== "verified" &&
+      followUp.classification === "historical_drift" &&
+      !followUp.historical_reviewed;
+    const canRetireHistoricalDrift =
+      followUp &&
+      followUp.resolution !== "verified" &&
+      followUp.classification === "historical_drift";
     const currentMarkup = followUp
       ? `
         <div class="detail-item">
-          <p>${escapeHtml(detail.member_name)} ${wipeReasonPill(detail.reason)} ${wipeResolutionPill(followUp.resolution)}</p>
+          <p>${escapeHtml(detail.member_name)} ${wipeReasonPill(detail.reason)} ${wipeResolutionPill(followUp.resolution)} ${wipeClassificationPill(followUp.classification)}</p>
           <small>${escapeHtml(followUp.role || "member")} • ${escapeHtml(followUp.status || "unknown")} • last seen ${escapeHtml(followUp.last_seen_at || "unknown")}</small>
           <small class="detail-item__action">${escapeHtml(followUp.resolution_detail || followUp.required_action || detail.summary || "Manual verification still required.")}</small>
           ${
             followUp.resolution !== "verified"
               ? `<button type="button" class="ghost-button ghost-button--compact detail-item__button" data-wipe-follow-up-action="verify" data-member-id="${escapeHtml(detail.member_id)}">Mark verified</button>`
+              : ""
+          }
+          ${
+            canReviewHistoricalDrift
+              ? `<button type="button" class="ghost-button ghost-button--compact detail-item__button" data-wipe-follow-up-action="review" data-member-id="${escapeHtml(detail.member_id)}">Record review</button>`
+              : ""
+          }
+          ${
+            canRetireHistoricalDrift
+              ? `<button type="button" class="ghost-button ghost-button--compact detail-item__button" data-wipe-follow-up-action="retire" data-member-id="${escapeHtml(detail.member_id)}">Retire drift</button>`
               : ""
           }
         </div>
@@ -1310,15 +1383,16 @@
     const historyMarkup = history.length
       ? history
           .map((item) => {
+            const actionMeta = wipeHistoryActionMeta(item);
             const reopenedLine = item.reopened_at
               ? `<small>Reopened ${escapeHtml(formatLongTimestamp(item.reopened_at))}${item.reopened_activity_kind ? ` via ${escapeHtml(item.reopened_activity_kind)}` : ""}</small>`
               : "";
             return `
               <div class="detail-item">
                 <p>${escapeHtml(item.member_name)} ${wipeReasonPill(item.reason)} ${wipeHistoryPill(item.status)}</p>
-                <small>Verified ${escapeHtml(formatLongTimestamp(item.verified_at))}</small>
+                <small>${escapeHtml(actionMeta.label)} ${escapeHtml(formatLongTimestamp(actionMeta.timestamp))}</small>
                 ${reopenedLine}
-                <small class="detail-item__action">${escapeHtml(item.status_detail || "Verification event recorded in the audit trail.")}</small>
+                <small class="detail-item__action">${escapeHtml(item.status_detail || actionMeta.fallback)}</small>
               </div>
             `;
           })
@@ -1347,7 +1421,7 @@
         </section>
 
         <section class="detail-section">
-          <h3>Verification trail</h3>
+          <h3>Follow-up trail</h3>
           <div class="detail-list">${historyMarkup}</div>
         </section>
       </div>
@@ -1421,14 +1495,21 @@
   }
 
   async function postWipeFollowUpAction(memberId, action) {
-    if (!memberId || action !== "verify") {
+    if (!memberId || !["verify", "review", "retire"].includes(action)) {
       return;
     }
     try {
       await fetchJson(`${bootstrap.paths.wipe_follow_up}/${memberId}/${action}`, {
         method: "POST",
       });
-      setBanner("Wipe follow-up marked verified.", "info");
+      setBanner(
+        action === "verify"
+          ? "Wipe follow-up marked verified."
+          : action === "review"
+            ? "Historical drift review recorded."
+            : "Historical drift retired from readiness.",
+        "info",
+      );
       await refreshDashboard();
     } catch (error) {
       const message = error instanceof Error ? error.message : "Wipe follow-up update failed";
@@ -1444,21 +1525,22 @@
     return [
       `
         <div class="detail-item detail-item--subsection">
-          <p>Recent verification trail</p>
-          <small>${escapeHtml(wipeReadiness.follow_up_history_summary || "Recent wipe follow-up verification events from the audit trail.")}</small>
+          <p>Recent follow-up trail</p>
+          <small>${escapeHtml(wipeReadiness.follow_up_history_summary || "Recent wipe follow-up audit events from the audit trail.")}</small>
         </div>
       `,
       ...history.map(
         (item) => {
+          const actionMeta = wipeHistoryActionMeta(item);
           const reopenedLine = item.reopened_at
             ? `<small>Reopened ${escapeHtml(formatLongTimestamp(item.reopened_at))}${item.reopened_activity_kind ? ` via ${escapeHtml(item.reopened_activity_kind)}` : ""}</small>`
             : "";
           return `
             <div class="detail-item">
               <p>${escapeHtml(item.member_name)} ${wipeReasonPill(item.reason)} ${wipeHistoryPill(item.status)}</p>
-              <small>Verified ${escapeHtml(formatLongTimestamp(item.verified_at))}</small>
+              <small>${escapeHtml(actionMeta.label)} ${escapeHtml(formatLongTimestamp(actionMeta.timestamp))}</small>
               ${reopenedLine}
-              <small class="detail-item__action">${escapeHtml(item.status_detail || "Verification event recorded in the audit trail.")}</small>
+              <small class="detail-item__action">${escapeHtml(item.status_detail || actionMeta.fallback)}</small>
             </div>
           `;
         },
@@ -1502,8 +1584,11 @@
       ["Reachable", wipeReadiness.reachable_members ?? "--"],
       ["At risk", wipeReadiness.at_risk_members ?? "--"],
       ["Disconnected", wipeReadiness.disconnected_members ?? "--"],
-      ["Open follow-up", wipeReadiness.unresolved_follow_up_count ?? "--"],
-      ["Verified", wipeReadiness.verified_follow_up_count ?? "--"],
+      ["Active follow-up", wipeReadiness.active_unresolved_follow_up_count ?? wipeReadiness.unresolved_follow_up_count ?? "--"],
+      ["Historical drift", wipeReadiness.historical_drift_follow_up_count ?? "--"],
+      ["Reviewed drift", wipeReadiness.reviewed_historical_drift_follow_up_count ?? "--"],
+      ["Retired drift", wipeReadiness.retired_historical_drift_follow_up_count ?? "--"],
+      ["Verified", wipeReadiness.verified_current_follow_up_count ?? wipeReadiness.verified_follow_up_count ?? "--"],
     ]
       .map(
         ([label, value]) =>
@@ -1529,9 +1614,16 @@
         `,
         ...wipeFollowUp.slice(0, 4).map((member) => {
           const canVerify = member.resolution !== "verified";
+          const canReviewHistoricalDrift =
+            member.resolution !== "verified" &&
+            member.classification === "historical_drift" &&
+            !member.historical_reviewed;
+          const canRetireHistoricalDrift =
+            member.resolution !== "verified" &&
+            member.classification === "historical_drift";
           return `
             <div class="detail-item">
-              <p>${escapeHtml(member.name)} ${wipeReasonPill(member.reason)} ${wipeResolutionPill(member.resolution)}</p>
+              <p>${escapeHtml(member.name)} ${wipeReasonPill(member.reason)} ${wipeResolutionPill(member.resolution)} ${wipeClassificationPill(member.classification)}</p>
               <small>
                 ${escapeHtml(member.role || "member")} • ${escapeHtml(member.status || "unknown")} • last seen ${escapeHtml(member.last_seen_at || "unknown")}
               </small>
@@ -1539,6 +1631,16 @@
               ${
                 canVerify
                   ? `<button type="button" class="ghost-button detail-item__button" data-wipe-follow-up-action="verify" data-member-id="${escapeHtml(member.id)}">Mark verified</button>`
+                  : ""
+              }
+              ${
+                canReviewHistoricalDrift
+                  ? `<button type="button" class="ghost-button detail-item__button" data-wipe-follow-up-action="review" data-member-id="${escapeHtml(member.id)}">Record review</button>`
+                  : ""
+              }
+              ${
+                canRetireHistoricalDrift
+                  ? `<button type="button" class="ghost-button detail-item__button" data-wipe-follow-up-action="retire" data-member-id="${escapeHtml(member.id)}">Retire drift</button>`
                   : ""
               }
             </div>

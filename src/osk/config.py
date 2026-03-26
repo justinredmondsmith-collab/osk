@@ -32,6 +32,7 @@ class OskConfig(BaseModel):
     gps_interval_stationary_seconds: int = 60
     member_heartbeat_timeout_seconds: int = 45
     member_heartbeat_check_interval_seconds: int = 15
+    hub_graceful_shutdown_timeout_seconds: int = 5
     audio_queue_size: int = 128
     frame_queue_size: int = 64
     frame_queue_depth_per_member: int = 4

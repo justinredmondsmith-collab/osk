@@ -26,7 +26,7 @@ Osk is a repo for building and validating a bounded product slice:
 
 Osk is not this:
 
-- a broad “works everywhere” mobile platform
+- a broad "works everywhere" mobile platform
 - a claim of anonymity or endpoint safety
 - a finished incident-command system
 - a release with open-ended browser or device support
@@ -309,6 +309,25 @@ See:
 - [CONTRIBUTING.md](CONTRIBUTING.md)
 - [docs/WORKFLOW.md](docs/WORKFLOW.md)
 - [docs/runbooks/repo-maintenance.md](docs/runbooks/repo-maintenance.md)
+
+## Dashboard Audit Workflow
+
+Use the coordinator dashboard Audit Trail when you need to move from an audit
+event back into the object it changed without reconstructing context by hand.
+
+1. Start with the filter chip that matches the operator question:
+   `Wipe follow-up` for cleanup-boundary verification, `Operator auth` for
+   local session activity, or `Finding triage` for status and note changes.
+2. Click a wipe follow-up audit row to open the member-specific detail view in
+   the main pane. That view can show either the active follow-up record or a
+   historical-only record where `follow_up` is `null` but the verification
+   trail still remains available for review.
+3. Click a finding-triage audit row to open the linked finding detail in the
+   same main pane. Once open, the normal finding actions and note form still
+   apply there; audit selection is a navigation path, not a read-only fork.
+4. Use `Copy CLI` when you need the shell equivalent of the currently visible
+   audit slice. The copied `osk audit` command should mirror the active
+   dashboard filter so browser review and terminal verification stay aligned.
 
 ## Safety and Security
 

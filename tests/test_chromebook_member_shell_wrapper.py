@@ -181,6 +181,13 @@ def test_wrapper_fails_fast_when_helper_never_becomes_reachable(tmp_path: Path) 
     assert payload["provenance"]["git_sha"] == "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef"
     assert payload["provenance"]["runner_hostname"] == "lab-host"
     assert payload["provenance"]["run_label"] == Path(payload["artifact_dir"]).name
+    assert payload["captures"] == {
+        "cdp_version_path": None,
+        "launch_preflight_path": None,
+        "result_path": payload["result_path"],
+        "smoke_metadata_path": str(Path(payload["artifact_dir"]) / "metadata.json"),
+    }
+    assert latest["captures"] == payload["captures"]
     assert latest["status"] == "failed"
     assert latest["failure_stage"] == "helper-ready"
     assert latest["result_path"] == payload["result_path"]
@@ -215,6 +222,13 @@ def test_wrapper_writes_failed_result_when_prepare_step_fails(tmp_path: Path) ->
     assert payload["failure"]["stage"] == "prepare"
     assert payload["smoke_metadata"]["join_url"] == "http://127.0.0.1:8123/join?token=test"
     assert payload["provenance"]["invocation"] == "chromebook_member_shell_smoke.sh"
+    assert payload["captures"] == {
+        "cdp_version_path": None,
+        "launch_preflight_path": None,
+        "result_path": payload["result_path"],
+        "smoke_metadata_path": str(Path(payload["artifact_dir"]) / "metadata.json"),
+    }
+    assert latest["captures"] == payload["captures"]
     assert latest["failure_stage"] == "prepare"
     assert "prepare" in log_lines
     assert "launch" not in log_lines
@@ -288,9 +302,17 @@ def test_wrapper_records_launch_preflight_when_launch_step_fails(tmp_path: Path)
         "dbus_session_bus_address": "unix:path=/run/user/1000/bus",
         "ozone_flag": "--ozone-platform=wayland",
     }
+    assert latest["launch_preflight"] == payload["launch_preflight"]
     assert (
         payload["provenance"]["git_branch"] == "justinredmondsmith-collab/feat/chromebook-lab-gate"
     )
+    assert payload["captures"] == {
+        "cdp_version_path": None,
+        "launch_preflight_path": str(Path(payload["artifact_dir"]) / "launch-preflight.json"),
+        "result_path": payload["result_path"],
+        "smoke_metadata_path": str(Path(payload["artifact_dir"]) / "metadata.json"),
+    }
+    assert latest["captures"] == payload["captures"]
     assert latest["failure_stage"] == "launch"
     assert log_lines[:3] == ["prepare", "preflight", "launch"]
     assert "Chromebook launch preflight:" in result.stderr
@@ -365,6 +387,13 @@ def test_wrapper_prints_launch_preflight_when_smoke_runner_fails(tmp_path: Path)
     assert payload["status"] == "failed"
     assert payload["failure"]["stage"] == "smoke-runner"
     assert payload["provenance"]["trigger"] == "test"
+    assert payload["captures"] == {
+        "cdp_version_path": None,
+        "launch_preflight_path": str(Path(payload["artifact_dir"]) / "launch-preflight.json"),
+        "result_path": payload["result_path"],
+        "smoke_metadata_path": str(Path(payload["artifact_dir"]) / "metadata.json"),
+    }
+    assert latest["captures"] == payload["captures"]
     assert latest["failure_stage"] == "smoke-runner"
     assert log_lines[:3] == ["prepare", "preflight", "launch"]
     assert "Chromebook launch preflight:" in result.stderr
