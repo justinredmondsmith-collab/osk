@@ -12,30 +12,46 @@ def _load_summary(latest_path: Path) -> dict[str, Any]:
     provenance = payload.get("provenance") or {}
     handoff = payload.get("operator_handoff") or {}
     return {
-        "status": payload.get("status") or "",
-        "trigger": provenance.get("trigger") or "",
-        "branch": provenance.get("git_branch") or "",
-        "git_sha": provenance.get("git_sha") or "",
-        "artifact_dir": payload.get("artifact_dir") or "",
-        "result_path": payload.get("result_path") or "",
-        "handoff_path": handoff.get("path") or "",
-        "operator_closure_status": handoff.get("operator_closure_status") or "",
-        "operator_closure_state": handoff.get("operator_closure_state") or "",
-        "wipe_observed_status": handoff.get("wipe_observed_status") or "",
+        "status": payload.get("status"),
+        "trigger": provenance.get("trigger"),
+        "branch": provenance.get("git_branch"),
+        "git_sha": provenance.get("git_sha"),
+        "run_dir": payload.get("artifact_dir"),
+        "artifact_dir": payload.get("artifact_dir"),
+        "result_path": payload.get("result_path"),
+        "handoff_path": handoff.get("path"),
+        "operator_closure_status": handoff.get("operator_closure_status"),
+        "operator_closure_state": handoff.get("operator_closure_state"),
+        "wipe_observed_status": handoff.get("wipe_observed_status"),
         "follow_up_required": handoff.get("follow_up_required"),
         "unresolved_follow_up_count": handoff.get("unresolved_follow_up_count"),
-        "follow_up_summary": handoff.get("follow_up_summary") or "",
+        "follow_up_summary": handoff.get("follow_up_summary"),
         "latest_path": str(latest_path),
     }
 
 
 def _write_github_output(path: Path, summary: dict[str, Any]) -> None:
     lines = [
-        f"status={summary['status']}",
-        f"handoff_path={summary['handoff_path']}",
-        f"operator_closure_status={summary['operator_closure_status']}",
-        f"operator_closure_state={summary['operator_closure_state']}",
-        f"wipe_observed_status={summary['wipe_observed_status']}",
+        "status=" + ("" if summary["status"] is None else str(summary["status"])),
+        "handoff_path=" + ("" if summary["handoff_path"] is None else str(summary["handoff_path"])),
+        "operator_closure_status="
+        + (
+            ""
+            if summary["operator_closure_status"] is None
+            else str(summary["operator_closure_status"])
+        ),
+        "operator_closure_state="
+        + (
+            ""
+            if summary["operator_closure_state"] is None
+            else str(summary["operator_closure_state"])
+        ),
+        "wipe_observed_status="
+        + (
+            ""
+            if summary["wipe_observed_status"] is None
+            else str(summary["wipe_observed_status"])
+        ),
         "follow_up_required="
         + ("" if summary["follow_up_required"] is None else str(summary["follow_up_required"])),
         "unresolved_follow_up_count="
@@ -56,7 +72,7 @@ def _write_step_summary(path: Path, summary: dict[str, Any]) -> None:
         f"- Trigger: `{summary['trigger'] or '<unknown>'}`",
         f"- Branch: `{summary['branch'] or '<unknown>'}`",
         f"- Git SHA: `{summary['git_sha'] or '<unknown>'}`",
-        f"- Run Dir: `{summary['artifact_dir'] or '<unknown>'}`",
+        f"- Run Dir: `{summary['run_dir'] or '<unknown>'}`",
         f"- Result: `{summary['result_path'] or '<unknown>'}`",
         f"- Latest: `{summary['latest_path']}`",
     ]
@@ -77,6 +93,33 @@ def _write_step_summary(path: Path, summary: dict[str, Any]) -> None:
     if summary["follow_up_summary"]:
         lines.append(f"- Note: {summary['follow_up_summary']}")
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def _print_text_report(summary: dict[str, Any]) -> None:
+    print("Chromebook real-hub report:")
+    print(f"  status:     {summary['status'] or '<unknown>'}")
+    print(f"  trigger:    {summary['trigger'] or '<unknown>'}")
+    print(f"  branch:     {summary['branch'] or '<unknown>'}")
+    print(f"  git sha:    {summary['git_sha'] or '<unknown>'}")
+    print(f"  run dir:    {summary['run_dir'] or '<unknown>'}")
+    print(f"  result:     {summary['result_path'] or '<unknown>'}")
+    print(f"  latest:     {summary['latest_path']}")
+    if summary["handoff_path"]:
+        print(f"  handoff:    {summary['handoff_path']}")
+    if summary["operator_closure_status"] or summary["operator_closure_state"]:
+        print(
+            "  closure:    "
+            f"{summary['operator_closure_status'] or '<unknown>'}"
+            f" / {summary['operator_closure_state'] or '<unknown>'}"
+        )
+    if summary["wipe_observed_status"]:
+        print(f"  wipe:       {summary['wipe_observed_status']}")
+    if summary["follow_up_required"] is not None:
+        print(f"  follow_up:  {summary['follow_up_required']}")
+    if summary["unresolved_follow_up_count"] is not None:
+        print(f"  unresolved: {summary['unresolved_follow_up_count']}")
+    if summary["follow_up_summary"]:
+        print(f"  note:       {summary['follow_up_summary']}")
 
 
 def _annotation(summary: dict[str, Any]) -> tuple[str, str]:
@@ -114,6 +157,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--github-output", help="Optional GitHub output file path")
     parser.add_argument("--github-step-summary", help="Optional GitHub step summary path")
     parser.add_argument("--annotate-github", action="store_true", help="Emit a workflow annotation")
+    parser.add_argument("--text", action="store_true", help="Emit the terminal report to stdout")
     parser.add_argument("--json", action="store_true", help="Emit the summary as JSON to stdout")
     args = parser.parse_args(argv)
 
@@ -126,6 +170,8 @@ def main(argv: list[str] | None = None) -> int:
     if args.annotate_github:
         level, message = _annotation(summary)
         print(f"::{level}::{message}")
+    if args.text:
+        _print_text_report(summary)
     if args.json:
         json.dump(summary, sys.stdout, indent=2, sort_keys=True)
         sys.stdout.write("\n")

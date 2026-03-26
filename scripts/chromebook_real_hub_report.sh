@@ -48,62 +48,15 @@ if [[ ! -f "${LATEST_PATH}" ]]; then
   exit 1
 fi
 
-"${PYTHON_BIN}" - <<'PY' "${LATEST_PATH}" "${JSON_MODE}"
-from __future__ import annotations
+HELPER_ARGS=(
+  scripts/chromebook_real_hub_workflow_summary.py
+  --latest-path "${LATEST_PATH}"
+)
 
-import json
-import sys
-from pathlib import Path
+if [[ "${JSON_MODE}" == "1" ]]; then
+  HELPER_ARGS+=(--json)
+else
+  HELPER_ARGS+=(--text)
+fi
 
-latest_path = Path(sys.argv[1])
-json_mode = sys.argv[2] == "1"
-payload = json.loads(latest_path.read_text())
-provenance = payload.get("provenance") or {}
-handoff = payload.get("operator_handoff") or {}
-
-summary = {
-    "status": payload.get("status"),
-    "trigger": provenance.get("trigger"),
-    "branch": provenance.get("git_branch"),
-    "git_sha": provenance.get("git_sha"),
-    "run_dir": payload.get("artifact_dir"),
-    "result_path": payload.get("result_path"),
-    "handoff_path": handoff.get("path"),
-    "operator_closure_status": handoff.get("operator_closure_status"),
-    "operator_closure_state": handoff.get("operator_closure_state"),
-    "wipe_observed_status": handoff.get("wipe_observed_status"),
-    "follow_up_required": handoff.get("follow_up_required"),
-    "unresolved_follow_up_count": handoff.get("unresolved_follow_up_count"),
-    "follow_up_summary": handoff.get("follow_up_summary"),
-    "latest_path": str(latest_path),
-}
-
-if json_mode:
-    print(json.dumps(summary, indent=2, sort_keys=True))
-    raise SystemExit(0)
-
-print("Chromebook real-hub report:")
-print(f"  status:     {summary['status'] or '<unknown>'}")
-print(f"  trigger:    {summary['trigger'] or '<unknown>'}")
-print(f"  branch:     {summary['branch'] or '<unknown>'}")
-print(f"  git sha:    {summary['git_sha'] or '<unknown>'}")
-print(f"  run dir:    {summary['run_dir'] or '<unknown>'}")
-print(f"  result:     {summary['result_path'] or '<unknown>'}")
-print(f"  latest:     {summary['latest_path']}")
-if summary["handoff_path"]:
-    print(f"  handoff:    {summary['handoff_path']}")
-if summary["operator_closure_status"] or summary["operator_closure_state"]:
-    print(
-        "  closure:    "
-        f"{summary['operator_closure_status'] or '<unknown>'}"
-        f" / {summary['operator_closure_state'] or '<unknown>'}"
-    )
-if summary["wipe_observed_status"]:
-    print(f"  wipe:       {summary['wipe_observed_status']}")
-if summary["follow_up_required"] is not None:
-    print(f"  follow_up:  {summary['follow_up_required']}")
-if summary["unresolved_follow_up_count"] is not None:
-    print(f"  unresolved: {summary['unresolved_follow_up_count']}")
-if summary["follow_up_summary"]:
-    print(f"  note:       {summary['follow_up_summary']}")
-PY
+"${PYTHON_BIN}" "${HELPER_ARGS[@]}"
