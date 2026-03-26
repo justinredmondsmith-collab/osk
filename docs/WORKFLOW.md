@@ -41,6 +41,7 @@ Before merging, confirm:
 
 - The change matches the relevant plan document
 - Tests exist for behavior that changed
+- `make check` passes locally for repo changes that affect code or packaging
 - README and contributor docs are still accurate
 - No new security or privacy guarantee is stated without validation
 - Any copied/adapted material is recorded in `docs/PROVENANCE.md`
@@ -112,3 +113,7 @@ and obvious.
 Code changes should usually still go through a branch and PR flow, even with a
 single maintainer, because that gives AI-generated changes a clean review
 boundary.
+
+The companion maintenance runbook at
+`docs/runbooks/repo-maintenance.md` captures the local command baseline and the
+GitHub ruleset/settings that should back this workflow on the remote.
