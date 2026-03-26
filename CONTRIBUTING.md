@@ -89,6 +89,11 @@ coordinator dashboard, mobile client, or operations tooling described in the
 design documents. It does contain real slices of those phases, so contributions
 should extend the current surfaces rather than assuming they do not exist.
 
+The bounded `1.0.0` release target is documented in
+[docs/release/1.0.0-definition.md](docs/release/1.0.0-definition.md), and the
+remaining launch blockers are tracked in
+[docs/release/1.0.0-blockers.md](docs/release/1.0.0-blockers.md).
+
 That means the most useful contributions right now are:
 
 - Documentation truthfulness and consistency
@@ -101,6 +106,8 @@ That means the most useful contributions right now are:
 
 - Read the [design specification](docs/specs/2026-03-21-osk-design.md)
 - Review the [implementation plans](docs/plans/)
+- Read the [1.0.0 release definition](docs/release/1.0.0-definition.md) and
+  [blocker list](docs/release/1.0.0-blockers.md)
 - Read [AGENTS.md](AGENTS.md) and [docs/WORKFLOW.md](docs/WORKFLOW.md)
 - Check whether the topic is already covered by an issue, discussion, or plan
 - Keep changes scoped to one concern per pull request
@@ -110,14 +117,16 @@ That means the most useful contributions right now are:
 Install the package and test dependencies:
 
 ```bash
-pip install -e ".[dev]"
+make install-dev
+pre-commit install
 ```
 
 If you are working on real Phase 2 runtime adapters instead of the default fake
 backends, install the intelligence extras too:
 
 ```bash
-pip install -e ".[dev,intelligence]"
+make install-all
+pre-commit install
 ```
 
 Real Whisper mode also expects `ffmpeg` to be available in `PATH` so compressed
@@ -126,15 +135,28 @@ browser audio uploads can be decoded locally.
 Run tests:
 
 ```bash
-pytest -q
+make test
 ```
 
 Run lint and formatting checks:
 
 ```bash
-ruff check src tests
-ruff format --check src tests
+make lint
 ```
+
+Run the full local repo-health baseline:
+
+```bash
+make check
+```
+
+The standard local maintenance commands and required GitHub branch-protection /
+automation settings are documented in
+[docs/runbooks/repo-maintenance.md](docs/runbooks/repo-maintenance.md).
+
+The supported CI-tested Python baseline is currently 3.11 through 3.13. If you
+develop on 3.14 locally, treat warnings and dependency behavior there as
+forward-compatibility feedback rather than the current release support target.
 
 Check the local scaffold:
 

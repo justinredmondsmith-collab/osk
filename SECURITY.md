@@ -1,14 +1,15 @@
 # Security Policy
 
-Osk is a design-stage public repository for a safety-sensitive system. Please
-report security and privacy issues responsibly.
+Osk is a public implementation-and-validation repository for a safety-sensitive
+system. Please report security and privacy issues responsibly.
 
 ## Current Status
 
-- This repository is currently pre-implementation.
+- The repository contains real runtime code, browser flows, and operator
+  tooling, but it is still pre-release and under active validation.
 - `main` is the only supported version.
-- Some reported issues may affect design documents and planned architecture
-  rather than shipped runtime code.
+- Reports may affect shipped runtime code, browser/device behavior, operator
+  procedures, or remaining design assumptions.
 
 ## How to Report
 
@@ -55,8 +56,8 @@ The following are usually out of scope for private security reporting:
 
 - Please give the maintainers a reasonable opportunity to assess and mitigate
   the issue before public disclosure.
-- We may ask for clarification or a retest if the repository is still in a
-  design-only stage.
+- We may ask for clarification or a retest if the issue touches current
+  validation-only workflows or environment-specific behavior.
 - There is currently no bug bounty program.
 
 ## Safe Harbor
