@@ -111,6 +111,7 @@ jobs:
               )
           if not join_url:
               raise SystemExit("Missing join URL. Provide the workflow input.")
+          print(f"::add-mask::{join_url}")
 
           args = [
               "--trigger",
@@ -119,8 +120,6 @@ jobs:
               chromebook_host,
               "--hub-url",
               hub_url,
-              "--join-url",
-              join_url,
           ]
 
           ssh_target = pick("INPUT_SSH_TARGET", "VAR_SSH_TARGET")
@@ -163,7 +162,9 @@ jobs:
       - name: Run Chromebook real-hub gate
         id: gate
         continue-on-error: true
-        run: ./scripts/chromebook_real_hub_gate.sh ${{ steps.args.outputs.args }}
+        env:
+          INPUT_JOIN_URL: ${{ inputs.join_url }}
+        run: ./scripts/chromebook_real_hub_gate.sh ${{ steps.args.outputs.args }} --join-url "$INPUT_JOIN_URL"
 
       - name: Resolve artifact path
         id: artifacts
@@ -224,11 +225,25 @@ jobs:
               "latest_path": str(latest_path),
           }
 
-          output_lines = []
-          for key, value in summary.items():
-              if value is None:
-                  value = ""
-              output_lines.append(f"{key}={value}")
+          output_lines = [
+              f"status={summary['status']}",
+              f"handoff_path={summary['handoff_path']}",
+              f"operator_closure_status={summary['operator_closure_status']}",
+              f"operator_closure_state={summary['operator_closure_state']}",
+              f"wipe_observed_status={summary['wipe_observed_status']}",
+              "follow_up_required="
+              + (
+                  ""
+                  if summary["follow_up_required"] is None
+                  else str(summary["follow_up_required"])
+              ),
+              "unresolved_follow_up_count="
+              + (
+                  ""
+                  if summary["unresolved_follow_up_count"] is None
+                  else str(summary["unresolved_follow_up_count"])
+              ),
+          ]
           Path(os.environ["GITHUB_OUTPUT"]).write_text(
               "\n".join(output_lines) + "\n",
               encoding="utf-8",
