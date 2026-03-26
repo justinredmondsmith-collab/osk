@@ -47,11 +47,7 @@ def _write_github_output(path: Path, summary: dict[str, Any]) -> None:
             else str(summary["operator_closure_state"])
         ),
         "wipe_observed_status="
-        + (
-            ""
-            if summary["wipe_observed_status"] is None
-            else str(summary["wipe_observed_status"])
-        ),
+        + ("" if summary["wipe_observed_status"] is None else str(summary["wipe_observed_status"])),
         "follow_up_required="
         + ("" if summary["follow_up_required"] is None else str(summary["follow_up_required"])),
         "unresolved_follow_up_count="

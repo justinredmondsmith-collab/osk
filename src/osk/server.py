@@ -2338,11 +2338,7 @@ def create_app(
             return JSONResponse({"error": "Wipe follow-up item not found"}, status_code=404)
         if current_follow_up.get("classification") != "historical_drift":
             return JSONResponse(
-                {
-                    "error": (
-                        "Historical drift review is only available for historical drift items"
-                    )
-                },
+                {"error": ("Historical drift review is only available for historical drift items")},
                 status_code=409,
             )
         if current_follow_up.get("historical_reviewed"):
@@ -3017,11 +3013,7 @@ def create_app(
             audit_events = await db.get_audit_events(op_manager.operation.id, limit=MAX_AUDIT_LIMIT)
             coverage["wipe_readiness"] = _decorate_wipe_readiness(
                 summarize_wipe_readiness(
-                    [
-                        item
-                        for item in coverage.get("members") or []
-                        if isinstance(item, dict)
-                    ]
+                    [item for item in coverage.get("members") or [] if isinstance(item, dict)]
                     if isinstance(coverage.get("members"), list)
                     else [
                         _member_dashboard_snapshot(

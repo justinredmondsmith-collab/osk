@@ -582,9 +582,7 @@ def test_non_dry_run_records_partial_operator_closure_when_unavailable(
     )
 
     payload = json.loads((artifact_root / "20260323T190405Z" / "result.json").read_text())
-    handoff = json.loads(
-        (artifact_root / "20260323T190405Z" / "operator-handoff.json").read_text()
-    )
+    handoff = json.loads((artifact_root / "20260323T190405Z" / "operator-handoff.json").read_text())
 
     assert code == 0
     assert payload["status"] == "passed"
@@ -677,9 +675,7 @@ def test_capture_operator_closure_writes_open_follow_up_summary_and_detail_artif
                                 "1 historical-drift review recorded."
                             ),
                             "follow_up_history_count": 1,
-                            "follow_up_history_summary": (
-                                "Recent follow-up trail: 1 reviewed."
-                            ),
+                            "follow_up_history_summary": ("Recent follow-up trail: 1 reviewed."),
                             "follow_up": [
                                 {
                                     "id": member_id,
@@ -999,9 +995,7 @@ def test_resolve_local_admin_access_bootstraps_operator_session_when_missing(
     assert result["headers"] == {"X-Osk-Operator-Session": "token-123"}
     assert result["credential_source"] == "bootstrap_operator_session"
     assert result["bootstrap_status"] == "created"
-    assert result["bootstrap_capture_path"] == str(
-        artifact_dir / "operator-session-bootstrap.json"
-    )
+    assert result["bootstrap_capture_path"] == str(artifact_dir / "operator-session-bootstrap.json")
 
 
 def test_bootstrap_local_operator_session_writes_attempt_artifact(
@@ -1269,6 +1263,7 @@ def test_restart_scenario_records_resume_step_and_hardening_tasks(
             },
         },
     )
+
     def fake_restart_resume_check(**_kwargs):
         assert tunnel_state["active"] is True
         return {
@@ -1446,6 +1441,7 @@ def test_restart_resume_check_passes_when_restart_probe_recovers_session(
     assert result["step_update"]["detail"]["pid"] == 4321
     assert result["step_update"]["detail"]["member_id"] == "member-123"
     assert result["summary"]["restart_resume_status"] == "passed"
+
 
 def test_dry_run_records_available_local_snapshot_paths(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch

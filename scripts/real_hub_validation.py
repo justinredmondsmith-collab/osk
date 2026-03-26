@@ -96,8 +96,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--member-shell-artifact-root",
         default=str(DEFAULT_MEMBER_SHELL_ARTIFACT_ROOT),
         help=(
-            "Artifact root for Chromebook member-shell smoke runs used to reuse "
-            "live-wipe evidence."
+            "Artifact root for Chromebook member-shell smoke runs used to reuse live-wipe evidence."
         ),
     )
     parser.add_argument(
@@ -442,9 +441,10 @@ def _perform_restart_cycle(
 
     start_stdout_path = artifact_dir / "restart-start.stdout.log"
     start_stderr_path = artifact_dir / "restart-start.stderr.log"
-    with start_stdout_path.open("w", encoding="utf-8") as stdout, start_stderr_path.open(
-        "w", encoding="utf-8"
-    ) as stderr:
+    with (
+        start_stdout_path.open("w", encoding="utf-8") as stdout,
+        start_stderr_path.open("w", encoding="utf-8") as stderr,
+    ):
         process = subprocess.Popen(
             [sys.executable, "-m", "osk", "start", operation_name],
             cwd=repo_root,
@@ -526,9 +526,7 @@ def _probe_restart_resume_over_cdp(
             ).strip()
             if page.locator("#runtime-connection-state").count()
             else "",
-            "operation_name": (
-                page.locator("#runtime-operation-name").text_content() or ""
-            ).strip()
+            "operation_name": (page.locator("#runtime-operation-name").text_content() or "").strip()
             if page.locator("#runtime-operation-name").count()
             else "",
             "outbox_count": (page.locator("#runtime-outbox-count").text_content() or "").strip()
@@ -572,8 +570,7 @@ def _probe_restart_resume_over_cdp(
                     "status": "failed_hardening_task",
                     "detail": {
                         "message": (
-                            "No existing member browser tab was available for "
-                            "restart probing."
+                            "No existing member browser tab was available for restart probing."
                         ),
                         "hardening_task": (
                             "Preserve the member browser session so restart validation can "
@@ -845,9 +842,7 @@ def _capture_local_snapshot(
 
     if completed.returncode != 0:
         error = (
-            completed.stderr.strip()
-            or completed.stdout.strip()
-            or f"exit {completed.returncode}"
+            completed.stderr.strip() or completed.stdout.strip() or f"exit {completed.returncode}"
         )
         return None, {"available": False, "path": None, "error": error}
 
@@ -1071,11 +1066,14 @@ def _capture_live_wipe_evidence(*, args: argparse.Namespace, repo_root: Path) ->
             },
         }
 
-    run_label = str(
-        (result_payload.get("provenance") or {}).get("run_label")
-        or (latest_payload.get("provenance") or {}).get("run_label")
-        or ""
-    ).strip() or None
+    run_label = (
+        str(
+            (result_payload.get("provenance") or {}).get("run_label")
+            or (latest_payload.get("provenance") or {}).get("run_label")
+            or ""
+        ).strip()
+        or None
+    )
     wipe_detail = wipe_step.get("detail")
     if not isinstance(wipe_detail, dict):
         wipe_detail = {}
@@ -1114,9 +1112,7 @@ def _local_admin_headers() -> tuple[dict[str, str] | None, str | None]:
     if env_admin_token:
         return {ADMIN_TOKEN_HEADER: env_admin_token}, "env_admin_token"
 
-    env_operator_session = str(
-        os.environ.get("OSK_REAL_HUB_OPERATOR_SESSION_TOKEN") or ""
-    ).strip()
+    env_operator_session = str(os.environ.get("OSK_REAL_HUB_OPERATOR_SESSION_TOKEN") or "").strip()
     if env_operator_session:
         return {OPERATOR_SESSION_HEADER: env_operator_session}, "env_operator_session"
 
@@ -1392,8 +1388,7 @@ def _resolve_local_admin_access(*, repo_root: Path, artifact_dir: Path) -> dict[
         "headers": None,
         "credential_source": None,
         "bootstrap_status": bootstrap["status"],
-        "bootstrap_message": bootstrap["message"]
-        or "Local operator credentials unavailable.",
+        "bootstrap_message": bootstrap["message"] or "Local operator credentials unavailable.",
         "bootstrap_capture_path": bootstrap["capture_path"],
         "bootstrap_response": bootstrap["response"],
     }
@@ -1752,8 +1747,7 @@ def run_live_flow(
                     "automated": False,
                     "detail": {
                         "message": (
-                            "Live wipe still requires operator-driven "
-                            "validation in this slice."
+                            "Live wipe still requires operator-driven validation in this slice."
                         )
                     },
                 }

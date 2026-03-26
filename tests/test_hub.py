@@ -519,7 +519,7 @@ def test_wipe_hub_triggers_broadcast_and_stop(
                             "Reconnect this member browser and confirm wipe, or record a "
                             "manual cleanup verification before closing the cleanup boundary."
                         ),
-                    }
+                    },
                 ],
             },
         },
@@ -543,8 +543,7 @@ def test_wipe_hub_triggers_broadcast_and_stop(
         "verified_current=0" in out
     )
     assert (
-        "wipe_follow_up name=Sensor Two reason=disconnected "
-        "classification=active_unresolved" in out
+        "wipe_follow_up name=Sensor Two reason=disconnected classification=active_unresolved" in out
     )
     assert (
         "wipe_follow_up name=Observer One reason=disconnected "

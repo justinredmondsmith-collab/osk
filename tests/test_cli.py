@@ -99,9 +99,7 @@ def test_parse_audit() -> None:
 
 def test_audit_help_mentions_review_events_for_wipe_follow_up_filter() -> None:
     parser = build_parser()
-    subparsers = next(
-        action for action in parser._actions if getattr(action, "choices", None)
-    )
+    subparsers = next(action for action in parser._actions if getattr(action, "choices", None))
     audit_parser = subparsers.choices["audit"]
     help_text = audit_parser.format_help()
 
