@@ -235,6 +235,17 @@ def test_wrapper_prepares_launches_and_forwards_real_hub_args(tmp_path: Path) ->
     }
     assert latest["captures"] == payload["captures"]
     assert latest["status"] == "passed"
+    assert latest["operator_handoff"] == {
+        "path": str(run_dir / "operator-handoff.json"),
+        "status": "passed",
+        "closure_state": None,
+        "follow_up_required": None,
+        "unresolved_follow_up_count": None,
+        "follow_up_summary": None,
+        "operator_closure_status": None,
+        "operator_closure_state": None,
+        "wipe_observed_status": None,
+    }
     assert f"handoff:    {run_dir / 'operator-handoff.json'}" in result.stdout
     assert "inspect operator-handoff.json first" in result.stdout
 
@@ -278,4 +289,5 @@ def test_wrapper_records_prepare_failure_before_runner_executes(tmp_path: Path) 
     }
     assert latest["captures"] == payload["captures"]
     assert latest["failure_stage"] == "prepare"
+    assert latest["operator_handoff"] is None
     assert log_lines == ["prepare", "cleanup"]

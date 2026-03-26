@@ -128,6 +128,31 @@ def build_run_index_entry(payload: Mapping[str, Any]) -> dict[str, Any]:
     if not isinstance(captures, dict):
         captures = None
 
+    operator_handoff = None
+    operator_handoff_path = ""
+    if captures is not None:
+        operator_handoff_path = str(captures.get("operator_handoff_path") or "").strip()
+    if operator_handoff_path:
+        handoff_payload = _load_json(Path(operator_handoff_path))
+        if isinstance(handoff_payload, dict):
+            handoff_summary = handoff_payload.get("summary")
+            if not isinstance(handoff_summary, dict):
+                handoff_summary = {}
+            handoff_closure = handoff_payload.get("closure")
+            if not isinstance(handoff_closure, dict):
+                handoff_closure = {}
+            operator_handoff = {
+                "path": operator_handoff_path,
+                "status": handoff_payload.get("status"),
+                "closure_state": handoff_closure.get("closure_state"),
+                "follow_up_required": handoff_closure.get("follow_up_required"),
+                "unresolved_follow_up_count": handoff_closure.get("unresolved_follow_up_count"),
+                "follow_up_summary": handoff_closure.get("follow_up_summary"),
+                "operator_closure_status": handoff_summary.get("operator_closure_status"),
+                "operator_closure_state": handoff_summary.get("operator_closure_state"),
+                "wipe_observed_status": handoff_summary.get("wipe_observed_status"),
+            }
+
     launch_preflight = payload.get("launch_preflight")
     if not isinstance(launch_preflight, dict):
         launch_preflight = None
@@ -151,6 +176,7 @@ def build_run_index_entry(payload: Mapping[str, Any]) -> dict[str, Any]:
         "failure_type": failure.get("type"),
         "failure_message": failure.get("message"),
         "captures": captures,
+        "operator_handoff": operator_handoff,
         "launch_preflight": launch_preflight,
         "summary": summary,
         "provenance": provenance,
