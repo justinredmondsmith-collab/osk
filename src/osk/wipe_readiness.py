@@ -83,8 +83,13 @@ def _historical_follow_up_review(
 ) -> dict[str, object] | None:
     if not follow_up_review:
         return None
+    if _follow_up_classification(member) != "historical_drift":
+        return None
     reviewed_at = _parse_timestamp(follow_up_review.get("reviewed_at"))
     if reviewed_at is None:
+        return None
+    last_seen_at = _parse_timestamp(member.get("last_seen_at"))
+    if last_seen_at is not None and reviewed_at < last_seen_at:
         return None
     reviewed_at_iso = _isoformat_utc(reviewed_at)
     required_action = _follow_up_action_for_reason(str(member["reason"]))

@@ -114,6 +114,33 @@ def test_summarize_wipe_readiness_marks_reviewed_historical_drift_without_resolv
     assert payload["unreviewed_historical_drift_follow_up_count"] == 0
 
 
+def test_summarize_wipe_readiness_ignores_stale_historical_review_after_new_activity() -> None:
+    members = [
+        {
+            "id": "observer-1",
+            "name": "Observer One",
+            "role": "observer",
+            "status": "disconnected",
+            "heartbeat_state": "disconnected",
+            "seconds_since_last_seen": 60 * 60 * 8,
+            "last_seen_at": "2026-03-23T09:00:00Z",
+        }
+    ]
+
+    payload = summarize_wipe_readiness(
+        members,
+        follow_up_reviews={"observer-1": {"reviewed_at": "2026-03-23T08:15:00Z"}},
+    )
+
+    assert payload["follow_up_required"] is True
+    assert payload["follow_up"][0]["resolution"] == "unresolved"
+    assert payload["follow_up"][0]["classification"] == "historical_drift"
+    assert payload["follow_up"][0]["historical_reviewed"] is False
+    assert payload["follow_up"][0]["historical_reviewed_at"] is None
+    assert payload["reviewed_historical_drift_follow_up_count"] == 0
+    assert payload["unreviewed_historical_drift_follow_up_count"] == 1
+
+
 def test_summarize_wipe_readiness_excludes_retired_historical_drift() -> None:
     members = [
         {
