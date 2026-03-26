@@ -1221,6 +1221,104 @@ def _write_closure_summary(
     return str(path)
 
 
+def _write_operator_handoff(path: Path, payload: dict[str, Any]) -> str:
+    captures = dict(payload.get("captures") or {})
+    closure_summary = None
+    closure_summary_path = str(captures.get("closure_summary_path") or "").strip()
+    if closure_summary_path:
+        closure_summary = _read_json(Path(closure_summary_path))
+
+    summary = payload.get("summary") if isinstance(payload.get("summary"), dict) else {}
+    closure_details = (
+        {
+            "closure_state": closure_summary.get("closure_state"),
+            "credential_source": closure_summary.get("credential_source"),
+            "operator_bootstrap_status": closure_summary.get("operator_bootstrap_status"),
+            "operator_bootstrap_message": closure_summary.get("operator_bootstrap_message"),
+            "follow_up_required": closure_summary.get("follow_up_required"),
+            "unresolved_follow_up_count": closure_summary.get("unresolved_follow_up_count"),
+            "active_unresolved_follow_up_count": closure_summary.get(
+                "active_unresolved_follow_up_count"
+            ),
+            "historical_drift_follow_up_count": closure_summary.get(
+                "historical_drift_follow_up_count"
+            ),
+            "reviewed_historical_drift_follow_up_count": closure_summary.get(
+                "reviewed_historical_drift_follow_up_count"
+            ),
+            "unreviewed_historical_drift_follow_up_count": closure_summary.get(
+                "unreviewed_historical_drift_follow_up_count"
+            ),
+            "verified_current_follow_up_count": closure_summary.get(
+                "verified_current_follow_up_count"
+            ),
+            "follow_up_summary": closure_summary.get("follow_up_summary"),
+            "follow_up_history_count": closure_summary.get("follow_up_history_count"),
+            "follow_up_history_summary": closure_summary.get("follow_up_history_summary"),
+            "follow_up_detail_paths": closure_summary.get("follow_up_detail_paths") or {},
+        }
+        if isinstance(closure_summary, dict)
+        else {
+            "closure_state": summary.get("operator_closure_state"),
+            "credential_source": None,
+            "operator_bootstrap_status": summary.get("operator_bootstrap_status"),
+            "operator_bootstrap_message": None,
+            "follow_up_required": None,
+            "unresolved_follow_up_count": summary.get("unresolved_follow_up_count"),
+            "active_unresolved_follow_up_count": None,
+            "historical_drift_follow_up_count": None,
+            "reviewed_historical_drift_follow_up_count": None,
+            "unreviewed_historical_drift_follow_up_count": None,
+            "verified_current_follow_up_count": None,
+            "follow_up_summary": None,
+            "follow_up_history_count": None,
+            "follow_up_history_summary": None,
+            "follow_up_detail_paths": {},
+        }
+    )
+    handoff_payload = {
+        "captured_at_utc": datetime.now(timezone.utc).isoformat(),
+        "status": payload.get("status"),
+        "execution_mode": payload.get("execution_mode"),
+        "scenario": payload.get("scenario"),
+        "artifact_dir": payload.get("artifact_dir"),
+        "result_path": payload.get("result_path"),
+        "hub_url": payload.get("hub_url"),
+        "join_url": payload.get("join_url"),
+        "device_id": payload.get("device_id"),
+        "summary": {
+            "message": summary.get("message"),
+            "wipe_observed_status": summary.get("wipe_observed_status"),
+            "wipe_evidence_source": summary.get("wipe_evidence_source"),
+            "wipe_evidence_run_label": summary.get("wipe_evidence_run_label"),
+            "operator_closure_status": summary.get("operator_closure_status"),
+            "operator_closure_state": summary.get("operator_closure_state"),
+            "wipe_readiness_status": summary.get("wipe_readiness_status"),
+            "audit_event_count": summary.get("audit_event_count"),
+        },
+        "step_status": {
+            str(step.get("id") or ""): str(step.get("status") or "")
+            for step in payload.get("steps") or []
+            if isinstance(step, dict) and str(step.get("id") or "").strip()
+        },
+        "closure": closure_details,
+        "captures": captures,
+        "recommended_artifacts": {
+            "result_path": payload.get("result_path"),
+            "closure_summary_path": captures.get("closure_summary_path"),
+            "wipe_readiness_path": captures.get("wipe_readiness_path"),
+            "audit_slice_path": captures.get("audit_slice_path"),
+            "members_snapshot_path": captures.get("members_snapshot_path"),
+            "status_snapshot_path": captures.get("status_snapshot_path"),
+            "doctor_snapshot_path": captures.get("doctor_snapshot_path"),
+            "member_shell_smoke_result_path": captures.get("member_shell_smoke_result_path"),
+        },
+        "provenance": payload.get("provenance"),
+    }
+    _write_json(path, handoff_payload)
+    return str(path)
+
+
 def _bootstrap_local_operator_session(*, repo_root: Path, artifact_dir: Path) -> dict[str, Any]:
     bootstrap_path = artifact_dir / "operator-session-bootstrap.json"
     completed = _run_osk_cli(repo_root, ["operator", "login", "--json"], timeout_seconds=10.0)
@@ -1733,6 +1831,7 @@ def _build_result_payload(
             "members_snapshot_path": capture_paths.get("members_snapshot_path"),
             "member_shell_smoke_latest_path": capture_paths.get("member_shell_smoke_latest_path"),
             "member_shell_smoke_result_path": capture_paths.get("member_shell_smoke_result_path"),
+            "operator_handoff_path": None,
             "operator_session_bootstrap_path": capture_paths.get("operator_session_bootstrap_path"),
             "status_snapshot_path": capture_paths.get("status_snapshot_path"),
             "cdp_version_path": capture_paths.get("cdp_version_path"),
@@ -1787,6 +1886,8 @@ def main(argv: list[str] | None = None) -> int:
             run_label=run_label,
             capture_paths=capture_paths,
         )
+        payload["captures"]["operator_handoff_path"] = str(artifact_dir / "operator-handoff.json")
+        _write_operator_handoff(Path(payload["captures"]["operator_handoff_path"]), payload)
         _write_json(result_path, payload)
         return 0
 
@@ -1845,6 +1946,8 @@ def main(argv: list[str] | None = None) -> int:
                 "message": str(exc),
             },
         )
+        payload["captures"]["operator_handoff_path"] = str(artifact_dir / "operator-handoff.json")
+        _write_operator_handoff(Path(payload["captures"]["operator_handoff_path"]), payload)
         _write_json(result_path, payload)
         print(payload["failure"]["message"], file=sys.stderr)
         return 1
@@ -1884,6 +1987,8 @@ def main(argv: list[str] | None = None) -> int:
         )
         payload["summary"] = _merge_summary(payload.get("summary"), restart_result["summary"])
     _finalize_payload_status(payload, default_status="passed")
+    payload["captures"]["operator_handoff_path"] = str(artifact_dir / "operator-handoff.json")
+    _write_operator_handoff(Path(payload["captures"]["operator_handoff_path"]), payload)
     _write_json(result_path, payload)
     return 0
 

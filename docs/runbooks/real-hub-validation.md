@@ -88,6 +88,10 @@ Artifacts are written under:
 
 Important files per run:
 
+- `operator-handoff.json`
+  Primary operator-facing handoff artifact. This consolidates the run status,
+  wipe evidence status, closure state, step outcomes, and the capture paths
+  operators should inspect next.
 - `result.json`
   Final contract result for the run.
 - `closure-summary.json`
@@ -126,6 +130,10 @@ The `members.json` local snapshot now mirrors the live shell parity work by
 capturing both the member list and the decorated `wipe_readiness` payload, so
 artifact-only review can see recent follow-up trail context without separately
 recomputing it from status output.
+
+Start artifact-only review from `operator-handoff.json`, then follow its
+`recommended_artifacts` and `closure.follow_up_detail_paths` pointers for the
+underlying detail files.
 
 Latest successful restart-validation run:
 

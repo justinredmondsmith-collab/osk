@@ -128,8 +128,10 @@ def test_dry_run_writes_real_hub_contract_result(
 
     result_path = artifact_root / "20260323T190405Z" / "result.json"
     preflight_path = artifact_root / "20260323T190405Z" / "hub-preflight.json"
+    handoff_path = artifact_root / "20260323T190405Z" / "operator-handoff.json"
     payload = json.loads(result_path.read_text())
     preflight = json.loads(preflight_path.read_text())
+    handoff = json.loads(handoff_path.read_text())
 
     assert code == 0
     assert payload["status"] == "dry_run"
@@ -148,6 +150,7 @@ def test_dry_run_writes_real_hub_contract_result(
         "members_snapshot_path": None,
         "member_shell_smoke_latest_path": None,
         "member_shell_smoke_result_path": None,
+        "operator_handoff_path": str(handoff_path),
         "operator_session_bootstrap_path": None,
         "status_snapshot_path": None,
         "wipe_readiness_path": None,
@@ -162,6 +165,10 @@ def test_dry_run_writes_real_hub_contract_result(
     ]
     assert all(step["status"] == "contract_only" for step in payload["steps"])
     assert payload["result_path"] == str(result_path)
+    assert handoff["status"] == "dry_run"
+    assert handoff["summary"]["operator_closure_status"] is None
+    assert handoff["closure"]["closure_state"] is None
+    assert handoff["recommended_artifacts"]["result_path"] == str(result_path)
     assert preflight["hub_url"] == "https://127.0.0.1:8443"
     assert preflight["join_url"] == "https://osk.local/join?token=test"
     assert preflight["device_id"] == "chromebook-lab"
@@ -375,9 +382,11 @@ def test_non_dry_run_executes_real_hub_browser_flow(
     closure_summary_path = artifact_root / "20260323T190405Z" / "closure-summary.json"
     wipe_readiness_path = artifact_root / "20260323T190405Z" / "wipe-readiness.json"
     audit_slice_path = artifact_root / "20260323T190405Z" / "audit-slice.json"
+    handoff_path = artifact_root / "20260323T190405Z" / "operator-handoff.json"
     payload = json.loads(result_path.read_text())
     preflight = json.loads(preflight_path.read_text())
     cdp_version = json.loads(cdp_version_path.read_text())
+    handoff = json.loads(handoff_path.read_text())
 
     assert code == 0
     assert payload["status"] == "passed"
@@ -400,6 +409,7 @@ def test_non_dry_run_executes_real_hub_browser_flow(
     assert payload["captures"]["member_shell_smoke_result_path"] == str(
         artifact_root / "member-shell-smoke" / "20260323T180000Z" / "result.json"
     )
+    assert payload["captures"]["operator_handoff_path"] == str(handoff_path)
     assert len(payload["steps"]) == 6
     assert [step["status"] for step in payload["steps"]] == [
         "passed",
@@ -414,6 +424,11 @@ def test_non_dry_run_executes_real_hub_browser_flow(
     assert payload["summary"]["operator_closure_status"] == "captured"
     assert payload["summary"]["operator_closure_state"] == "captured_open_follow_up"
     assert payload["failure"] is None
+    assert handoff["status"] == "passed"
+    assert handoff["summary"]["wipe_observed_status"] == "captured_from_member_shell_smoke"
+    assert handoff["summary"]["operator_closure_status"] == "captured"
+    assert handoff["closure"]["closure_state"] == "captured_open_follow_up"
+    assert handoff["recommended_artifacts"]["closure_summary_path"] == str(closure_summary_path)
     assert preflight["local_snapshots"]["doctor"]["available"] is False
     assert preflight["local_snapshots"]["members"]["available"] is False
     assert preflight["local_snapshots"]["status"]["available"] is False
@@ -567,6 +582,9 @@ def test_non_dry_run_records_partial_operator_closure_when_unavailable(
     )
 
     payload = json.loads((artifact_root / "20260323T190405Z" / "result.json").read_text())
+    handoff = json.loads(
+        (artifact_root / "20260323T190405Z" / "operator-handoff.json").read_text()
+    )
 
     assert code == 0
     assert payload["status"] == "passed"
@@ -578,11 +596,19 @@ def test_non_dry_run_records_partial_operator_closure_when_unavailable(
     assert payload["captures"]["audit_slice_path"] is None
     assert payload["captures"]["member_shell_smoke_latest_path"] is None
     assert payload["captures"]["member_shell_smoke_result_path"] is None
+    assert payload["captures"]["operator_handoff_path"] == str(
+        artifact_root / "20260323T190405Z" / "operator-handoff.json"
+    )
     assert payload["steps"][-1]["id"] == "operator_closure_captured"
     assert payload["steps"][-1]["status"] == "manual_follow_up"
     assert payload["summary"]["wipe_observed_status"] == "manual_follow_up"
     assert payload["summary"]["operator_closure_status"] == "unavailable"
     assert payload["summary"]["operator_closure_state"] == "unavailable"
+    assert handoff["summary"]["operator_closure_status"] == "unavailable"
+    assert handoff["closure"]["closure_state"] == "unavailable"
+    assert handoff["recommended_artifacts"]["closure_summary_path"] == str(
+        artifact_root / "20260323T190405Z" / "closure-summary.json"
+    )
 
 
 def test_capture_operator_closure_writes_open_follow_up_summary_and_detail_artifacts(
@@ -834,6 +860,65 @@ def test_capture_operator_closure_writes_detail_artifacts_for_recent_history_mem
     assert detail["member_id"] == history_member_id
     assert detail["follow_up"] is None
     assert detail["history"][0]["status"] == "cleared"
+
+
+def test_operator_handoff_reuses_follow_up_detail_paths_from_closure_summary(
+    tmp_path: Path,
+) -> None:
+    validation = _load_module()
+
+    detail_path = tmp_path / "wipe-follow-up-member-123.json"
+    closure_summary_path = tmp_path / "closure-summary.json"
+    handoff_path = tmp_path / "operator-handoff.json"
+    detail_path.write_text('{"member_id":"member-123"}\n')
+    closure_summary_path.write_text(
+        json.dumps(
+            {
+                "closure_state": "captured_open_follow_up",
+                "credential_source": "bootstrap_operator_session",
+                "follow_up_required": True,
+                "unresolved_follow_up_count": 1,
+                "follow_up_detail_paths": {"member-123": str(detail_path)},
+            }
+        )
+        + "\n"
+    )
+
+    payload = {
+        "status": "passed",
+        "execution_mode": "chromebook_cdp",
+        "scenario": "baseline",
+        "artifact_dir": str(tmp_path),
+        "result_path": str(tmp_path / "result.json"),
+        "hub_url": "https://127.0.0.1:8443",
+        "join_url": "https://osk.local/join?token=test",
+        "device_id": "chromebook-lab",
+        "summary": {
+            "message": "run complete",
+            "operator_closure_status": "captured",
+            "operator_closure_state": "captured_open_follow_up",
+        },
+        "steps": [
+            {"id": "hub_reachable", "status": "passed"},
+            {"id": "operator_closure_captured", "status": "passed"},
+        ],
+        "captures": {
+            "closure_summary_path": str(closure_summary_path),
+            "wipe_readiness_path": str(tmp_path / "wipe-readiness.json"),
+            "audit_slice_path": str(tmp_path / "audit-slice.json"),
+            "operator_handoff_path": str(handoff_path),
+        },
+        "provenance": {"run_label": "20260323T190405Z"},
+    }
+
+    written_path = validation._write_operator_handoff(handoff_path, payload)
+    handoff = json.loads(handoff_path.read_text())
+
+    assert written_path == str(handoff_path)
+    assert handoff["summary"]["operator_closure_status"] == "captured"
+    assert handoff["closure"]["closure_state"] == "captured_open_follow_up"
+    assert handoff["closure"]["follow_up_detail_paths"] == {"member-123": str(detail_path)}
+    assert handoff["recommended_artifacts"]["closure_summary_path"] == str(closure_summary_path)
 
 
 def test_capture_operator_closure_writes_unavailable_summary_when_credentials_missing(
