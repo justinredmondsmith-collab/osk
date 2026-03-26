@@ -78,6 +78,15 @@ On successful runs the wrapper now prints the `operator-handoff.json` path
 first. Use that as the first artifact to inspect from the shell before opening
 `result.json` or the underlying closure and audit artifacts.
 
+To inspect the latest indexed real-hub result without opening run-local JSON
+files directly:
+
+```bash
+bash scripts/chromebook_real_hub_report.sh
+```
+
+Use `--json` when you want the same indexed summary in machine-readable form.
+
 Stop the hub and local services after the run:
 
 ```bash
