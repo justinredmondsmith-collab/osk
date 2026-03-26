@@ -9,6 +9,16 @@ changes manually while the project is in its early public setup phase.
 
 ### Added
 
+- Repo hygiene baseline: `.editorconfig`, `.gitattributes`,
+  `.pre-commit-config.yaml`, Dependabot update automation, and extra local
+  cache ignores for pre-commit/coverage artifacts
+- Standard maintainer commands via `Makefile` plus a repository-maintenance
+  runbook covering required GitHub rulesets, merge settings, and release
+  hygiene
+- The `dev` extra now includes `pre-commit` and `build`, so the documented
+  local maintenance flow matches the tools the repo expects contributors to run
+- Package metadata and docs now explicitly signal the CI-tested Python support
+  window as 3.11 through 3.13 instead of leaving that policy implicit
 - Foundational hardening: local-only admin HTTP access for coordinator routes,
   user-scoped runtime state paths, and Ruff lint/format enforcement in CI
 - Public governance documents: code of conduct, contributing guide, security
@@ -161,6 +171,14 @@ changes manually while the project is in its early public setup phase.
 
 ### Changed
 
+- Package metadata now derives the version from `osk.__version__`, and the
+  current prerelease train is tracked as `1.0.0b0` instead of the stale
+  `0.1.0a0` placeholder
+- Security policy wording now reflects that the repository contains real
+  implementation and validation work rather than only pre-implementation
+  design material
+- CI now runs lint/tests across Python 3.11-3.13 with pip caching and a wheel/
+  sdist build smoke check on Python 3.11
 - README wording to better reflect the current design-stage status
 - Design spec metadata and provenance guidance for future code transplants
 - Contributor guidance now reflects the presence of the initial code scaffold
