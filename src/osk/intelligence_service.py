@@ -24,6 +24,7 @@ from osk.intelligence_contracts import (
 )
 from osk.intelligence_pipeline import build_observation
 from osk.models import SynthesisFinding
+from osk.ollama_synthesis import OllamaObservationSynthesizer
 from osk.synthesis import HeuristicObservationSynthesizer
 from osk.transcriber import TranscriptionWorker, WhisperTranscriber, build_audio_decoder
 from osk.vision_engine import OllamaVisionAnalyzer, VisionWorker
@@ -68,6 +69,12 @@ def build_location_analyzer(config: OskConfig):
 
 
 def build_synthesizer(config: OskConfig):
+    if config.synthesis_backend == "ollama":
+        return OllamaObservationSynthesizer(
+            base_url=config.ollama_base_url,
+            model=config.synthesis_model,
+            cooldown_seconds=config.synthesis_cooldown_seconds,
+        )
     return HeuristicObservationSynthesizer(
         cooldown_seconds=config.synthesis_cooldown_seconds,
         sitrep_interval_seconds=config.sitrep_interval_minutes * 60,
