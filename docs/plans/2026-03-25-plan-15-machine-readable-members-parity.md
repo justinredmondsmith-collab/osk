@@ -78,3 +78,7 @@ Run:
 - real-hub validation captures and reports a `members` snapshot path
 - runbook language matches the new machine-readable handoff
 - full test suite stays green
+
+
+
+> Roadmap note: This file is a scoped implementation or historical planning document. Read it through [`2026-03-28-end-state-product-roadmap.md`](./2026-03-28-end-state-product-roadmap.md). If sequencing, priority, or scope conflict with the roadmap, follow the roadmap.

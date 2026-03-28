@@ -486,3 +486,7 @@ git add -A
 git commit -m "Osk v0.1.0: all 6 implementation plans complete"
 git push origin main
 ```
+
+
+
+> Roadmap note: This file is a scoped implementation or historical planning document. Read it through [`2026-03-28-end-state-product-roadmap.md`](./2026-03-28-end-state-product-roadmap.md). If sequencing, priority, or scope conflict with the roadmap, follow the roadmap.

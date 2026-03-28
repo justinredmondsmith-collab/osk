@@ -230,7 +230,7 @@ osk doctor --json
 | [Validation Reports](docs/release/) | Test evidence and results |
 | [Safety Guide](SAFETY.md) | Operational security |
 | [Contributing](CONTRIBUTING.md) | Development workflow |
-| [Post-1.0 Roadmap](docs/plans/2026-03-28-post-1.0.0-roadmap.md) | Future plans |
+| [Product Roadmap](docs/plans/2026-03-28-end-state-product-roadmap.md) | Authoritative end-state roadmap and sequencing |
 
 ---
 

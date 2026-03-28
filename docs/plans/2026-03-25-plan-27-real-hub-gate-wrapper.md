@@ -43,3 +43,7 @@ role; the real-hub path needs the same operational entrypoint.
 - `pytest tests/test_chromebook_real_hub_gate.py -q`
 - `bash -n scripts/chromebook_real_hub_gate.sh`
 - `pytest`
+
+
+
+> Roadmap note: This file is a scoped implementation or historical planning document. Read it through [`2026-03-28-end-state-product-roadmap.md`](./2026-03-28-end-state-product-roadmap.md). If sequencing, priority, or scope conflict with the roadmap, follow the roadmap.

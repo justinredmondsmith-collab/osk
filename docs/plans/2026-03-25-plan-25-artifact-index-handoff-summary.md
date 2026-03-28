@@ -40,3 +40,7 @@ to follow the handoff path and parse another file manually.
 - `pytest tests/test_chromebook_real_hub_wrapper.py -q`
 - `ruff check src/osk/chromebook_smoke_artifacts.py tests/test_chromebook_real_hub_wrapper.py`
 - `pytest`
+
+
+
+> Roadmap note: This file is a scoped implementation or historical planning document. Read it through [`2026-03-28-end-state-product-roadmap.md`](./2026-03-28-end-state-product-roadmap.md). If sequencing, priority, or scope conflict with the roadmap, follow the roadmap.

@@ -192,3 +192,7 @@ follow-up cleanup, not restart survivability itself.
 - [x] The contract produces structured artifacts under a stable output root
 - [x] Mocked smoke and real-hub validation are documented as distinct paths
 - [x] No docs claim automated real-hub validation beyond what the repo actually implements
+
+
+
+> Roadmap note: This file is a scoped implementation or historical planning document. Read it through [`2026-03-28-end-state-product-roadmap.md`](./2026-03-28-end-state-product-roadmap.md). If sequencing, priority, or scope conflict with the roadmap, follow the roadmap.

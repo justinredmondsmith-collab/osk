@@ -225,3 +225,7 @@ Notes:
 3. What should we start doing?
 4. What should we stop doing?
 5. Any process changes for next sprint?
+
+
+
+> Roadmap note: This file is a scoped implementation or historical planning document. Read it through [`2026-03-28-end-state-product-roadmap.md`](./2026-03-28-end-state-product-roadmap.md). If sequencing, priority, or scope conflict with the roadmap, follow the roadmap.

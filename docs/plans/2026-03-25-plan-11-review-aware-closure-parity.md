@@ -93,3 +93,7 @@ Run:
 - shell/read-only outputs show reviewed historical drift separately from unreviewed drift
 - runbooks explain the new parity without overstating cleanup guarantees
 - full test suite stays green
+
+
+
+> Roadmap note: This file is a scoped implementation or historical planning document. Read it through [`2026-03-28-end-state-product-roadmap.md`](./2026-03-28-end-state-product-roadmap.md). If sequencing, priority, or scope conflict with the roadmap, follow the roadmap.

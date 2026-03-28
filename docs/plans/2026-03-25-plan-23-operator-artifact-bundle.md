@@ -48,3 +48,7 @@ state during restart and wipe follow-up drills.
 - `pytest tests/test_real_hub_validation_contract.py -q`
 - `ruff check scripts/real_hub_validation.py tests/test_real_hub_validation_contract.py`
 - `pytest`
+
+
+
+> Roadmap note: This file is a scoped implementation or historical planning document. Read it through [`2026-03-28-end-state-product-roadmap.md`](./2026-03-28-end-state-product-roadmap.md). If sequencing, priority, or scope conflict with the roadmap, follow the roadmap.

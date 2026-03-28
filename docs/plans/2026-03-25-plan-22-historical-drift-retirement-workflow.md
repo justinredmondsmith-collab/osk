@@ -45,3 +45,7 @@ it should no longer block the active cleanup boundary.
 - `pytest tests/test_wipe_readiness.py tests/test_server.py tests/test_hub.py tests/test_cli.py -q`
 - `ruff check src/osk/wipe_readiness.py src/osk/server.py src/osk/hub.py tests/test_wipe_readiness.py tests/test_server.py tests/test_hub.py tests/test_cli.py`
 - `pytest`
+
+
+
+> Roadmap note: This file is a scoped implementation or historical planning document. Read it through [`2026-03-28-end-state-product-roadmap.md`](./2026-03-28-end-state-product-roadmap.md). If sequencing, priority, or scope conflict with the roadmap, follow the roadmap.

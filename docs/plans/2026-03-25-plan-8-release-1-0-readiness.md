@@ -280,3 +280,7 @@ Explain:
 - [ ] Operator runbooks cover install, run, export, wipe, and recovery
 - [ ] Release engineering exists for a repeatable tagged release process
 - [ ] A release candidate has been exercised before the final `1.0.0` bump
+
+
+
+> Roadmap note: This file is a scoped implementation or historical planning document. Read it through [`2026-03-28-end-state-product-roadmap.md`](./2026-03-28-end-state-product-roadmap.md). If sequencing, priority, or scope conflict with the roadmap, follow the roadmap.
