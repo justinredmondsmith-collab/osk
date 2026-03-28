@@ -16,7 +16,6 @@ from osk.models import (
     EventCategory,
     EventSeverity,
     Member,
-    SitRep,
     SynthesisFinding,
 )
 from osk.synthesis import SynthesisDecision
@@ -24,7 +23,10 @@ from osk.synthesis import SynthesisDecision
 logger = logging.getLogger(__name__)
 
 
-DEFAULT_SYNTHESIS_PROMPT = """You are an AI assistant analyzing observations from a civilian situational awareness system. Your task is to classify observations into categories and assess severity.
+DEFAULT_SYNTHESIS_PROMPT = """\
+You are an AI assistant analyzing observations from a civilian situational \
+awareness system. Your task is to classify observations into categories and \
+assess severity.
 
 Observation Type: {observation_kind}
 Summary: {summary}
@@ -121,7 +123,8 @@ class OllamaObservationSynthesizer:
 
         category = classification["category"]
         severity = classification["severity"]
-        confidence = classification.get("confidence", 0.5)
+        # confidence available for debugging but not currently used in decision logic
+        # confidence = classification.get("confidence", 0.5)
 
         # Create signature for deduplication
         signature = self._create_signature(observation, category)

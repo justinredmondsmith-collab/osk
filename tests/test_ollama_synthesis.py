@@ -9,7 +9,7 @@ import pytest
 
 from osk.intelligence_contracts import IntelligenceObservation, ObservationKind
 from osk.models import EventCategory, EventSeverity, Member
-from osk.ollama_synthesis import OllamaObservationSynthesizer, DEFAULT_SYNTHESIS_PROMPT
+from osk.ollama_synthesis import DEFAULT_SYNTHESIS_PROMPT, OllamaObservationSynthesizer
 
 
 @pytest.fixture
@@ -23,7 +23,7 @@ async def test_ollama_synthesizer_emits_event_on_classification() -> None:
     """Test that synthesizer creates events from Ollama classification."""
     mock_response = MagicMock()
     mock_response.json.return_value = {
-        "response": '{"category": "police_action", "severity": "warning", "reasoning": "Police advancing", "confidence": 0.85}'
+        "response": '{"category": "police_action", "severity": "warning", "reasoning": "Police advancing", "confidence": 0.85}'  # noqa: E501
     }
     
     mock_client = AsyncMock()
@@ -55,7 +55,7 @@ async def test_ollama_synthesizer_handles_null_classification() -> None:
     """Test that synthesizer returns empty decision when classification is null."""
     mock_response = MagicMock()
     mock_response.json.return_value = {
-        "response": '{"category": null, "severity": null, "reasoning": "Not relevant", "confidence": 0.0}'
+        "response": '{"category": null, "severity": null, "reasoning": "Not relevant", "confidence": 0.0}'  # noqa: E501
     }
     
     mock_client = AsyncMock()
@@ -84,7 +84,7 @@ async def test_ollama_synthesizer_handles_corroboration() -> None:
     """Test that synthesizer escalates on corroborated observations."""
     mock_response = MagicMock()
     mock_response.json.return_value = {
-        "response": '{"category": "police_action", "severity": "warning", "reasoning": "Police activity", "confidence": 0.85}'
+        "response": '{"category": "police_action", "severity": "warning", "reasoning": "Police activity", "confidence": 0.85}'  # noqa: E501
     }
     
     mock_client = AsyncMock()
@@ -104,7 +104,7 @@ async def test_ollama_synthesizer_handles_corroboration() -> None:
         summary="Police advancing north on foot.",
         confidence=0.91,
     )
-    decision1 = await synthesizer.synthesize(observation1, source_member=member1)
+    await synthesizer.synthesize(observation1, source_member=member1)
     
     # Second observation from different member (same incident)
     member2 = Member(name="Alex")
@@ -125,7 +125,7 @@ async def test_ollama_synthesizer_respects_cooldown() -> None:
     """Test that synthesizer respects cooldown for duplicate incidents."""
     mock_response = MagicMock()
     mock_response.json.return_value = {
-        "response": '{"category": "blocked_route", "severity": "advisory", "reasoning": "Road blocked", "confidence": 0.75}'
+        "response": '{"category": "blocked_route", "severity": "advisory", "reasoning": "Road blocked", "confidence": 0.75}'  # noqa: E501
     }
     
     mock_client = AsyncMock()
@@ -189,7 +189,7 @@ async def test_ollama_synthesizer_parses_markdown_json() -> None:
     """Test that synthesizer handles markdown-wrapped JSON responses."""
     mock_response = MagicMock()
     mock_response.json.return_value = {
-        "response": '```json\n{"category": "medical", "severity": "warning", "reasoning": "Injury reported", "confidence": 0.9}\n```'
+        "response": '```json\n{"category": "medical", "severity": "warning", "reasoning": "Injury reported", "confidence": 0.9}\n```'  # noqa: E501
     }
     
     mock_client = AsyncMock()
@@ -237,7 +237,7 @@ async def test_ollama_synthesizer_expires_old_incidents() -> None:
     
     mock_response = MagicMock()
     mock_response.json.return_value = {
-        "response": '{"category": "police_action", "severity": "advisory", "reasoning": "Police present", "confidence": 0.7}'
+        "response": '{"category": "police_action", "severity": "advisory", "reasoning": "Police present", "confidence": 0.7}'  # noqa: E501
     }
     
     mock_client = AsyncMock()
@@ -272,7 +272,7 @@ async def test_ollama_synthesizer_vision_observation() -> None:
     """Test handling of vision observations."""
     mock_response = MagicMock()
     mock_response.json.return_value = {
-        "response": '{"category": "crowd_movement", "severity": "info", "reasoning": "Crowd visible", "confidence": 0.8}'
+        "response": '{"category": "crowd_movement", "severity": "info", "reasoning": "Crowd visible", "confidence": 0.8}'  # noqa: E501
     }
     
     mock_client = AsyncMock()
