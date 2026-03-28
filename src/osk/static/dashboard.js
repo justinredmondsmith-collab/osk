@@ -600,6 +600,30 @@
         if (item.corroborated) {
           chips.push('<span class="pill pill--accent">Corroborated</span>');
         }
+        
+        // Confidence score (Release 1.3.0)
+        if (item.confidence_score !== undefined && item.confidence_score !== null) {
+          const confidenceClass = item.confidence_tier || 'medium';
+          const confidenceIcon = {
+            'certain': '●●●●',
+            'high': '●●●',
+            'medium': '●●',
+            'low': '●'
+          }[confidenceClass] || '●●';
+          chips.push(`<span class="pill pill--confidence pill--${confidenceClass}" title="Confidence: ${Math.round(item.confidence_score * 100)}%">${confidenceIcon}</span>`);
+        }
+        
+        // Source attribution (Release 1.3.0)
+        if (item.contributing_sources && item.contributing_sources.length > 1) {
+          const sourceIcons = {
+            'audio': '🎤',
+            'vision': '👁️',
+            'manual': '✍️',
+            'location': '📍'
+          };
+          const icons = item.contributing_sources.map(s => sourceIcons[s] || '•').join('');
+          chips.push(`<span class="pill pill--sources" title="Sources: ${item.contributing_sources.join(', ')}">${icons}</span>`);
+        }
         return `
           <button
             class="timeline-row ${typeClass}${selected}${fresh}"
@@ -2253,6 +2277,7 @@
         await refreshDashboard();
         connectDashboardStream();
         initTaskManager(); // Initialize task management (Release 1.2.0)
+        initFusionManager(); // Initialize intelligence fusion (Release 1.3.0)
       }
     } catch (error) {
       const message =
@@ -2580,6 +2605,128 @@
 
   function initTaskManager() {
     taskManager.init();
+  }
+
+  // ==========================================================================
+  // Intelligence Fusion Manager (Release 1.3.0)
+  // ==========================================================================
+
+  const fusionManager = {
+    stats: {
+      activeGroups: 0,
+      avgConfidence: 0,
+      duplicateRate: 0,
+    },
+    groups: [],
+    pollingInterval: null,
+
+    init() {
+      this.loadStats();
+      this.startPolling();
+    },
+
+    async loadStats() {
+      try {
+        const response = await fetch('/api/operator/fusion-stats', {
+          headers: { 'Authorization': `Bearer ${state.sessionToken}` }
+        });
+        if (!response.ok) return;
+
+        const stats = await response.json();
+        this.stats = stats;
+        this.renderStats();
+      } catch (err) {
+        console.error('Failed to load fusion stats:', err);
+      }
+    },
+
+    async loadGroups() {
+      try {
+        const response = await fetch('/api/operator/observation-groups', {
+          headers: { 'Authorization': `Bearer ${state.sessionToken}` }
+        });
+        if (!response.ok) return;
+
+        this.groups = await response.json();
+        this.renderGroups();
+      } catch (err) {
+        console.error('Failed to load observation groups:', err);
+      }
+    },
+
+    renderStats() {
+      document.getElementById('active-groups-count').textContent = this.stats.active_groups || '--';
+      document.getElementById('avg-confidence').textContent = 
+        this.stats.avg_confidence ? `${Math.round(this.stats.avg_confidence * 100)}%` : '--';
+      document.getElementById('duplicate-rate').textContent = 
+        this.stats.duplicate_rate ? `${Math.round(this.stats.duplicate_rate * 100)}%` : '--';
+    },
+
+    renderGroups() {
+      const container = document.getElementById('observation-groups');
+      
+      if (!this.groups || this.groups.length === 0) {
+        container.innerHTML = '<p class="empty-state empty-state--compact">No observation groups yet.</p>';
+        return;
+      }
+
+      container.innerHTML = this.groups.map(group => this.renderGroupCard(group)).join('');
+    },
+
+    renderGroupCard(group) {
+      const sourceIcons = {
+        'audio': '🎤',
+        'vision': '👁️',
+        'manual': '✍️',
+        'location': '📍'
+      };
+      
+      const sources = (group.source_types || []).map(s => sourceIcons[s] || '•').join('');
+      const confidence = group.avg_confidence ? Math.round(group.avg_confidence * 100) : 50;
+      const confidenceClass = confidence >= 90 ? 'certain' : confidence >= 70 ? 'high' : confidence >= 40 ? 'medium' : 'low';
+      
+      return `
+        <div class="observation-group-card">
+          <div class="group-header">
+            <span class="group-category">${this.escapeHtml(group.category)}</span>
+            <span class="group-confidence pill--${confidenceClass}">${confidence}%</span>
+          </div>
+          <div class="group-meta">
+            <span class="group-sources" title="Source types">${sources}</span>
+            <span class="group-count">${group.observation_count} observations</span>
+            <span class="group-members">${group.member_count} members</span>
+          </div>
+          ${group.diversity_score > 0.5 ? '<span class="group-diversity">Diverse sources ✓</span>' : ''}
+        </div>
+      `;
+    },
+
+    escapeHtml(text) {
+      if (!text) return '';
+      const div = document.createElement('div');
+      div.textContent = text;
+      return div.innerHTML;
+    },
+
+    startPolling() {
+      this.loadStats();
+      this.loadGroups();
+      this.pollingInterval = window.setInterval(() => {
+        this.loadStats();
+        this.loadGroups();
+      }, 10000); // Every 10 seconds
+    },
+
+    stopPolling() {
+      if (this.pollingInterval) {
+        window.clearInterval(this.pollingInterval);
+        this.pollingInterval = null;
+      }
+    }
+  };
+
+  function initFusionManager() {
+    fusionManager.init();
   }
 
   function init() {

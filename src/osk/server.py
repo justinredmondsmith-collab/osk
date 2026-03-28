@@ -3242,6 +3242,62 @@ def create_app(
         except ValueError as e:
             return JSONResponse({"error": str(e)}, status_code=400)
 
+    # -------------------------------------------------------------------------
+    # Intelligence Fusion API (Release 1.3.0)
+    # -------------------------------------------------------------------------
+
+    @app.get("/api/operator/fusion-stats")
+    async def get_fusion_stats(request: Request):
+        """Get intelligence fusion statistics."""
+        if response := _require_local_admin(request, op_manager):
+            return response
+        if op_manager.operation is None:
+            return JSONResponse({"error": "No active operation"}, status_code=503)
+        
+        # Get stats from fusion service if available
+        if hasattr(intelligence_service, 'fusion_service'):
+            stats = await intelligence_service.fusion_service.get_fusion_stats()
+            return stats
+        
+        return {"active_groups": 0, "avg_confidence": 0, "duplicate_rate": 0}
+
+    @app.get("/api/operator/observation-groups")
+    async def get_observation_groups(
+        request: Request,
+        category: str | None = None,
+        min_confidence: float | None = None,
+    ):
+        """Get observation groups for the operation."""
+        if response := _require_local_admin(request, op_manager):
+            return response
+        if op_manager.operation is None:
+            return JSONResponse({"error": "No active operation"}, status_code=503)
+        
+        if hasattr(intelligence_service, 'fusion_service'):
+            groups = await intelligence_service.fusion_service.get_observation_groups(
+                operation_id=op_manager.operation.id,
+                category=category,
+                min_confidence=min_confidence,
+            )
+            return [g.to_dict() if hasattr(g, 'to_dict') else g for g in groups]
+        
+        return []
+
+    @app.get("/api/operator/events/{event_id}/confidence")
+    async def get_event_confidence(event_id: uuid.UUID, request: Request):
+        """Get confidence score and attribution for an event."""
+        if response := _require_local_admin(request, op_manager):
+            return response
+        if op_manager.operation is None:
+            return JSONResponse({"error": "No active operation"}, status_code=503)
+        
+        if hasattr(intelligence_service, 'fusion_service'):
+            enriched = await intelligence_service.fusion_service.get_enriched_event(event_id)
+            if enriched:
+                return enriched
+        
+        return JSONResponse({"error": "Event not found"}, status_code=404)
+
     @app.post("/api/rotate-token")
     async def rotate_token(request: Request):
         if response := _require_local_admin(request, op_manager):
