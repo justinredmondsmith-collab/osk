@@ -279,7 +279,7 @@ def _cmd_drill(args: argparse.Namespace) -> int:
 def _cmd_start(args: argparse.Namespace) -> int:
     from .hub import run_hub_sync
 
-    return run_hub_sync(args.name)
+    return run_hub_sync(args.name, fresh=args.fresh)
 
 
 def _cmd_status(_: argparse.Namespace) -> int:
@@ -766,6 +766,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     start_parser = subparsers.add_parser("start", help="Start an operation.")
     start_parser.add_argument("name", help="Operation name")
+    start_parser.add_argument(
+        "--fresh",
+        action="store_true",
+        help="Stop any active operation first to ensure a clean start.",
+    )
     start_parser.set_defaults(func=_cmd_start)
 
     status_parser = subparsers.add_parser("status", help="Report hub runtime status.")

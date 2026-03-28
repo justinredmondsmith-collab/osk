@@ -109,6 +109,7 @@ class IntelligenceService:
         db=None,
         operation_manager=None,
         conn_manager=None,
+        storage=None,
         synthesizer=None,
         transcriber=None,
         vision_analyzer=None,
@@ -120,6 +121,7 @@ class IntelligenceService:
         self.db = db
         self.operation_manager = operation_manager
         self.conn_manager = conn_manager
+        self.storage = storage
         self.observation_sink = observation_sink
         self.synthesizer = synthesizer or build_synthesizer(config)
         self.transcriber = transcriber or build_transcriber(config)
@@ -349,6 +351,47 @@ class IntelligenceService:
         if self.db is None or operation is None:
             return
         await self.db.insert_intelligence_observation(operation.id, observation)
+
+        # Write to preserved evidence store if available
+        if self.storage is not None:
+            self._write_observation_to_evidence(operation.id, observation)
+
+    def _write_observation_to_evidence(
+        self, operation_id, observation: IntelligenceObservation
+    ) -> None:
+        """Write observation metadata and any attached artifacts to evidence store."""
+        member_id = str(observation.source_member_id)
+        observation_id = str(observation.id)
+
+        # Build metadata document
+        metadata = {
+            "id": observation_id,
+            "operation_id": str(operation_id),
+            "member_id": member_id,
+            "kind": observation.kind.value,
+            "summary": observation.summary,
+            "confidence": observation.confidence,
+            "created_at": observation.created_at.isoformat(),
+            "details": observation.details,
+        }
+
+        # Write metadata JSON
+        self.storage.write_evidence_metadata(operation_id, member_id, metadata)
+
+        # Write artifact data if present in details
+        artifact_data = observation.details.get("artifact_data")
+        if artifact_data and isinstance(artifact_data, (bytes, str)):
+            artifact_type = observation.details.get("artifact_type", "unknown")
+            extension = observation.details.get("artifact_extension", "bin")
+            if isinstance(artifact_data, str):
+                artifact_data = artifact_data.encode("utf-8")
+            self.storage.write_evidence_artifact(
+                str(operation_id),
+                member_id,
+                artifact_type,
+                artifact_data,
+                extension,
+            )
 
     async def _synthesize_observation(self, observation: IntelligenceObservation) -> None:
         operation = getattr(self.operation_manager, "operation", None)
