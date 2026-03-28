@@ -7,6 +7,68 @@ changes manually while the project is in its early public setup phase.
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-03-27
+
+### Summary
+
+Initial stable release of Osk, a local-first coordination system for civilian
+groups operating in dynamic public environments.
+
+This release represents the completion of Phase 1-6 implementation and validation
+work. It includes a coordinator-run hub on Linux, browser-based member runtime
+for Chromium-class browsers, intelligence pipeline with heuristic synthesis,
+and explicit evidence/export/wipe workflows.
+
+See [docs/release/1.0.0-definition.md](./docs/release/1.0.0-definition.md) for
+the complete release boundary definition.
+
+### Added
+
+- **Release Blocker Resolutions**
+  - Fixed wipe shutdown defect: SIGTERM now has extended deadline to exit cleanly
+  - Added `--fresh` flag to `osk start` for clean operation starts without stale resume
+  - Implemented real evidence writing in intelligence pipeline
+  - Documented synthesis quality limits for 1.0.0 (heuristic-based classification)
+
+- **Evidence Pipeline**
+  - `StorageManager.write_evidence_artifact()` - Write binary artifacts to evidence store
+  - `StorageManager.write_evidence_metadata()` - Write JSON observation metadata
+  - Automatic evidence writing from `IntelligenceService` on observation persistence
+  - Structured evidence paths: `{operation_id}/{member_id}/{type}/{timestamp}.{ext}`
+
+- **Validation Evidence**
+  - Full validation run completed March 27, 2026
+  - All March 25 blockers resolved
+  - Evidence export/verify flow validated
+  - Clean wipe shutdown confirmed
+
+### Changed
+
+- `osk wipe --yes` now returns clean exit code and `hub_stopped: true`
+- `osk start --fresh` marks active DB operations as stopped before creating new operation
+- `stop_hub()` extends deadline after SIGTERM for proper process cleanup
+
+### Known Limitations
+
+See [docs/release/1.0.0-synthesis-limits.md](./docs/release/1.0.0-synthesis-limits.md)
+for detailed synthesis quality documentation.
+
+- Heuristic (keyword-based) synthesis only; no semantic understanding
+- Chromium-class browsers only; no Firefox/Safari support claimed
+- Disconnected-device cleanup requires follow-up workflow
+- No claim of anonymity or perfect deletion
+
+### Validation
+
+Validation evidence: [docs/release/2026-03-27-release-validation-final-run.md](./docs/release/2026-03-27-release-validation-final-run.md)
+
+Evidence bundle checksum:
+```
+893372c60df1971bd88784eb86470c964e95a42b286d3179e95f9c59ac321e1b  evidence-export.zip
+```
+
+---
+
 ### Added
 
 - Repo hygiene baseline: `.editorconfig`, `.gitattributes`,
