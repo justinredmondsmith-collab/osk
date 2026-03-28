@@ -231,18 +231,16 @@ class StabilityTest:
                     timeout=5,
                 )
                 if result.returncode == 0:
-                    data = json.loads(result.stdout)
-                    if data.get("running"):
-                        # Get hub PID
-                        pid_result = subprocess.run(
-                            ["pgrep", "-f", "osk.*start"],
-                            capture_output=True,
-                            text=True,
-                        )
-                        if pid_result.returncode == 0:
-                            self._hub_pid = int(pid_result.stdout.strip().split()[0])
+                    # Find JSON in output (skip log lines)
+                    output = result.stdout
+                    json_start = output.find('{')
+                    if json_start >= 0:
+                        data = json.loads(output[json_start:])
+                        # Hub is running if operation_id exists and pid is present
+                        if data.get("operation_id") and data.get("pid"):
+                            self._hub_pid = data.get("pid")
                             logger.info(f"Hub detected (PID: {self._hub_pid})")
-                        return True
+                            return True
             except Exception as exc:
                 logger.debug(f"Hub check failed: {exc}")
             await asyncio.sleep(1)
@@ -260,18 +258,22 @@ class StabilityTest:
                     timeout=5,
                 )
                 if result.returncode == 0:
-                    data = json.loads(result.stdout)
-                    members = data.get("members", [])
-                    sensor_count = sum(1 for m in members if m.get("role") == "sensor")
-                    if sensor_count >= self.target_sensors:
-                        logger.info(f"✓ {sensor_count} sensor(s) connected")
-                        for m in members:
-                            if m.get("role") == "sensor":
-                                name = m.get('name', 'unknown')
-                                mid = m.get('id', 'unknown')[:8]
-                                logger.info(f"  - {name} ({mid}...)")
-                        return True
-                    logger.info(f"Waiting... {sensor_count}/{self.target_sensors} sensors")
+                    # Find JSON in output (skip log lines)
+                    output = result.stdout
+                    json_start = output.find('{')
+                    if json_start >= 0:
+                        data = json.loads(output[json_start:])
+                        members = data.get("members", [])
+                        sensor_count = sum(1 for m in members if m.get("role") == "sensor")
+                        if sensor_count >= self.target_sensors:
+                            logger.info(f"✓ {sensor_count} sensor(s) connected")
+                            for m in members:
+                                if m.get("role") == "sensor":
+                                    name = m.get('name', 'unknown')
+                                    mid = m.get('id', 'unknown')[:8]
+                                    logger.info(f"  - {name} ({mid}...)")
+                            return True
+                        logger.info(f"Waiting... {sensor_count}/{self.target_sensors} sensors")
             except Exception as exc:
                 logger.debug(f"Sensor check failed: {exc}")
             await asyncio.sleep(5)
@@ -318,13 +320,17 @@ class StabilityTest:
                     timeout=5,
                 )
                 if result.returncode == 0:
-                    data = json.loads(result.stdout)
-                    # Count observations across members
-                    members = data.get("members", [])
-                    obs_count = sum(len(m.get("observations", [])) for m in members)
-                    if obs_count > last_count:
-                        self.metrics.observation_samples.append((time.time(), obs_count))
-                        last_count = obs_count
+                    # Find JSON in output (skip log lines)
+                    output = result.stdout
+                    json_start = output.find('{')
+                    if json_start >= 0:
+                        data = json.loads(output[json_start:])
+                        # Count observations across members
+                        members = data.get("members", [])
+                        obs_count = sum(len(m.get("observations", [])) for m in members)
+                        if obs_count > last_count:
+                            self.metrics.observation_samples.append((time.time(), obs_count))
+                            last_count = obs_count
             except Exception:
                 pass
             await asyncio.sleep(10)  # Check every 10 seconds
@@ -342,7 +348,13 @@ class StabilityTest:
                     timeout=5,
                 )
                 if result.returncode == 0:
-                    data = json.loads(result.stdout)
+                    # Find JSON in output (skip log lines)
+                    output = result.stdout
+                    json_start = output.find('{')
+                    if json_start < 0:
+                        await asyncio.sleep(5)
+                        continue
+                    data = json.loads(output[json_start:])
                     members = data.get("members", [])
                     current_ids = {m.get("id") for m in members if m.get("connected")}
                     

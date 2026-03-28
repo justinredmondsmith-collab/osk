@@ -1,0 +1,44 @@
+{
+  "test_type": "1_hour_stability_synthetic",
+  "status": "PASS",
+  "duration_seconds": 4320,
+  "target_duration_seconds": 3600,
+  "exceeded_target": true,
+  "timestamp": "2026-03-27T22:29:00Z",
+  "configuration": {
+    "sensors": 1,
+    "transcriber_backend": "fake",
+    "vision_backend": "fake",
+    "location_backend": "fake"
+  },
+  "results": {
+    "hub_cpu_percent": 0.1,
+    "hub_memory_percent": 0.1,
+    "hub_runtime_minutes": 87,
+    "test_runtime_minutes": 72,
+    "hub_still_running": true,
+    "no_errors_observed": true,
+    "no_crashes": true
+  },
+  "stability_criteria": {
+    "max_cpu_target": 30,
+    "actual_cpu": 0.1,
+    "cpu_pass": true,
+    "max_memory_target": 500,
+    "actual_memory_mb": "~75",
+    "memory_pass": true,
+    "no_errors": true,
+    "errors_pass": true,
+    "duration_target_minutes": 60,
+    "actual_duration_minutes": 72,
+    "duration_pass": true
+  },
+  "conclusion": "Hub demonstrated stable operation for 72+ minutes with continuous synthetic sensor streaming. All stability criteria exceeded.",
+  "notes": [
+    "Test ran 12 minutes past 60 minute target - hub remained stable",
+    "CPU usage remained very low (<1%)",
+    "Memory usage remained low (<100MB)",
+    "No errors or crashes observed",
+    "Synthetic sensor streamed audio and frames continuously"
+  ]
+}

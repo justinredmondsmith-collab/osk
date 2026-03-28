@@ -468,8 +468,8 @@ def main() -> int:
         print("Error: --sensors must be between 1 and 50", file=sys.stderr)
         return 1
     
-    if args.duration < 5 or args.duration > 600:
-        print("Error: --duration must be between 5 and 600 seconds", file=sys.stderr)
+    if args.duration < 5 or args.duration > 3600:
+        print("Error: --duration must be between 5 and 3600 seconds", file=sys.stderr)
         return 1
     
     try:
