@@ -23,7 +23,7 @@ class OskConfig(BaseModel):
     vision_backend: Literal["fake", "ollama"] = "fake"
     vision_model: str = "llama3.2-vision:11b-instruct-q4_K_M"
     location_backend: Literal["fake"] = "fake"
-    synthesis_backend: Literal["heuristic", "ollama"] = "heuristic"
+    synthesis_backend: Literal["heuristic", "ollama"] = "heuristic"  # heuristic: recommended, ollama: experimental
     synthesis_model: str = "llama3.2:3b"
     ffmpeg_binary: str = "ffmpeg"
     summarizer_model: str = "mistral"

@@ -1522,3 +1522,195 @@ class Database:
             status,
             stream_id,
         )
+
+    # -------------------------------------------------------------------------
+    # Task management methods (Release 1.2.0)
+    # -------------------------------------------------------------------------
+
+    async def insert_task(
+        self,
+        task_id: uuid.UUID,
+        operation_id: uuid.UUID,
+        assigner_id: uuid.UUID,
+        assignee_id: uuid.UUID,
+        task_type: str,
+        title: str,
+        description: str | None,
+        target_lat: float | None,
+        target_lon: float | None,
+        target_radius_meters: int | None,
+        state: str,
+        timeout_at: datetime,
+        priority: int = 1,
+        max_retries: int = 0,
+    ) -> None:
+        """Insert a new task into the database."""
+        pool = self._require_pool()
+        await pool.execute(
+            """INSERT INTO tasks (
+                id, operation_id, assigner_id, assignee_id,
+                type, title, description,
+                target_lat, target_lon, target_radius_meters,
+                state, timeout_at, priority, max_retries
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)""",
+            task_id,
+            operation_id,
+            assigner_id,
+            assignee_id,
+            task_type,
+            title,
+            description,
+            target_lat,
+            target_lon,
+            target_radius_meters,
+            state,
+            timeout_at,
+            priority,
+            max_retries,
+        )
+
+    async def get_task(self, task_id: uuid.UUID) -> dict | None:
+        """Get a single task by ID."""
+        pool = self._require_pool()
+        row = await pool.fetchrow("SELECT * FROM tasks WHERE id = $1", task_id)
+        return dict(row) if row else None
+
+    async def get_tasks_for_operation(
+        self,
+        operation_id: uuid.UUID,
+        states: list[str] | None = None,
+    ) -> list[dict]:
+        """Get all tasks for an operation, optionally filtered by state."""
+        pool = self._require_pool()
+        if states:
+            rows = await pool.fetch(
+                """SELECT * FROM tasks
+                   WHERE operation_id = $1 AND state = ANY($2)
+                   ORDER BY created_at DESC""",
+                operation_id,
+                states,
+            )
+        else:
+            rows = await pool.fetch(
+                "SELECT * FROM tasks WHERE operation_id = $1 ORDER BY created_at DESC",
+                operation_id,
+            )
+        return [dict(row) for row in rows]
+
+    async def get_tasks_for_member(
+        self,
+        member_id: uuid.UUID,
+        states: list[str] | None = None,
+    ) -> list[dict]:
+        """Get tasks assigned to a member, optionally filtered by state."""
+        pool = self._require_pool()
+        if states:
+            rows = await pool.fetch(
+                """SELECT * FROM tasks
+                   WHERE assignee_id = $1 AND state = ANY($2)
+                   ORDER BY created_at DESC""",
+                member_id,
+                states,
+            )
+        else:
+            rows = await pool.fetch(
+                "SELECT * FROM tasks WHERE assignee_id = $1 ORDER BY created_at DESC",
+                member_id,
+            )
+        return [dict(row) for row in rows]
+
+    async def get_active_task_for_member(self, member_id: uuid.UUID) -> dict | None:
+        """Get the currently active task for a member (if any)."""
+        pool = self._require_pool()
+        row = await pool.fetchrow(
+            """SELECT * FROM tasks
+               WHERE assignee_id = $1
+               AND state IN ('ASSIGNED', 'ACKNOWLEDGED', 'IN_PROGRESS')
+               ORDER BY priority DESC, created_at ASC
+               LIMIT 1""",
+            member_id,
+        )
+        return dict(row) if row else None
+
+    async def update_task_state(
+        self,
+        task_id: uuid.UUID,
+        new_state: str,
+        outcome: str | None = None,
+        outcome_notes: str | None = None,
+    ) -> None:
+        """Update task state and optionally set outcome."""
+        pool = self._require_pool()
+        
+        # Build update fields based on new state
+        update_fields = ["state = $2"]
+        params: list = [task_id, new_state]
+        param_idx = 3
+        
+        if new_state == "ASSIGNED":
+            update_fields.append(f"assigned_at = ${param_idx}")
+            params.append(datetime.now(timezone.utc))
+            param_idx += 1
+        elif new_state == "ACKNOWLEDGED":
+            update_fields.append(f"acknowledged_at = ${param_idx}")
+            params.append(datetime.now(timezone.utc))
+            param_idx += 1
+        elif new_state == "COMPLETED":
+            update_fields.append(f"completed_at = ${param_idx}")
+            params.append(datetime.now(timezone.utc))
+            param_idx += 1
+        elif new_state == "TIMEOUT":
+            update_fields.append(f"completed_at = ${param_idx}")
+            params.append(datetime.now(timezone.utc))
+            param_idx += 1
+        
+        if outcome is not None:
+            update_fields.append(f"outcome = ${param_idx}")
+            params.append(outcome)
+            param_idx += 1
+        
+        if outcome_notes is not None:
+            update_fields.append(f"outcome_notes = ${param_idx}")
+            params.append(outcome_notes)
+            param_idx += 1
+        
+        query = f"UPDATE tasks SET {', '.join(update_fields)} WHERE id = $1"
+        await pool.execute(query, *params)
+
+    async def increment_task_retry(self, task_id: uuid.UUID) -> None:
+        """Increment retry count for a task."""
+        pool = self._require_pool()
+        await pool.execute(
+            "UPDATE tasks SET retry_count = retry_count + 1 WHERE id = $1",
+            task_id,
+        )
+
+    async def get_pending_tasks_due_before(self, before: datetime) -> list[dict]:
+        """Get all pending tasks that are due before the given time.
+        
+        Used by the timeout processing background task.
+        """
+        pool = self._require_pool()
+        rows = await pool.fetch(
+            """SELECT * FROM tasks
+               WHERE state IN ('ASSIGNED', 'ACKNOWLEDGED', 'IN_PROGRESS')
+               AND timeout_at < $1
+               ORDER BY timeout_at ASC""",
+            before,
+        )
+        return [dict(row) for row in rows]
+
+    async def cancel_task(self, task_id: uuid.UUID, reason: str | None = None) -> None:
+        """Cancel a task (coordinator action)."""
+        pool = self._require_pool()
+        await pool.execute(
+            """UPDATE tasks
+               SET state = 'CANCELLED',
+                   outcome = 'CANCELLED',
+                   outcome_notes = $2,
+                   completed_at = $3
+               WHERE id = $1""",
+            task_id,
+            reason,
+            datetime.now(timezone.utc),
+        )

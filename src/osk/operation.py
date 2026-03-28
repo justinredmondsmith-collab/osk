@@ -8,6 +8,7 @@ import uuid
 from datetime import datetime, timezone
 
 from osk.models import Member, MemberBufferStatus, MemberRole, MemberStatus, Operation
+from osk.tasking import Task, TaskState, TaskOutcome, TaskType
 
 logger = logging.getLogger(__name__)
 
@@ -17,6 +18,7 @@ class OperationManager:
         self.db = db
         self.operation: Operation | None = None
         self.members: dict[uuid.UUID, Member] = {}
+        self.tasks: dict[uuid.UUID, Task] = {}
 
     def _require_operation(self) -> Operation:
         if self.operation is None:
@@ -250,3 +252,380 @@ class OperationManager:
 
     def get_member_list(self) -> list[dict]:
         return [member.model_dump(mode="json") for member in self.members.values()]
+
+    # ---------------------------------------------------------------------
+    # Task management (Release 1.2.0)
+    # ---------------------------------------------------------------------
+
+    async def create_task(
+        self,
+        assigner_id: uuid.UUID,
+        assignee_id: uuid.UUID,
+        task_type: TaskType,
+        title: str,
+        description: str | None = None,
+        target_location: "LocationTarget | None" = None,
+        timeout_minutes: int = 15,
+        priority: int = 1,
+        max_retries: int = 0,
+    ) -> Task:
+        """Create and assign a new task to a member.
+        
+        Args:
+            assigner_id: Coordinator member ID creating the task
+            assignee_id: Member ID to assign the task to
+            task_type: Type of task (CONFIRMATION, CHECKPOINT, REPORT, CUSTOM)
+            title: Short task title
+            description: Optional detailed description
+            target_location: Optional geographic target
+            timeout_minutes: Deadline from creation (default 15)
+            priority: 1=normal, 2=high, 3=urgent
+            max_retries: Number of retries allowed on timeout
+            
+        Returns:
+            The created Task object
+            
+        Raises:
+            RuntimeError: If no active operation
+            ValueError: If assignee not found
+        """
+        operation = self._require_operation()
+        
+        # Validate assignee exists
+        if assignee_id not in self.members:
+            raise ValueError(f"Assignee {assignee_id} not found")
+        
+        now = datetime.now(timezone.utc)
+        
+        task = Task(
+            id=uuid.uuid4(),
+            operation_id=operation.id,
+            assigner_id=assigner_id,
+            assignee_id=assignee_id,
+            type=task_type,
+            title=title,
+            description=description,
+            target_location=target_location,
+            state=TaskState.ASSIGNED,  # Skip PENDING, go straight to ASSIGNED
+            created_at=now,
+            assigned_at=now,
+            timeout_at=now + __import__('datetime').timedelta(minutes=timeout_minutes),
+            priority=priority,
+            max_retries=max_retries,
+        )
+        
+        # Persist to database
+        await self.db.insert_task(
+            task_id=task.id,
+            operation_id=task.operation_id,
+            assigner_id=task.assigner_id,
+            assignee_id=task.assignee_id,
+            task_type=task.type.value.upper(),
+            title=task.title,
+            description=task.description,
+            target_lat=target_location.lat if target_location else None,
+            target_lon=target_location.lon if target_location else None,
+            target_radius_meters=target_location.radius_meters if target_location else None,
+            state=task.state.value,
+            timeout_at=task.timeout_at,
+            priority=task.priority,
+            max_retries=task.max_retries,
+        )
+        
+        # Add to in-memory store
+        self.tasks[task.id] = task
+        
+        # Log audit event
+        await self.db.insert_audit_event(
+            operation.id,
+            "coordinator",
+            "task_created",
+            details={
+                "task_id": str(task.id),
+                "assignee_id": str(assignee_id),
+                "assignee_name": self.members[assignee_id].name,
+                "type": task_type.value,
+                "title": title,
+                "priority": priority,
+            }
+        )
+        
+        logger.info(
+            "Task created: %s (%s) assigned to %s",
+            task.id, title, self.members[assignee_id].name
+        )
+        
+        return task
+
+    def get_task(self, task_id: uuid.UUID) -> Task:
+        """Get a task by ID.
+        
+        Args:
+            task_id: Task UUID
+            
+        Returns:
+            Task object
+            
+        Raises:
+            ValueError: If task not found
+        """
+        if task_id not in self.tasks:
+            raise ValueError(f"Task {task_id} not found")
+        return self.tasks[task_id]
+
+    async def acknowledge_task(self, task_id: uuid.UUID, member_id: uuid.UUID) -> Task:
+        """Member acknowledges receipt of assigned task.
+        
+        Args:
+            task_id: Task UUID
+            member_id: Member acknowledging (must be assignee)
+            
+        Returns:
+            Updated Task object
+            
+        Raises:
+            ValueError: If task not found or invalid state transition
+            PermissionError: If member is not the assignee
+        """
+        task = self.get_task(task_id)
+        
+        if task.assignee_id != member_id:
+            raise PermissionError("Task not assigned to this member")
+        
+        task.transition_to(TaskState.ACKNOWLEDGED)
+        
+        await self.db.update_task_state(task_id, TaskState.ACKNOWLEDGED.value)
+        
+        await self.db.insert_audit_event(
+            task.operation_id,
+            "member",
+            "task_acknowledged",
+            actor_member_id=member_id,
+            details={"task_id": str(task_id), "title": task.title},
+        )
+        
+        logger.info("Task acknowledged: %s by member %s", task_id, member_id)
+        
+        return task
+
+    async def start_task(self, task_id: uuid.UUID, member_id: uuid.UUID) -> Task:
+        """Member starts working on acknowledged task.
+        
+        Args:
+            task_id: Task UUID
+            member_id: Member starting task (must be assignee)
+            
+        Returns:
+            Updated Task object
+        """
+        task = self.get_task(task_id)
+        
+        if task.assignee_id != member_id:
+            raise PermissionError("Task not assigned to this member")
+        
+        task.transition_to(TaskState.IN_PROGRESS)
+        
+        await self.db.update_task_state(task_id, TaskState.IN_PROGRESS.value)
+        
+        await self.db.insert_audit_event(
+            task.operation_id,
+            "member",
+            "task_started",
+            actor_member_id=member_id,
+            details={"task_id": str(task_id), "title": task.title},
+        )
+        
+        logger.info("Task started: %s by member %s", task_id, member_id)
+        
+        return task
+
+    async def complete_task(
+        self,
+        task_id: uuid.UUID,
+        member_id: uuid.UUID,
+        outcome: TaskOutcome,
+        notes: str | None = None,
+    ) -> Task:
+        """Member completes assigned task.
+        
+        Args:
+            task_id: Task UUID
+            member_id: Member completing task (must be assignee)
+            outcome: Completion outcome (SUCCESS, FAILED, UNABLE)
+            notes: Optional completion notes
+            
+        Returns:
+            Updated Task object
+        """
+        task = self.get_task(task_id)
+        
+        if task.assignee_id != member_id:
+            raise PermissionError("Task not assigned to this member")
+        
+        task.complete(outcome, notes)
+        
+        await self.db.update_task_state(
+            task_id,
+            TaskState.COMPLETED.value,
+            outcome=outcome.value,
+            outcome_notes=notes,
+        )
+        
+        await self.db.insert_audit_event(
+            task.operation_id,
+            "member",
+            "task_completed",
+            actor_member_id=member_id,
+            details={
+                "task_id": str(task_id),
+                "title": task.title,
+                "outcome": outcome.value,
+            },
+        )
+        
+        logger.info(
+            "Task completed: %s with outcome %s by member %s",
+            task_id, outcome.value, member_id
+        )
+        
+        return task
+
+    async def process_task_timeouts(self) -> list[Task]:
+        """Process tasks that have exceeded their timeout.
+        
+        Should be called periodically by a background task.
+        
+        Returns:
+            List of tasks that were timed out
+        """
+        now = datetime.now(timezone.utc)
+        overdue_data = await self.db.get_pending_tasks_due_before(now)
+        
+        timed_out = []
+        for task_data in overdue_data:
+            task_id = uuid.UUID(str(task_data["id"]))
+            
+            # Use in-memory task if available, otherwise create from DB
+            task = self.tasks.get(task_id)
+            if task is None:
+                from osk.tasking import Task as TaskClass
+                task = TaskClass.from_dict(task_data)
+                self.tasks[task_id] = task
+            
+            if task.can_transition_to(TaskState.TIMEOUT):
+                task.transition_to(TaskState.TIMEOUT)
+                
+                await self.db.update_task_state(
+                    task_id,
+                    TaskState.TIMEOUT.value,
+                    outcome=TaskOutcome.TIMEOUT.value,
+                )
+                
+                await self.db.insert_audit_event(
+                    task.operation_id,
+                    "system",
+                    "task_timeout",
+                    details={"task_id": str(task_id), "title": task.title},
+                )
+                
+                timed_out.append(task)
+                logger.warning("Task timed out: %s (%s)", task_id, task.title)
+        
+        return timed_out
+
+    async def cancel_task(
+        self,
+        task_id: uuid.UUID,
+        coordinator_id: uuid.UUID,
+        reason: str | None = None,
+    ) -> Task:
+        """Coordinator cancels a task.
+        
+        Args:
+            task_id: Task UUID
+            coordinator_id: Coordinator member ID cancelling the task
+            reason: Optional cancellation reason
+            
+        Returns:
+            Updated Task object
+        """
+        task = self.get_task(task_id)
+        
+        # Can cancel from most states
+        if task.state in (TaskState.COMPLETED, TaskState.CANCELLED):
+            raise ValueError(f"Cannot cancel task in state {task.state.value}")
+        
+        task.transition_to(TaskState.CANCELLED)
+        task.outcome = TaskOutcome.CANCELLED
+        task.outcome_notes = reason
+        
+        await self.db.cancel_task(task_id, reason)
+        
+        await self.db.insert_audit_event(
+            task.operation_id,
+            "coordinator",
+            "task_cancelled",
+            actor_member_id=coordinator_id,
+            details={"task_id": str(task_id), "title": task.title, "reason": reason},
+        )
+        
+        logger.info("Task cancelled: %s by coordinator %s", task_id, coordinator_id)
+        
+        return task
+
+    async def retry_task(self, task_id: uuid.UUID, coordinator_id: uuid.UUID) -> Task:
+        """Retry a timed-out task.
+        
+        Args:
+            task_id: Task UUID (must be in TIMEOUT state)
+            coordinator_id: Coordinator member ID retrying the task
+            
+        Returns:
+            Updated Task object with extended timeout
+        """
+        task = self.get_task(task_id)
+        
+        if not task.can_retry():
+            raise ValueError(f"Task cannot be retried (retries: {task.retry_count}/{task.max_retries})")
+        
+        task.mark_retry()
+        task.transition_to(TaskState.ASSIGNED)
+        
+        # Extend timeout
+        await self.db.increment_task_retry(task_id)
+        await self.db.update_task_state(task_id, TaskState.ASSIGNED.value)
+        
+        await self.db.insert_audit_event(
+            task.operation_id,
+            "coordinator",
+            "task_retried",
+            actor_member_id=coordinator_id,
+            details={
+                "task_id": str(task_id),
+                "title": task.title,
+                "retry_count": task.retry_count,
+            },
+        )
+        
+        logger.info("Task retried: %s (attempt %d)", task_id, task.retry_count)
+        
+        return task
+
+    def get_active_tasks(self) -> list[Task]:
+        """Get all currently active tasks.
+        
+        Returns:
+            List of tasks in ASSIGNED, ACKNOWLEDGED, or IN_PROGRESS state
+        """
+        return [t for t in self.tasks.values() if t.is_active()]
+
+    def get_tasks_for_member(self, member_id: uuid.UUID) -> list[Task]:
+        """Get all tasks assigned to a specific member.
+        
+        Args:
+            member_id: Member UUID
+            
+        Returns:
+            List of tasks for that member
+        """
+        return [t for t in self.tasks.values() if t.assignee_id == member_id]
