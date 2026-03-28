@@ -31,14 +31,22 @@ ROUTE_CANDIDATES: dict[str, dict[str, str]] = {
         "summary": "Move north to the 17th Street corridor and exit through the open side streets.",
         "location_label": "north side of the intersection",
         "viewpoint": "face north toward the 17th Street corridor",
-        "prompt": "Move to the north side and send a quick update on police presence and crowd movement.",
+        "prompt": (
+            "Move to the north side and send a quick update on police presence and crowd movement."
+        ),
     },
     "east_exit": {
         "title": "East Exit",
-        "summary": "Shift east toward the river path and clear the area using the lower-density side route.",
+        "summary": (
+            "Shift east toward the river path and clear the area "
+            "using the lower-density side route."
+        ),
         "location_label": "east side escape path",
         "viewpoint": "face east toward the river path",
-        "prompt": "Move to the east side route and send a quick update on police presence and crowd movement.",
+        "prompt": (
+            "Move to the east side route and send a quick update "
+            "on police presence and crowd movement."
+        ),
     },
 }
 
@@ -94,9 +102,10 @@ class CoordinatorEngine:
         operation = getattr(self.operation_manager, "operation", None)
         if operation is None:
             return None
-        finding_row = (
-            finding.model_dump(mode="json") if isinstance(finding, SynthesisFinding) else dict(finding)
-        )
+        if isinstance(finding, SynthesisFinding):
+            finding_row = finding.model_dump(mode="json")
+        else:
+            finding_row = dict(finding)
         if not self._finding_requires_coordination(finding_row):
             return None
 
@@ -106,7 +115,10 @@ class CoordinatorEngine:
         ):
             await self._invalidate_recommendation(
                 active_recommendation,
-                reason=f"New {finding_row.get('category', 'signal')} evidence contradicted the active route.",
+                reason=(
+                    f"New {finding_row.get('category', 'signal')} "
+                    f"evidence contradicted the active route."
+                ),
                 details={"source_finding_id": str(finding_row.get("id") or "")},
             )
 
@@ -148,7 +160,9 @@ class CoordinatorEngine:
 
         open_task = await self.db.get_open_coordinator_task_for_member(operation.id, member_id)
         if open_task is None:
-            active_recommendation = await self.db.get_active_coordinator_recommendation(operation.id)
+            active_recommendation = await self.db.get_active_coordinator_recommendation(
+                operation.id
+            )
             if active_recommendation and self._text_invalidates_route(
                 report_text, str(active_recommendation.get("route_key") or "")
             ):
@@ -161,7 +175,10 @@ class CoordinatorEngine:
                     operation_id=operation.id,
                     kind=ROUTE_GAP_KIND,
                     title="Reconfirm safest exit",
-                    summary="A late field report contradicted the active route. Request a new confirmation.",
+                    summary=(
+                        "A late field report contradicted the active route. "
+                        "Request a new confirmation."
+                    ),
                     requested_route_key="north_exit",
                     details={"trigger": "late_report", "event_id": str(event_id)},
                 )
@@ -213,7 +230,9 @@ class CoordinatorEngine:
             return gap_status
 
         active_recommendation = await self.db.get_active_coordinator_recommendation(operation.id)
-        if active_recommendation and str(active_recommendation.get("route_key") or "") == requested_route_key:
+        if active_recommendation and (
+            str(active_recommendation.get("route_key") or "") == requested_route_key
+        ):
             await self._invalidate_recommendation(
                 active_recommendation,
                 reason="Field update marked the active route as blocked.",
@@ -227,14 +246,19 @@ class CoordinatorEngine:
                 gap_id=_to_uuid(open_task["gap_id"]),
                 supporting_task_id=_to_uuid(open_task["id"]),
                 emitted_at=timestamp,
-                rationale="Field update blocked the requested route, so the alternate scripted route is now preferred.",
+                rationale=(
+                    "Field update blocked the requested route, so the "
+                    "alternate scripted route is now preferred."
+                ),
             )
         else:
             gap = CoordinatorGap(
                 operation_id=operation.id,
                 kind=ROUTE_GAP_KIND,
                 title="Route no longer viable",
-                summary="The last confirmed route was blocked. Request a fresh evacuation assessment.",
+                summary=(
+                    "The last confirmed route was blocked. Request a fresh evacuation assessment."
+                ),
                 requested_route_key="north_exit",
                 details={"trigger": "route_blocked", "event_id": str(event_id)},
             )
@@ -262,7 +286,9 @@ class CoordinatorEngine:
                     changed_at=_utcnow(),
                     details={
                         **dict(active_task.get("details") or {}),
-                        "cancellation_reason": "No eligible sensor was available for the open task.",
+                        "cancellation_reason": (
+                            "No eligible sensor was available for the open task."
+                        ),
                     },
                 )
                 if cancelled is not None:
@@ -461,7 +487,11 @@ class CoordinatorEngine:
         try:
             await self.conn_manager.send_to(member_id, payload)
         except Exception:
-            logger.exception("Failed to push coordinator task %s to member %s", task_row.get("id"), member_id)
+            logger.exception(
+                "Failed to push coordinator task %s to member %s",
+                task_row.get("id"),
+                member_id,
+            )
 
     def _finding_requires_coordination(self, finding_row: dict[str, Any]) -> bool:
         category = str(finding_row.get("category") or "")

@@ -12,8 +12,8 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from osk.audio_ingest import AudioIngest
-from osk.coordinator_engine import CoordinatorEngine
 from osk.config import OskConfig
+from osk.coordinator_engine import CoordinatorEngine
 from osk.fake_intelligence import FakeLocationAnalyzer, FakeTranscriber, FakeVisionAnalyzer
 from osk.frame_ingest import FrameIngest
 from osk.intelligence_contracts import (
@@ -412,9 +412,9 @@ class IntelligenceService:
         operation = getattr(self.operation_manager, "operation", None)
         if operation is None:
             return
-        
+
         member_id = str(chunk.source.member_id)
-        
+
         # Determine extension based on codec
         codec = str(chunk.codec or "audio/unknown").lower()
         if "webm" in codec or "opus" in codec:
@@ -425,7 +425,7 @@ class IntelligenceService:
             extension = "wav"
         else:
             extension = "bin"
-        
+
         try:
             self.storage.write_evidence_artifact(
                 str(operation.id),
@@ -449,9 +449,9 @@ class IntelligenceService:
         operation = getattr(self.operation_manager, "operation", None)
         if operation is None:
             return
-        
+
         member_id = str(frame.source.member_id)
-        
+
         try:
             self.storage.write_evidence_artifact(
                 str(operation.id),

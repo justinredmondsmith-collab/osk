@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from osk.coordinator_engine import CoordinatorEngine, ROUTE_GAP_KIND
+from osk.coordinator_engine import ROUTE_GAP_KIND, CoordinatorEngine
 from osk.models import EventCategory, EventSeverity, Member, MemberRole, Operation, SynthesisFinding
 
 
@@ -40,10 +40,26 @@ async def test_process_finding_creates_gap_and_assigns_task() -> None:
     )
     db.get_coordinator_state = AsyncMock(
         return_value={
-            "gaps": [{"id": sensor.id, "kind": ROUTE_GAP_KIND, "status": "open", "requested_route_key": "north_exit", "title": "Confirm safest exit", "summary": "Police advancing north."}],
+            "gaps": [
+                {
+                    "id": sensor.id,
+                    "kind": ROUTE_GAP_KIND,
+                    "status": "open",
+                    "requested_route_key": "north_exit",
+                    "title": "Confirm safest exit",
+                    "summary": "Police advancing north.",
+                }
+            ],
             "tasks": [],
             "recommendations": [],
-            "active_gap": {"id": sensor.id, "kind": ROUTE_GAP_KIND, "status": "open", "requested_route_key": "north_exit", "title": "Confirm safest exit", "summary": "Police advancing north."},
+            "active_gap": {
+                "id": sensor.id,
+                "kind": ROUTE_GAP_KIND,
+                "status": "open",
+                "requested_route_key": "north_exit",
+                "title": "Confirm safest exit",
+                "summary": "Police advancing north.",
+            },
             "active_task": None,
             "active_recommendation": None,
         }
@@ -54,8 +70,13 @@ async def test_process_finding_creates_gap_and_assigns_task() -> None:
             "gap_id": sensor.id,
             "assigned_member_id": sensor.id,
             "status": "open",
-            "prompt": "Move to the north side and send a quick update on police presence and crowd movement.",
-            "assignment_reason": "Sensor-1 is an active sensor with a recent GPS fix near the field scene.",
+            "prompt": (
+                "Move to the north side and send a quick update "
+                "on police presence and crowd movement."
+            ),
+            "assignment_reason": (
+                "Sensor-1 is an active sensor with a recent GPS fix near the field scene."
+            ),
             "requested_route_key": "north_exit",
             "requested_location_label": "north side of the intersection",
             "requested_viewpoint": "face north toward the 17th Street corridor",
@@ -102,11 +123,49 @@ async def test_refresh_supersedes_stale_task_with_fresher_sensor() -> None:
     db = MagicMock()
     db.get_coordinator_state = AsyncMock(
         return_value={
-            "gaps": [{"id": gap_id, "status": "open", "requested_route_key": "north_exit", "title": "Confirm safest exit", "summary": "Need fresh route confirmation."}],
-            "tasks": [{"id": stale_task_id, "gap_id": gap_id, "assigned_member_id": stale_sensor.id, "status": "open", "requested_route_key": "north_exit", "prompt": "Old prompt", "assignment_reason": "Old reason", "details": {}, "created_at": datetime.now(timezone.utc), "updated_at": datetime.now(timezone.utc)}],
+            "gaps": [
+                {
+                    "id": gap_id,
+                    "status": "open",
+                    "requested_route_key": "north_exit",
+                    "title": "Confirm safest exit",
+                    "summary": "Need fresh route confirmation.",
+                }
+            ],
+            "tasks": [
+                {
+                    "id": stale_task_id,
+                    "gap_id": gap_id,
+                    "assigned_member_id": stale_sensor.id,
+                    "status": "open",
+                    "requested_route_key": "north_exit",
+                    "prompt": "Old prompt",
+                    "assignment_reason": "Old reason",
+                    "details": {},
+                    "created_at": datetime.now(timezone.utc),
+                    "updated_at": datetime.now(timezone.utc),
+                }
+            ],
             "recommendations": [],
-            "active_gap": {"id": gap_id, "status": "open", "requested_route_key": "north_exit", "title": "Confirm safest exit", "summary": "Need fresh route confirmation."},
-            "active_task": {"id": stale_task_id, "gap_id": gap_id, "assigned_member_id": stale_sensor.id, "status": "open", "requested_route_key": "north_exit", "prompt": "Old prompt", "assignment_reason": "Old reason", "details": {}, "created_at": datetime.now(timezone.utc), "updated_at": datetime.now(timezone.utc)},
+            "active_gap": {
+                "id": gap_id,
+                "status": "open",
+                "requested_route_key": "north_exit",
+                "title": "Confirm safest exit",
+                "summary": "Need fresh route confirmation.",
+            },
+            "active_task": {
+                "id": stale_task_id,
+                "gap_id": gap_id,
+                "assigned_member_id": stale_sensor.id,
+                "status": "open",
+                "requested_route_key": "north_exit",
+                "prompt": "Old prompt",
+                "assignment_reason": "Old reason",
+                "details": {},
+                "created_at": datetime.now(timezone.utc),
+                "updated_at": datetime.now(timezone.utc),
+            },
             "active_recommendation": None,
         }
     )
@@ -133,8 +192,13 @@ async def test_refresh_supersedes_stale_task_with_fresher_sensor() -> None:
             "gap_id": gap_id,
             "assigned_member_id": fresh_sensor.id,
             "status": "open",
-            "prompt": "Move to the north side and send a quick update on police presence and crowd movement.",
-            "assignment_reason": "Fresh Sensor is an active sensor with a recent GPS fix near the field scene.",
+            "prompt": (
+                "Move to the north side and send a quick update "
+                "on police presence and crowd movement."
+            ),
+            "assignment_reason": (
+                "Fresh Sensor is an active sensor with a recent GPS fix near the field scene."
+            ),
             "requested_route_key": "north_exit",
             "requested_location_label": "north side of the intersection",
             "requested_viewpoint": "face north toward the 17th Street corridor",
@@ -204,7 +268,9 @@ async def test_process_member_report_completes_task_and_emits_recommendation() -
     )
     db.update_coordinator_gap_status = AsyncMock(return_value={"id": gap_id, "status": "resolved"})
     db.get_active_coordinator_recommendation = AsyncMock(return_value=None)
-    db.insert_coordinator_recommendation = AsyncMock(return_value={"route_key": "north_exit", "status": "emitted"})
+    db.insert_coordinator_recommendation = AsyncMock(
+        return_value={"route_key": "north_exit", "status": "emitted"}
+    )
     conn_manager = MagicMock()
     conn_manager.send_to = AsyncMock()
     engine = CoordinatorEngine(

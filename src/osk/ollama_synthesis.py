@@ -69,6 +69,7 @@ If the observation is not operationally relevant, respond with:
 @dataclass
 class _OllamaIncidentState:
     """Track incident state for corroboration and deduplication."""
+
     finding_id: uuid.UUID
     category: EventCategory
     first_seen_at: float
@@ -117,7 +118,7 @@ class OllamaObservationSynthesizer:
 
         # Get LLM classification
         classification = await self._classify_with_ollama(observation)
-        
+
         if classification is None:
             return SynthesisDecision()
 
@@ -128,7 +129,7 @@ class OllamaObservationSynthesizer:
 
         # Create signature for deduplication
         signature = self._create_signature(observation, category)
-        
+
         incident = self._incidents.get(signature)
         if incident is None:
             # New incident
@@ -143,11 +144,11 @@ class OllamaObservationSynthesizer:
                 severity=severity,
             )
             self._incidents[signature] = incident
-            
+
             event = self._create_event(observation, category, severity, source_member)
             alerts = self._create_alerts(event)
             finding = self._create_finding(incident, observation)
-            
+
             return SynthesisDecision(
                 events=[event],
                 alerts=alerts,
@@ -159,7 +160,7 @@ class OllamaObservationSynthesizer:
         incident.member_ids.add(observation.source_member_id)
         incident.observation_count += 1
         incident.latest_summary = observation.summary
-        
+
         # Check for corroboration (multiple sources)
         event: Event | None = None
         if len(incident.member_ids) >= 2 and not incident.corroboration_emitted:
@@ -167,7 +168,7 @@ class OllamaObservationSynthesizer:
             incident.last_emitted_at = now
             severity = self._escalate_severity(severity)
             event = self._create_event(observation, category, severity, source_member)
-            
+
         elif now - incident.last_emitted_at >= self.cooldown_seconds:
             incident.last_emitted_at = now
             event = self._create_event(observation, category, severity, source_member)
@@ -177,7 +178,7 @@ class OllamaObservationSynthesizer:
             alerts = self._create_alerts(event)
 
         finding = self._create_finding(incident, observation)
-        
+
         return SynthesisDecision(
             events=[event] if event else [],
             alerts=alerts,
@@ -232,10 +233,10 @@ class OllamaObservationSynthesizer:
             )
             response.raise_for_status()
             data = response.json()
-            
+
             raw_response = data.get("response", "").strip()
             return self._parse_classification(raw_response)
-            
+
         except Exception as exc:
             logger.warning("Ollama classification failed: %s", exc)
             # Fallback to simple keyword classification
@@ -249,26 +250,26 @@ class OllamaObservationSynthesizer:
             json_str = raw_response.split("```json")[1].split("```")[0].strip()
         elif "```" in raw_response:
             json_str = raw_response.split("```")[1].split("```")[0].strip()
-        
+
         try:
             data = json.loads(json_str)
-            
+
             category_str = data.get("category")
             severity_str = data.get("severity")
-            
+
             if category_str is None or severity_str is None:
                 return None
-            
+
             category = EventCategory(category_str)
             severity = EventSeverity(severity_str)
-            
+
             return {
                 "category": category,
                 "severity": severity,
                 "confidence": data.get("confidence", 0.5),
                 "reasoning": data.get("reasoning", ""),
             }
-            
+
         except (json.JSONDecodeError, ValueError) as exc:
             logger.warning("Failed to parse Ollama response: %s - %s", exc, raw_response[:200])
             return None
@@ -279,7 +280,7 @@ class OllamaObservationSynthesizer:
     ) -> dict[str, Any] | None:
         """Simple keyword fallback when Ollama is unavailable."""
         summary = observation.summary.lower()
-        
+
         if any(term in summary for term in ("police", "officer")):
             return {
                 "category": EventCategory.POLICE_ACTION,
@@ -298,24 +299,24 @@ class OllamaObservationSynthesizer:
                 "severity": EventSeverity.ADVISORY,
                 "confidence": 0.6,
             }
-        
+
         return None
 
     def _build_context(self, observation: IntelligenceObservation) -> str:
         """Build context string for prompt."""
         context_parts = []
-        
+
         if observation.kind == ObservationKind.TRANSCRIPT:
             context_parts.append("Audio transcription from member device")
         elif observation.kind == ObservationKind.VISION:
             context_parts.append("Visual observation from camera")
         elif observation.kind == ObservationKind.LOCATION:
             context_parts.append("Location/GPS data")
-        
+
         confidence = observation.confidence
         if confidence > 0:
             context_parts.append(f"Confidence: {confidence:.0%}")
-        
+
         return "; ".join(context_parts) if context_parts else "No additional context"
 
     def _create_signature(
@@ -327,17 +328,17 @@ class OllamaObservationSynthesizer:
         # Include key terms from summary
         summary_lower = observation.summary.lower()
         key_terms = []
-        
+
         # Extract location/direction terms
         for term in ("north", "south", "east", "west", "entrance", "exit"):
             if term in summary_lower:
                 key_terms.append(term)
-        
+
         # Extract entity terms
         for term in ("police", "crowd", "vehicle", "barrier", "medical"):
             if term in summary_lower:
                 key_terms.append(term)
-        
+
         if key_terms:
             return f"{category.value}:{'-'.join(sorted(key_terms[:3]))}"
         return f"{category.value}:{observation.source_member_id}"
@@ -345,10 +346,7 @@ class OllamaObservationSynthesizer:
     def _expire_state(self, now: float) -> None:
         """Remove old incidents."""
         cutoff = now - self.incident_window_seconds
-        stale = [
-            sig for sig, incident in self._incidents.items()
-            if incident.last_seen_at < cutoff
-        ]
+        stale = [sig for sig, incident in self._incidents.items() if incident.last_seen_at < cutoff]
         for sig in stale:
             del self._incidents[sig]
 
@@ -375,14 +373,16 @@ class OllamaObservationSynthesizer:
         # Only alert on WARNING and above
         if event.severity.level < EventSeverity.WARNING.level:
             return []
-        
-        return [Alert(
-            id=uuid.uuid4(),
-            event_id=event.id,
-            severity=event.severity,
-            category=event.category,
-            text=event.text,
-        )]
+
+        return [
+            Alert(
+                id=uuid.uuid4(),
+                event_id=event.id,
+                severity=event.severity,
+                category=event.category,
+                text=event.text,
+            )
+        ]
 
     def _create_finding(
         self,
@@ -395,11 +395,11 @@ class OllamaObservationSynthesizer:
             if incident.corroboration_emitted
             else incident.severity
         )
-        
+
         corroboration_text = ""
         if incident.corroboration_emitted:
             corroboration_text = f" Corroborated by {len(incident.member_ids)} sources."
-        
+
         return SynthesisFinding(
             id=incident.finding_id,
             signature=f"ollama:{incident.category.value}",
@@ -430,13 +430,11 @@ class OllamaObservationSynthesizer:
         """Get or create HTTP client."""
         if self._client is not None:
             return self._client
-        
+
         try:
             import httpx
         except ModuleNotFoundError as exc:
-            raise RuntimeError(
-                "httpx is not installed. Install with: pip install httpx"
-            ) from exc
-        
+            raise RuntimeError("httpx is not installed. Install with: pip install httpx") from exc
+
         self._client = httpx.AsyncClient()
         return self._client

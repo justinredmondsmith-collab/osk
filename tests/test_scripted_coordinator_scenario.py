@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from osk.coordinator_engine import CoordinatorEngine, ROUTE_GAP_KIND
+from osk.coordinator_engine import ROUTE_GAP_KIND, CoordinatorEngine
 from osk.models import EventCategory, EventSeverity, Member, MemberRole, Operation, SynthesisFinding
 
 
@@ -81,11 +81,17 @@ class InMemoryCoordinatorDb:
         return dict(self.task)
 
     async def get_open_coordinator_task_for_member(self, operation_id, member_id):
-        if self.task and self.task["status"] == "open" and self.task["assigned_member_id"] == member_id:
+        if (
+            self.task
+            and self.task["status"] == "open"
+            and self.task["assigned_member_id"] == member_id
+        ):
             return dict(self.task)
         return None
 
-    async def update_coordinator_gap_status(self, operation_id, gap_id, *, status, changed_at, details=None):
+    async def update_coordinator_gap_status(
+        self, operation_id, gap_id, *, status, changed_at, details=None
+    ):
         if self.gap is None:
             return None
         self.gap["status"] = status.value
@@ -99,7 +105,9 @@ class InMemoryCoordinatorDb:
         self.recommendation = recommendation.model_dump(mode="python")
         return dict(self.recommendation)
 
-    async def invalidate_coordinator_recommendation(self, operation_id, recommendation_id, *, changed_at, reason, details=None):
+    async def invalidate_coordinator_recommendation(
+        self, operation_id, recommendation_id, *, changed_at, reason, details=None
+    ):
         if self.recommendation is None:
             return None
         self.recommendation["status"] = "invalidated"

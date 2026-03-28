@@ -25,15 +25,15 @@ async def test_ollama_synthesizer_emits_event_on_classification() -> None:
     mock_response.json.return_value = {
         "response": '{"category": "police_action", "severity": "warning", "reasoning": "Police advancing", "confidence": 0.85}'  # noqa: E501
     }
-    
+
     mock_client = AsyncMock()
     mock_client.post.return_value = mock_response
-    
+
     synthesizer = OllamaObservationSynthesizer(
         model="llama3.2:3b",
         client=mock_client,
     )
-    
+
     member = Member(name="Jay")
     observation = IntelligenceObservation(
         kind=ObservationKind.TRANSCRIPT,
@@ -41,9 +41,9 @@ async def test_ollama_synthesizer_emits_event_on_classification() -> None:
         summary="Police officers are advancing towards the crowd.",
         confidence=0.91,
     )
-    
+
     decision = await synthesizer.synthesize(observation, source_member=member)
-    
+
     assert len(decision.events) == 1
     assert decision.events[0].category == EventCategory.POLICE_ACTION
     assert decision.events[0].severity == EventSeverity.WARNING
@@ -57,24 +57,24 @@ async def test_ollama_synthesizer_handles_null_classification() -> None:
     mock_response.json.return_value = {
         "response": '{"category": null, "severity": null, "reasoning": "Not relevant", "confidence": 0.0}'  # noqa: E501
     }
-    
+
     mock_client = AsyncMock()
     mock_client.post.return_value = mock_response
-    
+
     synthesizer = OllamaObservationSynthesizer(
         model="llama3.2:3b",
         client=mock_client,
     )
-    
+
     observation = IntelligenceObservation(
         kind=ObservationKind.TRANSCRIPT,
         source_member_id=uuid4(),
         summary="The weather is nice today.",
         confidence=0.8,
     )
-    
+
     decision = await synthesizer.synthesize(observation)
-    
+
     assert decision.events == []
     assert decision.alerts == []
     assert decision.findings == []
@@ -86,16 +86,16 @@ async def test_ollama_synthesizer_handles_corroboration() -> None:
     mock_response.json.return_value = {
         "response": '{"category": "police_action", "severity": "warning", "reasoning": "Police activity", "confidence": 0.85}'  # noqa: E501
     }
-    
+
     mock_client = AsyncMock()
     mock_client.post.return_value = mock_response
-    
+
     synthesizer = OllamaObservationSynthesizer(
         model="llama3.2:3b",
         client=mock_client,
         cooldown_seconds=60,
     )
-    
+
     # First observation
     member1 = Member(name="Jay")
     observation1 = IntelligenceObservation(
@@ -105,7 +105,7 @@ async def test_ollama_synthesizer_handles_corroboration() -> None:
         confidence=0.91,
     )
     await synthesizer.synthesize(observation1, source_member=member1)
-    
+
     # Second observation from different member (same incident)
     member2 = Member(name="Alex")
     observation2 = IntelligenceObservation(
@@ -115,7 +115,7 @@ async def test_ollama_synthesizer_handles_corroboration() -> None:
         confidence=0.88,
     )
     decision2 = await synthesizer.synthesize(observation2, source_member=member2)
-    
+
     assert len(decision2.events) == 1
     assert decision2.findings[0].corroborated is True
     assert decision2.findings[0].source_count == 2
@@ -127,18 +127,18 @@ async def test_ollama_synthesizer_respects_cooldown() -> None:
     mock_response.json.return_value = {
         "response": '{"category": "blocked_route", "severity": "advisory", "reasoning": "Road blocked", "confidence": 0.75}'  # noqa: E501
     }
-    
+
     mock_client = AsyncMock()
     mock_client.post.return_value = mock_response
-    
+
     synthesizer = OllamaObservationSynthesizer(
         model="llama3.2:3b",
         client=mock_client,
         cooldown_seconds=60,
     )
-    
+
     member_id = uuid4()
-    
+
     # First observation
     observation1 = IntelligenceObservation(
         kind=ObservationKind.TRANSCRIPT,
@@ -147,7 +147,7 @@ async def test_ollama_synthesizer_respects_cooldown() -> None:
         confidence=0.9,
     )
     decision1 = await synthesizer.synthesize(observation1)
-    
+
     # Immediate duplicate with same keywords - should not create new event due to cooldown
     observation2 = IntelligenceObservation(
         kind=ObservationKind.TRANSCRIPT,
@@ -156,7 +156,7 @@ async def test_ollama_synthesizer_respects_cooldown() -> None:
         confidence=0.9,
     )
     decision2 = await synthesizer.synthesize(observation2)
-    
+
     assert len(decision1.events) == 1
     assert len(decision2.events) == 0  # Cooldown prevents new event
 
@@ -165,21 +165,21 @@ async def test_ollama_synthesizer_fallback_on_error() -> None:
     """Test that synthesizer falls back to keyword matching on error."""
     mock_client = AsyncMock()
     mock_client.post.side_effect = Exception("Connection refused")
-    
+
     synthesizer = OllamaObservationSynthesizer(
         model="llama3.2:3b",
         client=mock_client,
     )
-    
+
     observation = IntelligenceObservation(
         kind=ObservationKind.TRANSCRIPT,
         source_member_id=uuid4(),
         summary="Police officers are here.",
         confidence=0.9,
     )
-    
+
     decision = await synthesizer.synthesize(observation)
-    
+
     # Should fall back to keyword matching
     assert len(decision.events) == 1
     assert decision.events[0].category == EventCategory.POLICE_ACTION
@@ -191,24 +191,24 @@ async def test_ollama_synthesizer_parses_markdown_json() -> None:
     mock_response.json.return_value = {
         "response": '```json\n{"category": "medical", "severity": "warning", "reasoning": "Injury reported", "confidence": 0.9}\n```'  # noqa: E501
     }
-    
+
     mock_client = AsyncMock()
     mock_client.post.return_value = mock_response
-    
+
     synthesizer = OllamaObservationSynthesizer(
         model="llama3.2:3b",
         client=mock_client,
     )
-    
+
     observation = IntelligenceObservation(
         kind=ObservationKind.TRANSCRIPT,
         source_member_id=uuid4(),
         summary="Someone is injured and bleeding.",
         confidence=0.9,
     )
-    
+
     decision = await synthesizer.synthesize(observation)
-    
+
     assert len(decision.events) == 1
     assert decision.events[0].category == EventCategory.MEDICAL
 
@@ -221,9 +221,9 @@ async def test_ollama_synthesizer_status() -> None:
         timeout_seconds=5.0,
         cooldown_seconds=60,
     )
-    
+
     status = synthesizer.status()
-    
+
     assert status["backend"] == "ollama"
     assert status["model"] == "llama3.2:3b"
     assert status["base_url"] == "http://localhost:11434"
@@ -234,39 +234,39 @@ async def test_ollama_synthesizer_status() -> None:
 async def test_ollama_synthesizer_expires_old_incidents() -> None:
     """Test that old incidents are expired after window."""
     import time
-    
+
     mock_response = MagicMock()
     mock_response.json.return_value = {
         "response": '{"category": "police_action", "severity": "advisory", "reasoning": "Police present", "confidence": 0.7}'  # noqa: E501
     }
-    
+
     mock_client = AsyncMock()
     mock_client.post.return_value = mock_response
-    
+
     synthesizer = OllamaObservationSynthesizer(
         model="llama3.2:3b",
         client=mock_client,
         incident_window_seconds=1,  # Very short window for test
     )
-    
+
     observation = IntelligenceObservation(
         kind=ObservationKind.TRANSCRIPT,
         source_member_id=uuid4(),
         summary="Police visible in the area.",
         confidence=0.8,
     )
-    
+
     # First observation
     await synthesizer.synthesize(observation)
     assert len(synthesizer._incidents) == 1
-    
+
     # Wait for window to expire
     time.sleep(0.1)  # Less than 1 second, but incident will be old relative to first_seen
-    
+
     # Manually trigger expiration by checking status
     status = synthesizer.status()
     assert status["active_incidents"] == 1  # Not yet expired
-    
+
 
 async def test_ollama_synthesizer_vision_observation() -> None:
     """Test handling of vision observations."""
@@ -274,15 +274,15 @@ async def test_ollama_synthesizer_vision_observation() -> None:
     mock_response.json.return_value = {
         "response": '{"category": "crowd_movement", "severity": "info", "reasoning": "Crowd visible", "confidence": 0.8}'  # noqa: E501
     }
-    
+
     mock_client = AsyncMock()
     mock_client.post.return_value = mock_response
-    
+
     synthesizer = OllamaObservationSynthesizer(
         model="llama3.2:3b",
         client=mock_client,
     )
-    
+
     observation = IntelligenceObservation(
         kind=ObservationKind.VISION,
         source_member_id=uuid4(),
@@ -290,9 +290,9 @@ async def test_ollama_synthesizer_vision_observation() -> None:
         confidence=0.85,
         details={"tags": ["crowd", "public_area"]},
     )
-    
+
     decision = await synthesizer.synthesize(observation)
-    
+
     # Should not create alert since INFO severity
     assert len(decision.events) == 1
     assert len(decision.alerts) == 0
@@ -306,13 +306,13 @@ async def test_ollama_synthesizer_builds_correct_prompt() -> None:
         summary="Police are charging the crowd.",
         confidence=0.9,
     )
-    
+
     prompt = DEFAULT_SYNTHESIS_PROMPT.format(
         observation_kind=observation.kind.value,
         summary=observation.summary,
         context="Audio transcription from member device; Confidence: 90%",
     )
-    
+
     assert "police_action" in prompt
     assert "critical" in prompt
     assert observation.summary in prompt

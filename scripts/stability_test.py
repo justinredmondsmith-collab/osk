@@ -42,6 +42,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class StabilityMetrics:
     """Metrics collected during stability test."""
+
     start_time: float = 0.0
     end_time: float = 0.0
 
@@ -162,7 +163,7 @@ class StabilityTest:
         logger.info("=" * 60)
         logger.info("OSK 1-HOUR STABILITY TEST")
         logger.info("=" * 60)
-        logger.info(f"Duration: {self.duration} seconds ({self.duration/60:.0f} minutes)")
+        logger.info(f"Duration: {self.duration} seconds ({self.duration / 60:.0f} minutes)")
         logger.info(f"Target sensors: {self.target_sensors}")
         logger.info("")
         logger.info("PREPARATION:")
@@ -233,7 +234,7 @@ class StabilityTest:
                 if result.returncode == 0:
                     # Find JSON in output (skip log lines)
                     output = result.stdout
-                    json_start = output.find('{')
+                    json_start = output.find("{")
                     if json_start >= 0:
                         data = json.loads(output[json_start:])
                         # Hub is running if operation_id exists and pid is present
@@ -260,7 +261,7 @@ class StabilityTest:
                 if result.returncode == 0:
                     # Find JSON in output (skip log lines)
                     output = result.stdout
-                    json_start = output.find('{')
+                    json_start = output.find("{")
                     if json_start >= 0:
                         data = json.loads(output[json_start:])
                         members = data.get("members", [])
@@ -269,8 +270,8 @@ class StabilityTest:
                             logger.info(f"✓ {sensor_count} sensor(s) connected")
                             for m in members:
                                 if m.get("role") == "sensor":
-                                    name = m.get('name', 'unknown')
-                                    mid = m.get('id', 'unknown')[:8]
+                                    name = m.get("name", "unknown")
+                                    mid = m.get("id", "unknown")[:8]
                                     logger.info(f"  - {name} ({mid}...)")
                             return True
                         logger.info(f"Waiting... {sensor_count}/{self.target_sensors} sensors")
@@ -322,7 +323,7 @@ class StabilityTest:
                 if result.returncode == 0:
                     # Find JSON in output (skip log lines)
                     output = result.stdout
-                    json_start = output.find('{')
+                    json_start = output.find("{")
                     if json_start >= 0:
                         data = json.loads(output[json_start:])
                         # Count observations across members
@@ -350,7 +351,7 @@ class StabilityTest:
                 if result.returncode == 0:
                     # Find JSON in output (skip log lines)
                     output = result.stdout
-                    json_start = output.find('{')
+                    json_start = output.find("{")
                     if json_start < 0:
                         await asyncio.sleep(5)
                         continue
@@ -367,9 +368,7 @@ class StabilityTest:
 
                     # Detect reconnects
                     for member_id in current_ids - connected_members:
-                        self.metrics.connection_events.append(
-                            (time.time(), member_id, "reconnect")
-                        )
+                        self.metrics.connection_events.append((time.time(), member_id, "reconnect"))
                         logger.info(f"Member reconnected: {member_id[:8]}...")
 
                     connected_members = current_ids
@@ -426,12 +425,12 @@ class StabilityTest:
                     last_cpu = self.metrics.resource_samples[-1][1]
                     last_mem = self.metrics.resource_samples[-1][2]
                     logger.info(
-                        f"Progress: {pct:.0f}% ({elapsed/60:.0f}m elapsed, "
-                        f"{remaining/60:.0f}m remaining) | "
+                        f"Progress: {pct:.0f}% ({elapsed / 60:.0f}m elapsed, "
+                        f"{remaining / 60:.0f}m remaining) | "
                         f"CPU: {last_cpu:.1f}% | Mem: {last_mem:.0f}MB"
                     )
                 else:
-                    logger.info(f"Progress: {pct:.0f}% ({elapsed/60:.0f}m elapsed)")
+                    logger.info(f"Progress: {pct:.0f}% ({elapsed / 60:.0f}m elapsed)")
 
                 next_update = now + 300  # Update every 5 minutes
 
@@ -443,7 +442,9 @@ class StabilityTest:
 
 async def main():
     parser = argparse.ArgumentParser(description="1-hour stability test for Osk")
-    parser.add_argument("--duration", type=int, default=3600, help="Test duration seconds (default: 3600)")  # noqa: E501
+    parser.add_argument(
+        "--duration", type=int, default=3600, help="Test duration seconds (default: 3600)"
+    )  # noqa: E501
     parser.add_argument("--sensors", type=int, default=1, help="Target sensor count (default: 1)")
     parser.add_argument("--output", help="Output JSON file for report")
     args = parser.parse_args()
@@ -467,16 +468,20 @@ async def main():
     print("\n" + "=" * 60)
     print("STABILITY TEST SUMMARY")
     print("=" * 60)
-    print(f"Duration: {report['test_config']['actual_duration']/60:.1f} minutes")
+    print(f"Duration: {report['test_config']['actual_duration'] / 60:.1f} minutes")
     print("Resource Usage:")
     print(f"  Avg CPU: {report['resource_usage']['avg_cpu_percent']:.1f}%")
     print(f"  Max CPU: {report['resource_usage']['max_cpu_percent']:.1f}%")
     print(f"  Avg Memory: {report['resource_usage']['avg_memory_mb']:.1f} MB")
     print(f"  Max Memory: {report['resource_usage']['max_memory_mb']:.1f} MB")
-    print(f"Observations: {report['observations']['total']} total, "
-          f"{report['observations']['rate_per_minute']:.1f}/min")
-    print(f"Connection Events: {report['connection_stability']['disconnects']} disconnects, "
-          f"{report['connection_stability']['reconnects']} reconnects")
+    print(
+        f"Observations: {report['observations']['total']} total, "
+        f"{report['observations']['rate_per_minute']:.1f}/min"
+    )
+    print(
+        f"Connection Events: {report['connection_stability']['disconnects']} disconnects, "
+        f"{report['connection_stability']['reconnects']} reconnects"
+    )
     print(f"Errors: {len(report['errors'])}")
     print(f"Status: {'PASS' if report['pass'] else 'FAIL'}")
     print("=" * 60)

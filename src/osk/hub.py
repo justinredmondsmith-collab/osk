@@ -778,7 +778,7 @@ async def run_hub(name: str, *, fresh: bool = False) -> None:
     _clear_stop_request()
     ensure_local_services(config)
     await wait_for_database(config.database_url)
-    
+
     # After database is ready, handle fresh start cleanup
     if fresh:
         db_stopped = await _stop_active_database_operations(config)
@@ -947,9 +947,7 @@ async def _stop_active_database_operations(config) -> int:
         conn = await asyncpg.connect(config.database_url)
         try:
             # Find and stop active operations
-            rows = await conn.fetch(
-                "SELECT id, name FROM operations WHERE stopped_at IS NULL"
-            )
+            rows = await conn.fetch("SELECT id, name FROM operations WHERE stopped_at IS NULL")
             count = 0
             for row in rows:
                 await conn.execute(
