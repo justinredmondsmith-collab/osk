@@ -395,6 +395,88 @@ default path.
 
 ---
 
+## Milestone Checklist
+
+This section is the operational checklist view of the roadmap. It is meant to
+help future planning, issue creation, and PR review stay anchored to the same
+release gates.
+
+### 1.1 Checklist: Truthful Field Foundation
+
+- [ ] Real-device Chromebook sensor validation completed and published
+- [ ] Ollama-backed synthesis evaluated on supported hardware
+- [ ] Long-duration stability run published
+- [ ] Browser automation regression path running in CI or nightly automation
+- [ ] Evidence retention and cleanup behavior documented and tested
+- [ ] `1.1` docs updated to reflect supported conditions and known limits
+
+**Evidence expected before release:**
+
+- real-device validation report
+- stability report
+- CI/browser automation proof
+- retention policy documentation
+
+### 1.2 Checklist: Coordinator-Directed Operations
+
+- [ ] General task lifecycle implemented
+- [ ] Task assignment and timeout behavior documented
+- [ ] Member task UX survives reconnects
+- [ ] Route confirmation generalized beyond the scripted slice
+- [ ] Dashboard clearly shows tasks, gaps, and route confidence
+- [ ] Audit trail captures why task and route decisions occurred
+
+**Evidence expected before release:**
+
+- coordinator task flow demo or validation script
+- reconnect/resume verification for task state
+- dashboard screenshots or walkthrough
+- audit artifact examples
+
+### 1.3 Checklist: Trustworthy Intelligence Fusion
+
+- [ ] Multimodal event correlation implemented
+- [ ] Source attribution and confidence surfaced to coordinator review
+- [ ] Duplicate-event reduction measured against baseline
+- [ ] False-positive behavior evaluated and documented
+- [ ] Configurable categories and thresholds remain bounded and understandable
+
+**Evidence expected before release:**
+
+- evaluation report comparing baseline versus fused outputs
+- coordinator review screenshots or trace artifacts
+- documented confidence model and correction workflow
+
+### 2.0 Checklist: Mature Single-Hub Operational System
+
+- [ ] Supported deployment profile documented
+- [ ] Install, startup, operation, shutdown, and closure paths validated
+- [ ] Member runtime support matrix documented
+- [ ] Tasking, intelligence, evidence, and closure workflow feel coherent
+- [ ] Security, privacy, retention, and wipe claims reviewed for truthfulness
+- [ ] Operator handoff and after-action artifacts are stable and usable
+
+**Evidence expected before release:**
+
+- install-to-operation walkthrough
+- supported hardware/browser matrix
+- end-to-end operation demo or validation bundle
+- doc review confirming truthful claims
+
+### 3.x Checklist: Optional Platform Expansion
+
+- [ ] Maintainer explicitly chooses expansion over single-hub polishing
+- [ ] Single-hub product is already judged excellent and supportable
+- [ ] Federation or platform work has a concrete operational use case
+- [ ] Complexity and ownership cost are accepted deliberately
+
+**Evidence expected before expansion work:**
+
+- written rationale for why single-hub is no longer the highest-leverage focus
+- proposed architecture note for the expansion area
+
+---
+
 ## Phase 1: Field Truth and Reliability
 
 **Primary goal:** Make the currently claimed single-hub product truthful under
