@@ -149,11 +149,13 @@ class IntelligenceService:
             audio_ingest=self.audio_ingest,
             transcriber=self.transcriber,
             on_observation=self._handle_observation,
+            on_artifact=self._write_audio_artifact if self.storage else None,
         )
         self.vision_worker = VisionWorker(
             frame_ingest=self.frame_ingest,
             vision_analyzer=self.vision_analyzer,
             on_observation=self._handle_observation,
+            on_artifact=self._write_frame_artifact if self.storage else None,
         )
 
     @property
@@ -392,6 +394,69 @@ class IntelligenceService:
                 artifact_data,
                 extension,
             )
+
+    async def _write_audio_artifact(self, chunk, observation_id: str) -> None:
+        """Write audio chunk to evidence store as artifact."""
+        if self.storage is None:
+            return
+        operation = getattr(self.operation_manager, "operation", None)
+        if operation is None:
+            return
+        
+        member_id = str(chunk.source.member_id)
+        
+        # Determine extension based on codec
+        codec = str(chunk.codec or "audio/unknown").lower()
+        if "webm" in codec or "opus" in codec:
+            extension = "webm"
+        elif "ogg" in codec:
+            extension = "ogg"
+        elif "wav" in codec or "pcm" in codec:
+            extension = "wav"
+        else:
+            extension = "bin"
+        
+        try:
+            self.storage.write_evidence_artifact(
+                str(operation.id),
+                member_id,
+                "audio",
+                chunk.payload,
+                extension,
+            )
+            logger.debug(
+                "Wrote audio artifact for observation %s (chunk %s)",
+                observation_id,
+                chunk.chunk_id,
+            )
+        except Exception as exc:
+            logger.warning("Failed to write audio artifact: %s", exc)
+
+    async def _write_frame_artifact(self, frame, observation_id: str) -> None:
+        """Write frame to evidence store as artifact."""
+        if self.storage is None:
+            return
+        operation = getattr(self.operation_manager, "operation", None)
+        if operation is None:
+            return
+        
+        member_id = str(frame.source.member_id)
+        
+        try:
+            self.storage.write_evidence_artifact(
+                str(operation.id),
+                member_id,
+                "frames",
+                frame.payload,
+                "jpg",
+            )
+            logger.debug(
+                "Wrote frame artifact for observation %s (frame %s)",
+                observation_id,
+                frame.frame_id,
+            )
+        except Exception as exc:
+            logger.warning("Failed to write frame artifact: %s", exc)
 
     async def _synthesize_observation(self, observation: IntelligenceObservation) -> None:
         operation = getattr(self.operation_manager, "operation", None)

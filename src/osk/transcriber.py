@@ -8,7 +8,7 @@ import math
 import re
 import shutil
 import subprocess
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from datetime import timedelta
 from typing import Any
 
@@ -361,6 +361,9 @@ class WhisperTranscriber:
         return 0.75
 
 
+ArtifactCallback = Callable[[AudioChunk, str], Awaitable[None] | None]
+
+
 class TranscriptionWorker:
     def __init__(
         self,
@@ -368,6 +371,7 @@ class TranscriptionWorker:
         audio_ingest: AudioIngest,
         transcriber: TranscriberProtocol,
         on_observation: ObservationCallback | None = None,
+        on_artifact: ArtifactCallback | None = None,
         poll_interval_seconds: float = 0.1,
     ) -> None:
         if poll_interval_seconds <= 0:
@@ -376,6 +380,7 @@ class TranscriptionWorker:
         self.audio_ingest = audio_ingest
         self.transcriber = transcriber
         self.on_observation = on_observation
+        self.on_artifact = on_artifact
         self.poll_interval_seconds = poll_interval_seconds
         self.metrics = ProcessingWorkerMetrics()
         self._running = False
@@ -435,6 +440,9 @@ class TranscriptionWorker:
                 confidence=result.confidence,
                 result=result,
             )
+            # Write audio artifact to evidence store if callback provided
+            if self.on_artifact is not None:
+                await maybe_invoke_callback(self.on_artifact, chunk, str(observation.id))
             await maybe_invoke_callback(self.on_observation, observation)
             self.metrics.emitted_observations += 1
             self.metrics.last_error = None

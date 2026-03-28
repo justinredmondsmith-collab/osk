@@ -6,6 +6,7 @@ import asyncio
 import base64
 import json
 import logging
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 from osk.frame_ingest import FrameIngest
@@ -14,6 +15,8 @@ from osk.intelligence_pipeline import build_observation
 from osk.worker_runtime import ObservationCallback, ProcessingWorkerMetrics, maybe_invoke_callback
 
 logger = logging.getLogger(__name__)
+
+FrameArtifactCallback = Callable[[FrameSample, str], Awaitable[None] | None]
 
 DEFAULT_VISION_PROMPT = (
     "Describe the most operationally relevant visual observation in this frame in one or two "
@@ -159,6 +162,7 @@ class VisionWorker:
         frame_ingest: FrameIngest,
         vision_analyzer: VisionAnalyzer,
         on_observation: ObservationCallback | None = None,
+        on_artifact: FrameArtifactCallback | None = None,
         poll_interval_seconds: float = 0.1,
     ) -> None:
         if poll_interval_seconds <= 0:
@@ -167,6 +171,7 @@ class VisionWorker:
         self.frame_ingest = frame_ingest
         self.vision_analyzer = vision_analyzer
         self.on_observation = on_observation
+        self.on_artifact = on_artifact
         self.poll_interval_seconds = poll_interval_seconds
         self.metrics = ProcessingWorkerMetrics()
         self._running = False
@@ -226,6 +231,9 @@ class VisionWorker:
                 confidence=result.confidence,
                 result=result,
             )
+            # Write frame artifact to evidence store if callback provided
+            if self.on_artifact is not None:
+                await maybe_invoke_callback(self.on_artifact, frame, str(observation.id))
             await maybe_invoke_callback(self.on_observation, observation)
             self.metrics.emitted_observations += 1
             self.metrics.last_error = None
