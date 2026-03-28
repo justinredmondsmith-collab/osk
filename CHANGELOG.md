@@ -7,6 +7,67 @@ changes manually while the project is in its early public setup phase.
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-03-28
+
+### Summary
+
+Release 1.1.0 "Truthful Field Foundation" focuses on validation infrastructure
+and synthesis quality improvements.
+
+This release includes containerized browser validation, real device testing
+support, Ollama LLM integration (experimental), and comprehensive documentation
+for field deployment scenarios.
+
+See [docs/release/1.1.0-definition.md](./docs/release/1.1.0-definition.md) for
+the complete release boundary definition.
+
+### Added
+
+- **Container-Based Validation**
+  - `scripts/browser_sensor_lab.sh` - Orchestrate 5-10 Chrome container sensors
+  - Podman-based browserless/chrome integration for testing
+  - Automated health checks and connection monitoring
+  - Validation evidence: 5 concurrent sensors, 15 minutes, 0 disconnections
+
+- **Real Device Validation Support**
+  - `scripts/real_device_test.sh` - Real device testing automation
+  - Tailscale-based connectivity for remote device testing
+  - Battery and thermal monitoring documentation
+  - Validation evidence: Pixel 6, 8.5 minutes, 0 disconnections, ~28%/hr battery
+
+- **Ollama LLM Integration (Experimental)**
+  - Configurable synthesis backend: `heuristic` (default) or `ollama`
+  - Support for llama3.2:3b, phi4-mini, qwen3:8b models
+  - Evaluation shows heuristic baseline (85% accuracy) outperforms LLMs
+  - Documented as experimental; use heuristic for production
+
+- **Documentation**
+  - `docs/release/VALIDATION-INDEX.md` - Complete validation evidence index
+  - `docs/ops/validation-quickstart.md` - Quick start for validation testing
+  - `docs/runbooks/real-device-validation.md` - Real device testing runbook
+  - `docs/release/1.1.0-definition.md` - Release scope and claims
+
+### Validation Evidence
+
+| Test Component | Duration | Result |
+|----------------|----------|--------|
+| 5-Container Validation | 15 min | ✅ PASSED |
+| Real Device (Pixel 6) | 8.5 min | ✅ PASSED |
+| Combined Runtime | 35+ min | ✅ STABLE |
+| Ollama Evaluation | - | ✅ DOCUMENTED |
+
+### Changed
+
+- `synthesis_backend` config option added (default: `heuristic`)
+- `synthesis_model` config option added (default: `llama3.2:3b`)
+- `ollama_base_url` config option added (default: `http://localhost:11434`)
+
+### Known Limitations
+
+- Real device validation: Single Pixel 6 tested; broader device matrix for 1.1.1
+- Ollama synthesis: Experimental, ~65% accuracy vs 85% heuristic
+- Long-duration testing: 35+ min validated; 1-hour formal test deferred
+
 ## [1.0.0] - 2026-03-27
 
 ### Summary
