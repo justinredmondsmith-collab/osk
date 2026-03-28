@@ -25,6 +25,107 @@
         </p>
       </header>
 
+      <!-- Task Notification Banner (Release 1.2.0) -->
+      <div class="task-banner hidden" id="task-banner">
+        <div class="task-notification">
+          <span class="task-icon">📋</span>
+          <span class="task-summary" id="task-summary">New task assigned</span>
+          <button type="button" class="member-button" id="btn-view-task">View Task</button>
+        </div>
+      </div>
+
+      <!-- Task Panel (overlay) -->
+      <div class="task-panel hidden" id="task-panel">
+        <div class="task-panel__header">
+          <h3 id="task-panel-title">Task</h3>
+          <button type="button" class="task-panel__close" id="btn-close-task">×</button>
+        </div>
+        
+        <div class="task-panel__content">
+          <div class="task-meta-row">
+            <span class="task-type-badge" id="task-type-badge">CONFIRMATION</span>
+            <span class="task-state-badge" id="task-state-badge">ASSIGNED</span>
+          </div>
+          
+          <p class="task-description" id="task-description"></p>
+          
+          <div class="task-location hidden" id="task-location">
+            <h4>📍 Target Location</h4>
+            <p id="task-location-text"></p>
+          </div>
+          
+          <div class="task-timer-row">
+            <span class="task-timer-label">⏱️ Time remaining:</span>
+            <span class="task-timer-value" id="task-timer-value">--:--</span>
+          </div>
+        </div>
+        
+        <div class="task-panel__actions" id="task-actions">
+          <!-- Buttons shown based on task state -->
+          <button type="button" class="member-button member-button--primary hidden" id="btn-acknowledge">
+            Acknowledge
+          </button>
+          <button type="button" class="member-button member-button--primary hidden" id="btn-start">
+            Start Task
+          </button>
+          <button type="button" class="member-button member-button--success hidden" id="btn-complete">
+            Complete
+          </button>
+          <button type="button" class="member-button member-button--danger hidden" id="btn-unable">
+            Unable
+          </button>
+        </div>
+      </div>
+
+      <!-- Task Completion Modal -->
+      <div class="modal-overlay hidden" id="completion-modal">
+        <div class="modal-dialog">
+          <h3>Complete Task</h3>
+          <p id="completion-task-title" class="completion-task-name"></p>
+          
+          <div class="outcome-options">
+            <label class="outcome-option">
+              <input type="radio" name="outcome" value="SUCCESS" checked>
+              <span class="outcome-icon">✅</span>
+              <span class="outcome-label">
+                <strong>Success</strong>
+                <small>Task completed successfully</small>
+              </span>
+            </label>
+            
+            <label class="outcome-option">
+              <input type="radio" name="outcome" value="FAILED">
+              <span class="outcome-icon">❌</span>
+              <span class="outcome-label">
+                <strong>Failed</strong>
+                <small>Attempted but could not complete</small>
+              </span>
+            </label>
+            
+            <label class="outcome-option">
+              <input type="radio" name="outcome" value="UNABLE">
+              <span class="outcome-icon">🚫</span>
+              <span class="outcome-label">
+                <strong>Unable</strong>
+                <small>Blocked or prevented from completing</small>
+              </span>
+            </label>
+          </div>
+          
+          <div class="form-group">
+            <label for="completion-notes">Notes (optional)</label>
+            <textarea id="completion-notes" rows="3" placeholder="Add any details about the outcome..."></textarea>
+          </div>
+          
+          <div class="modal-actions">
+            <button type="button" class="member-button" id="btn-cancel-completion">Cancel</button>
+            <button type="button" class="member-button member-button--success" id="btn-submit-completion">
+              Submit
+            </button>
+          </div>
+        </div>
+      </div>
+
       <section class="member-signal-strip">
         <article class="member-signal">
           <span class="member-label">Role</span>

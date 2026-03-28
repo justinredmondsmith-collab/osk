@@ -2748,6 +2748,322 @@
     }
   }
 
+  // ========================================================================
+  // Task Management (Release 1.2.0)
+  // ========================================================================
+
+  const taskManager = {
+    currentTask: null,
+    timerInterval: null,
+
+    init() {
+      this.bindEvents();
+      this.loadActiveTask();
+    },
+
+    bindEvents() {
+      // View task button
+      document.getElementById('btn-view-task')?.addEventListener('click', () => {
+        this.showTaskPanel();
+      });
+
+      // Close task panel
+      document.getElementById('btn-close-task')?.addEventListener('click', () => {
+        this.hideTaskPanel();
+      });
+
+      // Task action buttons
+      document.getElementById('btn-acknowledge')?.addEventListener('click', () => this.acknowledgeTask());
+      document.getElementById('btn-start')?.addEventListener('click', () => this.startTask());
+      document.getElementById('btn-complete')?.addEventListener('click', () => this.showCompletionModal());
+      document.getElementById('btn-unable')?.addEventListener('click', () => this.markUnable());
+
+      // Completion modal
+      document.getElementById('btn-cancel-completion')?.addEventListener('click', () => {
+        document.getElementById('completion-modal').classList.add('hidden');
+      });
+      document.getElementById('btn-submit-completion')?.addEventListener('click', () => this.submitCompletion());
+    },
+
+    async loadActiveTask() {
+      try {
+        const response = await fetch('/api/member/tasks/active', {
+          headers: { 'Authorization': `Bearer ${getRuntimeToken()}` }
+        });
+        if (!response.ok) return;
+
+        const data = await response.json();
+        if (data.task) {
+          this.setCurrentTask(data.task);
+        }
+      } catch (err) {
+        console.error('Failed to load active task:', err);
+      }
+    },
+
+    setCurrentTask(task) {
+      this.currentTask = task;
+      this.showNotification();
+      this.startTimer();
+    },
+
+    showNotification() {
+      const banner = document.getElementById('task-banner');
+      const summary = document.getElementById('task-summary');
+      
+      summary.textContent = `New task: ${this.currentTask.title}`;
+      banner.classList.remove('hidden');
+      
+      pushFeed(`Task assigned: ${this.currentTask.title}`, 'info');
+    },
+
+    showTaskPanel() {
+      const panel = document.getElementById('task-panel');
+      const task = this.currentTask;
+      
+      document.getElementById('task-panel-title').textContent = task.title;
+      document.getElementById('task-type-badge').textContent = task.type;
+      document.getElementById('task-state-badge').textContent = task.state;
+      document.getElementById('task-description').textContent = task.description || 'No description provided';
+      
+      // Show location if present
+      const locDiv = document.getElementById('task-location');
+      if (task.target_location) {
+        locDiv.classList.remove('hidden');
+        document.getElementById('task-location-text').textContent = 
+          `${task.target_location.lat.toFixed(6)}, ${task.target_location.lon.toFixed(6)}`;
+      } else {
+        locDiv.classList.add('hidden');
+      }
+      
+      this.updateActionButtons();
+      panel.classList.remove('hidden');
+      document.getElementById('task-banner').classList.add('hidden');
+    },
+
+    hideTaskPanel() {
+      document.getElementById('task-panel').classList.add('hidden');
+    },
+
+    updateActionButtons() {
+      const state = this.currentTask?.state;
+      
+      // Hide all first
+      ['btn-acknowledge', 'btn-start', 'btn-complete', 'btn-unable'].forEach(id => {
+        document.getElementById(id)?.classList.add('hidden');
+      });
+      
+      // Show appropriate buttons
+      switch (state) {
+        case 'assigned':
+          document.getElementById('btn-acknowledge')?.classList.remove('hidden');
+          break;
+        case 'acknowledged':
+          document.getElementById('btn-start')?.classList.remove('hidden');
+          document.getElementById('btn-unable')?.classList.remove('hidden');
+          break;
+        case 'in_progress':
+          document.getElementById('btn-complete')?.classList.remove('hidden');
+          document.getElementById('btn-unable')?.classList.remove('hidden');
+          break;
+      }
+    },
+
+    async acknowledgeTask() {
+      if (!this.currentTask) return;
+      
+      try {
+        // Send via WebSocket for faster response
+        if (isSocketOpen()) {
+          state.socket.send(JSON.stringify({
+            type: 'task_acknowledge',
+            task_id: this.currentTask.id
+          }));
+        } else {
+          // Fallback to REST API
+          const response = await fetch(`/api/member/tasks/${this.currentTask.id}/acknowledge`, {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${getRuntimeToken()}` }
+          });
+          if (!response.ok) throw new Error('Failed to acknowledge');
+          const task = await response.json();
+          this.currentTask = task;
+        }
+        
+        this.updateActionButtons();
+        pushFeed('Task acknowledged', 'success');
+      } catch (err) {
+        pushFeed('Failed to acknowledge task', 'error');
+      }
+    },
+
+    async startTask() {
+      if (!this.currentTask) return;
+      
+      try {
+        if (isSocketOpen()) {
+          state.socket.send(JSON.stringify({
+            type: 'task_start',
+            task_id: this.currentTask.id
+          }));
+        }
+        
+        // Optimistically update UI
+        this.currentTask.state = 'in_progress';
+        this.updateActionButtons();
+        pushFeed('Task started', 'success');
+      } catch (err) {
+        pushFeed('Failed to start task', 'error');
+      }
+    },
+
+    showCompletionModal() {
+      document.getElementById('completion-task-title').textContent = this.currentTask?.title;
+      document.getElementById('completion-modal').classList.remove('hidden');
+    },
+
+    async submitCompletion() {
+      if (!this.currentTask) return;
+      
+      const outcome = document.querySelector('input[name="outcome"]:checked')?.value;
+      const notes = document.getElementById('completion-notes')?.value;
+      
+      try {
+        if (isSocketOpen()) {
+          state.socket.send(JSON.stringify({
+            type: 'task_complete',
+            task_id: this.currentTask.id,
+            outcome: outcome,
+            notes: notes
+          }));
+        } else {
+          // Fallback to REST
+          const response = await fetch(`/api/member/tasks/${this.currentTask.id}/complete`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${getRuntimeToken()}`
+            },
+            body: JSON.stringify({ outcome, notes })
+          });
+          if (!response.ok) throw new Error('Failed to complete');
+        }
+        
+        document.getElementById('completion-modal').classList.add('hidden');
+        this.hideTaskPanel();
+        this.currentTask = null;
+        this.stopTimer();
+        pushFeed('Task completed', 'success');
+      } catch (err) {
+        pushFeed('Failed to complete task', 'error');
+      }
+    },
+
+    async markUnable() {
+      if (!this.currentTask) return;
+      
+      try {
+        if (isSocketOpen()) {
+          state.socket.send(JSON.stringify({
+            type: 'task_complete',
+            task_id: this.currentTask.id,
+            outcome: 'UNABLE',
+            notes: 'Member unable to complete'
+          }));
+        }
+        
+        this.hideTaskPanel();
+        this.currentTask = null;
+        this.stopTimer();
+        pushFeed('Task marked as unable to complete', 'info');
+      } catch (err) {
+        pushFeed('Failed to update task', 'error');
+      }
+    },
+
+    startTimer() {
+      this.stopTimer();
+      this.updateTimer();
+      this.timerInterval = setInterval(() => this.updateTimer(), 1000);
+    },
+
+    stopTimer() {
+      if (this.timerInterval) {
+        clearInterval(this.timerInterval);
+        this.timerInterval = null;
+      }
+    },
+
+    updateTimer() {
+      if (!this.currentTask) return;
+      
+      const seconds = this.currentTask.time_remaining_seconds;
+      const elem = document.getElementById('task-timer-value');
+      if (elem) {
+        if (seconds <= 0) {
+          elem.textContent = 'Expired';
+          elem.classList.add('expired');
+        } else {
+          const mins = Math.floor(seconds / 60);
+          const secs = seconds % 60;
+          elem.textContent = `${mins}:${secs.toString().padStart(2, '0')}`;
+        }
+      }
+    },
+
+    // WebSocket message handlers
+    handleWebSocketMessage(payload) {
+      if (payload.type === 'task_assigned') {
+        this.setCurrentTask(payload.task);
+      } else if (payload.type === 'task_acknowledged') {
+        if (this.currentTask?.id === payload.task.id) {
+          this.currentTask = payload.task;
+          this.updateActionButtons();
+        }
+      } else if (payload.type === 'task_started') {
+        if (this.currentTask?.id === payload.task.id) {
+          this.currentTask = payload.task;
+          this.updateActionButtons();
+        }
+      } else if (payload.type === 'task_completed') {
+        if (this.currentTask?.id === payload.task.id) {
+          this.hideTaskPanel();
+          this.currentTask = null;
+          this.stopTimer();
+          pushFeed('Task completed by coordinator', 'info');
+        }
+      } else if (payload.type === 'task_timeout') {
+        if (this.currentTask?.id === payload.task_id) {
+          this.hideTaskPanel();
+          this.currentTask = null;
+          this.stopTimer();
+          pushFeed('Task timed out', 'warning');
+        }
+      } else if (payload.type === 'task_cancelled') {
+        if (this.currentTask?.id === payload.task_id) {
+          this.hideTaskPanel();
+          this.currentTask = null;
+          this.stopTimer();
+          pushFeed('Task cancelled by coordinator', 'info');
+        }
+      } else if (payload.type === 'task_error') {
+        pushFeed(`Task error: ${payload.error}`, 'error');
+      }
+    }
+  };
+
+  // Integrate task manager with existing socket message handler
+  const originalHandleSocketMessage = handleSocketMessage;
+  handleSocketMessage = function(payload) {
+    // Check if it's a task-related message
+    if (payload.type?.startsWith('task_')) {
+      taskManager.handleWebSocketMessage(payload);
+      return;
+    }
+    // Otherwise call original handler
+    return originalHandleSocketMessage(payload);
+  };
+
   async function init() {
     bindEvents();
     updatePwaInstallState(globalThis.OskPwaRuntime?.getInstallState?.() || null);
@@ -2757,6 +3073,7 @@
     }
     if (bootstrap.page === "member") {
       await initializeMemberPage();
+      taskManager.init(); // Initialize task management
     }
   }
 
