@@ -467,6 +467,45 @@ async def watch_member_heartbeats(
         await asyncio.sleep(poll_seconds)
 
 
+async def watch_task_timeouts(
+    op_manager: OperationManager,
+    conn_manager: ConnectionManager,
+    *,
+    poll_seconds: float,
+) -> None:
+    """Background task to process task timeouts.
+    
+    Checks periodically for tasks that have exceeded their timeout
+    and marks them as timed out.
+    """
+    while True:
+        try:
+            timed_out_tasks = await op_manager.process_task_timeouts()
+            
+            for task in timed_out_tasks:
+                # Notify the assignee
+                await conn_manager.send_to(
+                    task.assignee_id,
+                    {
+                        "type": "task_timeout",
+                        "task_id": str(task.id),
+                        "title": task.title,
+                    }
+                )
+                
+                # Notify coordinators
+                await conn_manager.send_to_coord({
+                    "type": "task_timeout",
+                    "task": task.to_dict()
+                })
+                
+                logger.info("Task %s timed out and notifications sent", task.id)
+        except Exception as exc:
+            logger.error("Error in task timeout watcher: %s", exc)
+        
+        await asyncio.sleep(poll_seconds)
+
+
 async def _get_audit_events(
     operation_id: uuid.UUID,
     limit: int,
@@ -900,12 +939,21 @@ async def run_hub(name: str, *, fresh: bool = False) -> None:
                 poll_seconds=config.member_heartbeat_check_interval_seconds,
             )
         )
+        # Task timeout processing (Release 1.2.0)
+        task_timeout_watcher = asyncio.create_task(
+            watch_task_timeouts(
+                op_manager,
+                conn_manager,
+                poll_seconds=30,  # Check every 30 seconds
+            )
+        )
         try:
             await server.serve()
         finally:
             stop_watcher.cancel()
             heartbeat_watcher.cancel()
-            await asyncio.gather(stop_watcher, heartbeat_watcher, return_exceptions=True)
+            task_timeout_watcher.cancel()
+            await asyncio.gather(stop_watcher, heartbeat_watcher, task_timeout_watcher, return_exceptions=True)
     finally:
         stop_request = _read_stop_request() or {}
         preserve_operation = bool(stop_request.get("preserve_operation"))

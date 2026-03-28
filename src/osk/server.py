@@ -116,6 +116,29 @@ class SignalSnoozeRequest(BaseModel):
     minutes: int | None = None
 
 
+# Task management request models (Release 1.2.0)
+class TaskCreateRequest(BaseModel):
+    assignee_id: uuid.UUID
+    task_type: str  # "CONFIRMATION", "CHECKPOINT", "REPORT", "CUSTOM"
+    title: str
+    description: str | None = None
+    target_lat: float | None = None
+    target_lon: float | None = None
+    target_radius_meters: int | None = None
+    timeout_minutes: int = 15
+    priority: int = 1  # 1=normal, 2=high, 3=urgent
+    max_retries: int = 0
+
+
+class TaskCompleteRequest(BaseModel):
+    outcome: str  # "SUCCESS", "FAILED", "UNABLE"
+    notes: str | None = None
+
+
+class TaskCancelRequest(BaseModel):
+    reason: str | None = None
+
+
 def _isoformat_utc(timestamp: dt.datetime | None) -> str | None:
     if timestamp is None:
         return None
@@ -1981,6 +2004,113 @@ def create_app(
         _clear_member_runtime_session_cookie(response, request)
         return response
 
+    # -------------------------------------------------------------------------
+    # Member task management API (Release 1.2.0)
+    # -------------------------------------------------------------------------
+
+    @app.get("/api/member/tasks")
+    async def get_member_tasks(request: Request):
+        """Get tasks assigned to the current member."""
+        runtime_session = _member_runtime_session_from_request(request)
+        if runtime_session is None:
+            return JSONResponse({"error": "Not authenticated"}, status_code=401)
+        
+        member_id = runtime_session["member_id"]
+        tasks = op_manager.get_tasks_for_member(member_id)
+        return [t.to_dict() for t in tasks]
+
+    @app.get("/api/member/tasks/active")
+    async def get_active_task(request: Request):
+        """Get the currently active task for this member (if any)."""
+        runtime_session = _member_runtime_session_from_request(request)
+        if runtime_session is None:
+            return JSONResponse({"error": "Not authenticated"}, status_code=401)
+        
+        member_id = runtime_session["member_id"]
+        active_tasks = [
+            t for t in op_manager.get_tasks_for_member(member_id)
+            if t.is_active()
+        ]
+        
+        if not active_tasks:
+            return JSONResponse({"task": None})
+        
+        # Return highest priority, oldest task
+        active_tasks.sort(key=lambda t: (-t.priority, t.created_at))
+        return JSONResponse({"task": active_tasks[0].to_dict()})
+
+    @app.post("/api/member/tasks/{task_id}/acknowledge")
+    async def acknowledge_task_endpoint(task_id: uuid.UUID, request: Request):
+        """Member acknowledges receipt of assigned task."""
+        runtime_session = _member_runtime_session_from_request(request)
+        if runtime_session is None:
+            return JSONResponse({"error": "Not authenticated"}, status_code=401)
+        
+        member_id = runtime_session["member_id"]
+        
+        try:
+            task = await op_manager.acknowledge_task(task_id, member_id)
+            
+            # Notify coordinator
+            await conn_manager.send_to_coord({
+                "type": "task_acknowledged",
+                "task": task.to_dict()
+            })
+            
+            return task.to_dict()
+            
+        except (ValueError, PermissionError) as e:
+            return JSONResponse({"error": str(e)}, status_code=400)
+
+    @app.post("/api/member/tasks/{task_id}/start")
+    async def start_task_endpoint(task_id: uuid.UUID, request: Request):
+        """Member starts working on acknowledged task."""
+        runtime_session = _member_runtime_session_from_request(request)
+        if runtime_session is None:
+            return JSONResponse({"error": "Not authenticated"}, status_code=401)
+        
+        member_id = runtime_session["member_id"]
+        
+        try:
+            task = await op_manager.start_task(task_id, member_id)
+            
+            # Notify coordinator
+            await conn_manager.send_to_coord({
+                "type": "task_started",
+                "task": task.to_dict()
+            })
+            
+            return task.to_dict()
+            
+        except (ValueError, PermissionError) as e:
+            return JSONResponse({"error": str(e)}, status_code=400)
+
+    @app.post("/api/member/tasks/{task_id}/complete")
+    async def complete_task_endpoint(task_id: uuid.UUID, req: TaskCompleteRequest, request: Request):
+        """Member completes assigned task."""
+        runtime_session = _member_runtime_session_from_request(request)
+        if runtime_session is None:
+            return JSONResponse({"error": "Not authenticated"}, status_code=401)
+        
+        member_id = runtime_session["member_id"]
+        
+        try:
+            from osk.tasking import TaskOutcome
+            outcome = TaskOutcome(req.outcome.lower())
+            
+            task = await op_manager.complete_task(task_id, member_id, outcome, req.notes)
+            
+            # Notify coordinator
+            await conn_manager.send_to_coord({
+                "type": "task_completed",
+                "task": task.to_dict()
+            })
+            
+            return task.to_dict()
+            
+        except (ValueError, PermissionError) as e:
+            return JSONResponse({"error": str(e)}, status_code=400)
+
     @app.get("/coordinator")
     async def coordinator_dashboard(request: Request):
         client_host = request.client.host if request.client else None
@@ -2955,6 +3085,163 @@ def create_app(
         )
         return {"status": "kicked"}
 
+    # -------------------------------------------------------------------------
+    # Task management API (Release 1.2.0)
+    # -------------------------------------------------------------------------
+
+    @app.post("/api/operator/tasks")
+    async def create_task(req: TaskCreateRequest, request: Request):
+        """Create and assign a new task to a member."""
+        if response := _require_local_admin(request, op_manager):
+            return response
+        if op_manager.operation is None:
+            return JSONResponse({"error": "No active operation"}, status_code=503)
+        
+        try:
+            from osk.tasking import TaskType, LocationTarget
+            
+            task_type = TaskType(req.task_type.lower())
+            
+            # Build location target if coordinates provided
+            target_location = None
+            if req.target_lat is not None and req.target_lon is not None:
+                target_location = LocationTarget(
+                    lat=req.target_lat,
+                    lon=req.target_lon,
+                    radius_meters=req.target_radius_meters or 50
+                )
+            
+            # Get assigner from operator session
+            operator_session = _decode_operator_token_from_cookie(request, op_manager)
+            if operator_session is None:
+                return JSONResponse({"error": "Invalid operator session"}, status_code=401)
+            assigner_id = operator_session["member_id"]
+            
+            task = await op_manager.create_task(
+                assigner_id=assigner_id,
+                assignee_id=req.assignee_id,
+                task_type=task_type,
+                title=req.title,
+                description=req.description,
+                target_location=target_location,
+                timeout_minutes=req.timeout_minutes,
+                priority=req.priority,
+                max_retries=req.max_retries,
+            )
+            
+            # Notify assignee via WebSocket if connected
+            await conn_manager.send_to(
+                task.assignee_id,
+                {
+                    "type": "task_assigned",
+                    "task": task.to_dict()
+                }
+            )
+            
+            return JSONResponse(task.to_dict(), status_code=201)
+            
+        except ValueError as e:
+            return JSONResponse({"error": str(e)}, status_code=400)
+
+    @app.get("/api/operator/tasks")
+    async def list_tasks(
+        request: Request,
+        state: str | None = None,
+        assignee_id: uuid.UUID | None = None,
+    ):
+        """List tasks for the operation."""
+        if response := _require_local_admin(request, op_manager):
+            return response
+        if op_manager.operation is None:
+            return JSONResponse({"error": "No active operation"}, status_code=503)
+        
+        tasks = list(op_manager.tasks.values())
+        
+        # Filter by state
+        if state:
+            tasks = [t for t in tasks if t.state.value == state]
+        
+        # Filter by assignee
+        if assignee_id:
+            tasks = [t for t in tasks if t.assignee_id == assignee_id]
+        
+        return [t.to_dict() for t in tasks]
+
+    @app.get("/api/operator/tasks/{task_id}")
+    async def get_task(task_id: uuid.UUID, request: Request):
+        """Get a specific task by ID."""
+        if response := _require_local_admin(request, op_manager):
+            return response
+        if op_manager.operation is None:
+            return JSONResponse({"error": "No active operation"}, status_code=503)
+        
+        try:
+            task = op_manager.get_task(task_id)
+            return task.to_dict()
+        except ValueError as e:
+            return JSONResponse({"error": str(e)}, status_code=404)
+
+    @app.post("/api/operator/tasks/{task_id}/cancel")
+    async def cancel_task(task_id: uuid.UUID, req: TaskCancelRequest, request: Request):
+        """Cancel a task."""
+        if response := _require_local_admin(request, op_manager):
+            return response
+        if op_manager.operation is None:
+            return JSONResponse({"error": "No active operation"}, status_code=503)
+        
+        try:
+            operator_session = _decode_operator_token_from_cookie(request, op_manager)
+            if operator_session is None:
+                return JSONResponse({"error": "Invalid operator session"}, status_code=401)
+            coordinator_id = operator_session["member_id"]
+            
+            task = await op_manager.cancel_task(task_id, coordinator_id, req.reason)
+            
+            # Notify assignee
+            await conn_manager.send_to(
+                task.assignee_id,
+                {
+                    "type": "task_cancelled",
+                    "task_id": str(task_id),
+                    "reason": req.reason
+                }
+            )
+            
+            return task.to_dict()
+            
+        except ValueError as e:
+            return JSONResponse({"error": str(e)}, status_code=400)
+
+    @app.post("/api/operator/tasks/{task_id}/retry")
+    async def retry_task(task_id: uuid.UUID, request: Request):
+        """Retry a timed-out task."""
+        if response := _require_local_admin(request, op_manager):
+            return response
+        if op_manager.operation is None:
+            return JSONResponse({"error": "No active operation"}, status_code=503)
+        
+        try:
+            operator_session = _decode_operator_token_from_cookie(request, op_manager)
+            if operator_session is None:
+                return JSONResponse({"error": "Invalid operator session"}, status_code=401)
+            coordinator_id = operator_session["member_id"]
+            
+            task = await op_manager.retry_task(task_id, coordinator_id)
+            
+            # Notify assignee
+            await conn_manager.send_to(
+                task.assignee_id,
+                {
+                    "type": "task_assigned",
+                    "task": task.to_dict()
+                }
+            )
+            
+            return task.to_dict()
+            
+        except ValueError as e:
+            return JSONResponse({"error": str(e)}, status_code=400)
+
     @app.post("/api/rotate-token")
     async def rotate_token(request: Request):
         if response := _require_local_admin(request, op_manager):
@@ -3342,6 +3629,54 @@ def create_app(
                                 event_id=event.id,
                                 timestamp=ack_timestamp,
                             )
+                    
+                    # Task management WebSocket messages (Release 1.2.0)
+                    elif msg_type == "task_acknowledge":
+                        task_id = uuid.UUID(data["task_id"])
+                        try:
+                            task = await op_manager.acknowledge_task(task_id, member_id)
+                            await ws.send_json({
+                                "type": "task_acknowledged",
+                                "task": task.to_dict()
+                            })
+                        except (ValueError, PermissionError) as e:
+                            await ws.send_json({
+                                "type": "task_error",
+                                "error": str(e)
+                            })
+                    
+                    elif msg_type == "task_start":
+                        task_id = uuid.UUID(data["task_id"])
+                        try:
+                            task = await op_manager.start_task(task_id, member_id)
+                            await ws.send_json({
+                                "type": "task_started",
+                                "task": task.to_dict()
+                            })
+                        except (ValueError, PermissionError) as e:
+                            await ws.send_json({
+                                "type": "task_error",
+                                "error": str(e)
+                            })
+                    
+                    elif msg_type == "task_complete":
+                        task_id = uuid.UUID(data["task_id"])
+                        outcome_str = data.get("outcome", "success")
+                        notes = data.get("notes")
+                        try:
+                            from osk.tasking import TaskOutcome
+                            outcome = TaskOutcome(outcome_str.lower())
+                            task = await op_manager.complete_task(task_id, member_id, outcome, notes)
+                            await ws.send_json({
+                                "type": "task_completed",
+                                "task": task.to_dict()
+                            })
+                        except (ValueError, PermissionError) as e:
+                            await ws.send_json({
+                                "type": "task_error",
+                                "error": str(e)
+                            })
+                    
                     elif msg_type == "audio_meta":
                         pending_audio_meta = data
                         pending_frame_meta = None

@@ -122,3 +122,20 @@ class ConnectionManager:
     async def disconnect_all(self) -> None:
         for member_id in list(self.connections):
             await self.disconnect(member_id)
+
+    async def send_to_coord(self, message: dict) -> None:
+        """Send a message to all connected coordinators.
+        
+        This is useful for notifying coordinators of member actions
+        like task acknowledgements, completions, etc.
+        """
+        dead: list[uuid.UUID] = []
+        for member_id, websocket in self.connections.items():
+            if self.roles.get(member_id) != MemberRole.COORDINATOR:
+                continue
+            try:
+                await websocket.send_json(message)
+            except Exception:
+                dead.append(member_id)
+        for member_id in dead:
+            self.unregister(member_id)
