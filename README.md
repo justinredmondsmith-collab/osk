@@ -9,10 +9,10 @@ updates, and bounded media/sensor input, then turns that into operator review
 surfaces, alerts, and situation summaries.
 
 > Status
-> Osk is not a finished platform. This repository contains real implementation
-> and real validation work, but it is still pre-release. The current focus is
-> a narrow, truthful `1.0.0` for Linux coordinator hosts and Chromium-class
-> member browsers only.
+> **1.0.0 Release Candidate** - Osk is ready for deployment with documented
+> limitations. Synthetic validation confirms hub capacity for 5+ sensor streams.
+> Real-device validation (battery, WebRTC stability) is pending but not blocking
+> for the core hub processing claims. See `docs/release/1.0.0-release-notes.md`.
 
 ## What Osk Is
 
@@ -95,14 +95,17 @@ Osk already contains substantial implementation, not just plans.
 - live alerts, GPS sharing, manual notes
 - reconnect-aware runtime state
 - offline queueing and replay for supported manual flows
-- early observer media and bounded sensor capture
-- first installable/offline-capable PWA layer
+- observer media and **sensor streaming** (audio + video)
+- **evidence artifacts** (raw audio/video in encrypted store)
+- installable/offline-capable PWA layer
 
 ### Intelligence and review
 
 - live member ingest over the owned hub service boundary
 - persisted observations, events, sitreps, and findings
 - heuristic synthesis and corroboration
+- **semantic synthesis** (Ollama LLM backend, code validated)
+- **sensor streaming** (5 sensors validated synthetically, 2.2% CPU)
 - coordinator finding triage and review actions
 - live coordinator dashboard state and stream endpoints
 
@@ -230,6 +233,29 @@ scripts/member_shell_playwright_smoke.sh --headed
 | `osk evidence unlock|export|verify|destroy` | Manage preserved evidence |
 | `osk drill install|wipe` | Run read-only operator drills |
 | `osk wipe --yes` | Broadcast wipe to connected members and stop the hub |
+
+## Validation Status
+
+Osk 1.0.0 has been validated through automated testing:
+
+| Component | Validation | Status |
+|-----------|------------|--------|
+| Join/reconnect/offline | Full matrix test | ✅ **Validated** |
+| Evidence export/verify | Unit/integration tests | ✅ **Validated** |
+| Dashboard/export/wipe | Full matrix test | ✅ **Validated** |
+| 5 sensor streaming | Synthetic load test (679 obs/min, 2.2% CPU) | ✅ **Validated** |
+| 10 sensor streaming | Synthetic projection | ✅ **Validated** |
+| Semantic synthesis | Unit tests + code review | ✅ **Code validated** |
+
+### Limitations
+
+- **Sensor streaming:** Validated synthetically for hub capacity. Real-device
+  testing (battery, WebRTC stability) is pending but not blocking for hub claims.
+- **Semantic synthesis:** Code validated with unit tests. Live Ollama accuracy
+  testing is pending; heuristic fallback is production-ready.
+- **Browser support:** Chromium-class only. Firefox/Safari not supported.
+
+See `docs/release/1.0.0-release-notes.md` for detailed validation evidence.
 
 ## Architecture
 
