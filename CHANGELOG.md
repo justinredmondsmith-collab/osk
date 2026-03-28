@@ -7,6 +7,103 @@ changes manually while the project is in its early public setup phase.
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-03-28
+
+### Summary
+
+Release 1.2.0 "Coordinator-Directed Operations" transforms Osk from passive
+awareness into active field coordination. Coordinators can now assign tasks to
+members, track progress, and direct group operations through an intuitive
+dashboard interface.
+
+This release completes the full task management lifecycle: creation, assignment,
+acknowledgment, execution, and completion tracking with full audit trail support.
+
+### Added
+
+- **Task Management System**
+  - Task types: CONFIRMATION, CHECKPOINT, REPORT, CUSTOM
+  - Priority levels: normal, high, urgent
+  - Optional geographic targets with radius
+  - Configurable timeouts (5min to 1hr)
+  - State machine: PENDING → ASSIGNED → ACKNOWLEDGED → IN_PROGRESS → COMPLETED
+  - Retry support for timed-out tasks
+
+- **Coordinator Dashboard Task UI**
+  - Task creation form with member selection
+  - Active tasks list with real-time updates
+  - Priority indicators (●/●●/●●●)
+  - State badges with color coding
+  - Overdue task highlighting
+  - Task detail modal with cancel/retry actions
+  - 5-second polling for live updates
+
+- **Member Task UX**
+  - Notification banner for new tasks
+  - Full-screen task panel overlay
+  - Countdown timer showing time remaining
+  - Context-aware action buttons:
+    - Acknowledge (when assigned)
+    - Start (when acknowledged)
+    - Complete/Unable (when in progress)
+  - Completion modal with outcome selection
+  - Push feed integration for task events
+
+- **REST API Endpoints**
+  - `POST /api/operator/tasks` - Create task
+  - `GET /api/operator/tasks` - List tasks with filters
+  - `GET /api/operator/tasks/{id}` - Get task details
+  - `POST /api/operator/tasks/{id}/cancel` - Cancel task
+  - `POST /api/operator/tasks/{id}/retry` - Retry timed-out task
+  - `GET /api/member/tasks` - List member's tasks
+  - `GET /api/member/tasks/active` - Get active task
+  - `POST /api/member/tasks/{id}/acknowledge` - Acknowledge task
+  - `POST /api/member/tasks/{id}/start` - Start task
+  - `POST /api/member/tasks/{id}/complete` - Complete task
+
+- **WebSocket Support**
+  - Real-time task notifications
+  - Member → Coordinator: task state updates
+  - Server → Member: task assignments, timeouts, cancellations
+  - Server → Coordinator: acknowledgments, completions
+
+- **Background Processing**
+  - `watch_task_timeouts()` - 30-second interval timeout processing
+  - Automatic timeout notifications to members and coordinators
+  - Database persistence for all task state changes
+
+- **Database Schema**
+  - Migration 009_tasks.sql with full task table
+  - Indexes for efficient querying by operation, assignee, state
+  - Foreign key constraints for data integrity
+
+- **Testing & Validation**
+  - `tests/e2e/test_task_flow.py` - 7 E2E test cases
+  - `scripts/validate_1_2_0.py` - Automated validation script
+  - Manual validation checklist
+
+### Implementation Details
+
+| Component | Files |
+|-----------|-------|
+| Domain Model | `src/osk/tasking.py` - Task, TaskState, TaskOutcome, LocationTarget |
+| Database | `src/osk/migrations/009_tasks.sql`, `src/osk/db.py` - Task CRUD |
+| Business Logic | `src/osk/operation.py` - Task lifecycle methods |
+| API | `src/osk/server.py` - REST endpoints, WebSocket handlers |
+| Background | `src/osk/hub.py` - Timeout watcher |
+| Coordinator UI | `templates/coordinator.html`, `static/dashboard.js/css` |
+| Member UI | `templates/member.html`, `static/member.js/css` |
+
+### Validation
+
+- [x] Task creation and assignment flow
+- [x] State transitions (assigned → acknowledged → in_progress → completed)
+- [x] Reconnect resilience
+- [x] Timeout processing
+- [x] Cancellation flow
+- [x] Priority ordering
+- [x] Multiple concurrent tasks
+
 ## [1.1.0] - 2026-03-28
 
 ### Summary
