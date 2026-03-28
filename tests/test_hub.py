@@ -357,7 +357,12 @@ def test_stop_hub_falls_back_to_sigterm(
             "osk.hub._pid_is_running",
             side_effect=[True, True, True, False, False],
         ),
-        patch("osk.hub.time.monotonic", side_effect=[0.0, 0.0, 0.3, 0.3, 0.4]),
+        # Extended monotonic sequence for: initial deadline, graceful loop (x2),
+        # sigterm deadline, sigterm loop (x1)
+        patch(
+            "osk.hub.time.monotonic",
+            side_effect=[0.0, 0.0, 0.3, 0.0, 0.1],
+        ),
         patch(
             "osk.hub.load_config",
             return_value=OskConfig(),

@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import subprocess
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal
 
@@ -146,3 +148,57 @@ class StorageManager:
         except subprocess.CalledProcessError:
             logger.warning("tmpfs unmount failed during wipe")
         logger.warning("EMERGENCY WIPE complete")
+
+    def write_evidence_artifact(
+        self,
+        operation_id: str,
+        member_id: str,
+        artifact_type: str,
+        data: bytes,
+        extension: str = "bin",
+    ) -> Path | None:
+        """Write an evidence artifact to the preserved evidence store.
+
+        Creates a structured path: {operation_id}/{member_id}/{type}/{timestamp}.{ext}
+        Returns the full path to the written file, or None if evidence store not available.
+        """
+        if not self.luks_mount_path.exists():
+            logger.warning("Evidence mount path does not exist, skipping artifact write")
+            return None
+
+        timestamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%S_%f")
+        artifact_dir = self.luks_mount_path / operation_id / member_id / artifact_type
+        artifact_dir.mkdir(parents=True, exist_ok=True)
+
+        filename = f"{timestamp}.{extension}"
+        artifact_path = artifact_dir / filename
+        artifact_path.write_bytes(data)
+
+        logger.info(
+            "Wrote evidence artifact: %s (%d bytes)",
+            artifact_path.relative_to(self.luks_mount_path),
+            len(data),
+        )
+        return artifact_path
+
+    def write_evidence_metadata(
+        self,
+        operation_id: str,
+        member_id: str,
+        metadata: dict,
+    ) -> Path | None:
+        """Write JSON metadata for an evidence artifact.
+
+        Creates a parallel .json file in the metadata directory.
+        Returns the path to the written file, or None if evidence store not available.
+        """
+        if not self.luks_mount_path.exists():
+            logger.warning("Evidence mount path does not exist, skipping metadata write")
+            return None
+
+        metadata_path = (
+            self.luks_mount_path / operation_id / member_id / "metadata" / f"{metadata['id']}.json"
+        )
+        metadata_path.parent.mkdir(parents=True, exist_ok=True)
+        metadata_path.write_text(json.dumps(metadata, indent=2, default=str))
+        return metadata_path

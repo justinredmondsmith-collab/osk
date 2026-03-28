@@ -768,7 +768,7 @@ def install() -> None:
     print('Run: osk start "Operation Name"')
 
 
-async def run_hub(name: str) -> None:
+async def run_hub(name: str, *, fresh: bool = False) -> None:
     """Start the local hub and serve until interrupted."""
     config = load_config()
     storage = default_storage_manager(config)
@@ -777,6 +777,12 @@ async def run_hub(name: str) -> None:
     _clear_stop_request()
     ensure_local_services(config)
     await wait_for_database(config.database_url)
+    
+    # After database is ready, handle fresh start cleanup
+    if fresh:
+        db_stopped = await _stop_active_database_operations(config)
+        if db_stopped > 0:
+            print(f"Fresh start: marked {db_stopped} active operation(s) as stopped in database")
 
     passphrase = ""
     if storage.backend == "luks":
@@ -809,6 +815,7 @@ async def run_hub(name: str) -> None:
             db=db,
             operation_manager=op_manager,
             conn_manager=conn_manager,
+            storage=storage,
         )
         await intelligence_service.start()
 
@@ -924,11 +931,47 @@ async def run_hub(name: str) -> None:
         print("Operation ended.")
 
 
-def run_hub_sync(name: str) -> int:
+async def _stop_active_database_operations(config) -> int:
+    """Mark any active database operations as stopped. Returns count stopped."""
+    import asyncpg
+
+    try:
+        conn = await asyncpg.connect(config.database_url)
+        try:
+            # Find and stop active operations
+            rows = await conn.fetch(
+                "SELECT id, name FROM operations WHERE stopped_at IS NULL"
+            )
+            count = 0
+            for row in rows:
+                await conn.execute(
+                    "UPDATE operations SET stopped_at = NOW() WHERE id = $1",
+                    row["id"],
+                )
+                logger.info("Marked operation %s (%s) as stopped", row["name"], row["id"])
+                count += 1
+            return count
+        finally:
+            await conn.close()
+    except Exception as exc:
+        logger.warning("Could not stop database operations: %s", exc)
+        return 0
+
+
+def run_hub_sync(name: str, *, fresh: bool = False) -> int:
     log_path = _configure_runtime_log_handler()
     try:
+        if fresh:
+            logger.info("Fresh start requested; checking for active operations to stop")
+            # Check for active hub state first
+            state = read_hub_state()
+            if state is not None:
+                print("Fresh start: stopping active hub...")
+                stop_code = stop_hub(wait_seconds=10.0, stop_services=False)
+                if stop_code != 0:
+                    print("Warning: Could not cleanly stop active hub, proceeding anyway...")
         logger.info("Starting Osk hub runtime; log file at %s", log_path)
-        asyncio.run(run_hub(name))
+        asyncio.run(run_hub(name, fresh=fresh))
     except HubBootstrapError as exc:
         logger.error("Hub bootstrap failed: %s", exc)
         print(exc)
@@ -986,6 +1029,7 @@ def stop_hub(
     if _pid_is_running(pid):
         logger.warning("Graceful shutdown timed out; sending SIGTERM to pid %s", pid)
         os.kill(pid, signal.SIGTERM)
+        # Extend deadline to give SIGTERM a chance to work (same budget as graceful wait)
         sigterm_deadline = time.monotonic() + wait_seconds
         while time.monotonic() < sigterm_deadline:
             if not _pid_is_running(pid):
