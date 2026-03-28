@@ -80,6 +80,25 @@ class FindingStatus(str, Enum):
     RESOLVED = "resolved"
 
 
+class CoordinatorGapStatus(str, Enum):
+    OPEN = "open"
+    RESOLVED = "resolved"
+    CANCELLED = "cancelled"
+
+
+class CoordinatorTaskStatus(str, Enum):
+    OPEN = "open"
+    COMPLETED = "completed"
+    CANCELLED = "cancelled"
+    SUPERSEDED = "superseded"
+
+
+class CoordinatorRecommendationStatus(str, Enum):
+    PENDING = "pending"
+    EMITTED = "emitted"
+    INVALIDATED = "invalidated"
+
+
 class MemberBufferStatus(BaseModel):
     pending_count: int = 0
     manual_pending_count: int = 0
@@ -190,6 +209,61 @@ class FindingNote(BaseModel):
     author_type: str = "coordinator"
     text: str
     created_at: datetime = Field(default_factory=_utcnow)
+
+
+class CoordinatorGap(BaseModel):
+    id: uuid.UUID = Field(default_factory=_new_id)
+    operation_id: uuid.UUID
+    kind: str
+    status: CoordinatorGapStatus = CoordinatorGapStatus.OPEN
+    title: str
+    summary: str
+    severity: EventSeverity = EventSeverity.WARNING
+    requested_route_key: str | None = None
+    source_finding_id: uuid.UUID | None = None
+    details: dict[str, Any] = Field(default_factory=dict)
+    created_at: datetime = Field(default_factory=_utcnow)
+    updated_at: datetime = Field(default_factory=_utcnow)
+    resolved_at: datetime | None = None
+    cancelled_at: datetime | None = None
+
+
+class CoordinatorTask(BaseModel):
+    id: uuid.UUID = Field(default_factory=_new_id)
+    operation_id: uuid.UUID
+    gap_id: uuid.UUID
+    assigned_member_id: uuid.UUID
+    status: CoordinatorTaskStatus = CoordinatorTaskStatus.OPEN
+    prompt: str
+    assignment_reason: str
+    requested_route_key: str | None = None
+    requested_location_label: str | None = None
+    requested_viewpoint: str | None = None
+    completion_event_id: uuid.UUID | None = None
+    superseded_by_task_id: uuid.UUID | None = None
+    details: dict[str, Any] = Field(default_factory=dict)
+    created_at: datetime = Field(default_factory=_utcnow)
+    updated_at: datetime = Field(default_factory=_utcnow)
+    completed_at: datetime | None = None
+    cancelled_at: datetime | None = None
+
+
+class CoordinatorRecommendation(BaseModel):
+    id: uuid.UUID = Field(default_factory=_new_id)
+    operation_id: uuid.UUID
+    gap_id: uuid.UUID | None = None
+    route_key: str
+    status: CoordinatorRecommendationStatus = CoordinatorRecommendationStatus.PENDING
+    title: str
+    summary: str
+    rationale: str
+    supporting_task_id: uuid.UUID | None = None
+    details: dict[str, Any] = Field(default_factory=dict)
+    created_at: datetime = Field(default_factory=_utcnow)
+    updated_at: datetime = Field(default_factory=_utcnow)
+    emitted_at: datetime | None = None
+    invalidated_at: datetime | None = None
+    invalidated_reason: str | None = None
 
 
 class AuditEvent(BaseModel):

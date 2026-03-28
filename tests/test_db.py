@@ -12,6 +12,8 @@ import pytest
 from osk.db import Database
 from osk.intelligence_contracts import IntelligenceObservation, ObservationKind
 from osk.models import (
+    CoordinatorGap,
+    CoordinatorTaskStatus,
     EventCategory,
     EventSeverity,
     FindingNote,
@@ -50,7 +52,7 @@ def mock_pool() -> MagicMock:
 
 async def test_migration_files_exist(db: Database) -> None:
     migrations = db._get_migration_files()
-    assert len(migrations) >= 7
+    assert len(migrations) >= 8
     assert migrations[0].name == "001_initial.sql"
     assert migrations[1].name == "002_operation_coordinator_token.sql"
     assert migrations[2].name == "003_members_reconnect_and_audit.sql"
@@ -58,6 +60,7 @@ async def test_migration_files_exist(db: Database) -> None:
     assert migrations[4].name == "005_intelligence_observations.sql"
     assert migrations[5].name == "006_synthesis_findings.sql"
     assert migrations[6].name == "007_finding_review_and_ingest_receipts.sql"
+    assert migrations[7].name == "008_coordinator_state.sql"
 
 
 async def test_insert_operation(db: Database, mock_pool: MagicMock) -> None:
@@ -365,6 +368,96 @@ async def test_get_review_feed_mixes_items(db: Database) -> None:
     assert [item["type"] for item in result] == ["finding", "event", "sitrep"]
     assert result[0]["title"] == "Police Action"
     assert result[2]["trend"] == "escalating"
+
+
+async def test_upsert_open_coordinator_gap_inserts_when_missing(
+    db: Database,
+    mock_pool: MagicMock,
+) -> None:
+    db._pool = mock_pool
+    mock_pool.fetchrow = AsyncMock(
+        side_effect=[
+            None,
+            {"id": uuid.uuid4(), "kind": "route_viability_confirmation", "status": "open"},
+        ]
+    )
+    gap = CoordinatorGap(
+        operation_id=uuid.uuid4(),
+        kind="route_viability_confirmation",
+        title="Confirm safest exit",
+        summary="Need a route check.",
+        severity=EventSeverity.WARNING,
+    )
+
+    result = await db.upsert_open_coordinator_gap(gap.operation_id, gap)
+
+    assert result["status"] == "open"
+    assert "INSERT INTO coordinator_gaps" in mock_pool.fetchrow.await_args_list[1].args[0]
+
+
+async def test_update_coordinator_task_status_returns_updated_row(
+    db: Database,
+    mock_pool: MagicMock,
+) -> None:
+    db._pool = mock_pool
+    updated_row = {"id": uuid.uuid4(), "status": "completed"}
+    mock_pool.fetchrow = AsyncMock(return_value=updated_row)
+
+    result = await db.update_coordinator_task_status(
+        uuid.uuid4(),
+        uuid.uuid4(),
+        status=CoordinatorTaskStatus.COMPLETED,
+        changed_at=datetime.now(timezone.utc),
+        details={"report_assessment": "clear"},
+    )
+
+    assert result == updated_row
+    assert "UPDATE coordinator_tasks" in mock_pool.fetchrow.await_args.args[0]
+
+
+async def test_get_coordinator_state_returns_active_records(
+    db: Database,
+    mock_pool: MagicMock,
+) -> None:
+    db._pool = mock_pool
+    gap_id = uuid.uuid4()
+    task_id = uuid.uuid4()
+    recommendation_id = uuid.uuid4()
+    mock_pool.fetch = AsyncMock(
+        side_effect=[
+            [
+                {
+                    "id": gap_id,
+                    "title": "Confirm safest exit",
+                    "status": "open",
+                    "updated_at": datetime.now(timezone.utc),
+                }
+            ],
+            [
+                {
+                    "id": task_id,
+                    "gap_id": gap_id,
+                    "status": "open",
+                    "assigned_member_name": "Sensor-1",
+                    "updated_at": datetime.now(timezone.utc),
+                }
+            ],
+            [
+                {
+                    "id": recommendation_id,
+                    "route_key": "north_exit",
+                    "status": "emitted",
+                    "updated_at": datetime.now(timezone.utc),
+                }
+            ],
+        ]
+    )
+
+    result = await db.get_coordinator_state(uuid.uuid4(), limit=5)
+
+    assert result["active_gap"]["id"] == gap_id
+    assert result["active_task"]["id"] == task_id
+    assert result["active_recommendation"]["id"] == recommendation_id
 
 
 async def test_escalate_synthesis_finding(db: Database, mock_pool: MagicMock) -> None:

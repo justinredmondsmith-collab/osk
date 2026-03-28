@@ -5,6 +5,12 @@ import uuid
 from osk.models import (
     Alert,
     AuditEvent,
+    CoordinatorGap,
+    CoordinatorGapStatus,
+    CoordinatorRecommendation,
+    CoordinatorRecommendationStatus,
+    CoordinatorTask,
+    CoordinatorTaskStatus,
     Event,
     EventCategory,
     EventSeverity,
@@ -110,6 +116,38 @@ def test_finding_note_creation() -> None:
     )
     assert note.id is not None
     assert note.author_type == "coordinator"
+
+
+def test_coordinator_gap_creation() -> None:
+    gap = CoordinatorGap(
+        operation_id=uuid.uuid4(),
+        kind="route_viability_confirmation",
+        title="Confirm safest exit",
+        summary="Need a fresh field check on the north exit.",
+    )
+    assert gap.status == CoordinatorGapStatus.OPEN
+
+
+def test_coordinator_task_creation() -> None:
+    task = CoordinatorTask(
+        operation_id=uuid.uuid4(),
+        gap_id=uuid.uuid4(),
+        assigned_member_id=uuid.uuid4(),
+        prompt="Move north and send a quick update.",
+        assignment_reason="Freshest connected sensor.",
+    )
+    assert task.status == CoordinatorTaskStatus.OPEN
+
+
+def test_coordinator_recommendation_creation() -> None:
+    recommendation = CoordinatorRecommendation(
+        operation_id=uuid.uuid4(),
+        route_key="north_exit",
+        title="Use North Exit",
+        summary="North corridor remains open.",
+        rationale="Field report confirmed the route is clear.",
+    )
+    assert recommendation.status == CoordinatorRecommendationStatus.PENDING
 
 
 def test_operation_serialization() -> None:

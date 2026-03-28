@@ -12,6 +12,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from osk.audio_ingest import AudioIngest
+from osk.coordinator_engine import CoordinatorEngine
 from osk.config import OskConfig
 from osk.fake_intelligence import FakeLocationAnalyzer, FakeTranscriber, FakeVisionAnalyzer
 from osk.frame_ingest import FrameIngest
@@ -116,6 +117,7 @@ class IntelligenceService:
         db=None,
         operation_manager=None,
         conn_manager=None,
+        coordinator_engine: CoordinatorEngine | None = None,
         storage=None,
         synthesizer=None,
         transcriber=None,
@@ -128,6 +130,7 @@ class IntelligenceService:
         self.db = db
         self.operation_manager = operation_manager
         self.conn_manager = conn_manager
+        self.coordinator_engine = coordinator_engine
         self.storage = storage
         self.observation_sink = observation_sink
         self.synthesizer = synthesizer or build_synthesizer(config)
@@ -507,9 +510,14 @@ class IntelligenceService:
         for finding in decision.findings:
             persisted = await self.db.upsert_synthesis_finding(operation.id, finding)
             if isinstance(persisted, dict):
-                self._recent_findings.append(SynthesisFinding.model_validate(persisted))
+                persisted_finding = SynthesisFinding.model_validate(persisted)
+                self._recent_findings.append(persisted_finding)
+                if self.coordinator_engine is not None:
+                    await self.coordinator_engine.process_finding(persisted_finding)
             else:
                 self._recent_findings.append(finding)
+                if self.coordinator_engine is not None:
+                    await self.coordinator_engine.process_finding(finding)
         if decision.sitrep is not None:
             await self.db.insert_sitrep(
                 decision.sitrep.id,

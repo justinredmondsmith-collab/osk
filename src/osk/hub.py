@@ -25,6 +25,7 @@ import uvicorn
 from osk.audit import build_audit_action_filter
 from osk.config import OskConfig, load_config, save_config
 from osk.connection_manager import ConnectionManager
+from osk.coordinator_engine import CoordinatorEngine
 from osk.db import Database
 from osk.hotspot import HotspotManager
 from osk.intelligence_service import IntelligenceService
@@ -815,6 +816,12 @@ async def run_hub(name: str, *, fresh: bool = False) -> None:
             db=db,
             operation_manager=op_manager,
             conn_manager=conn_manager,
+            coordinator_engine=CoordinatorEngine(
+                db=db,
+                operation_manager=op_manager,
+                conn_manager=conn_manager,
+                heartbeat_timeout_seconds=config.member_heartbeat_timeout_seconds,
+            ),
             storage=storage,
         )
         await intelligence_service.start()
@@ -871,6 +878,7 @@ async def run_hub(name: str, *, fresh: bool = False) -> None:
             conn_manager=conn_manager,
             db=db,
             intelligence_service=intelligence_service,
+            coordinator_engine=intelligence_service.coordinator_engine,
         )
         server = uvicorn.Server(
             uvicorn.Config(

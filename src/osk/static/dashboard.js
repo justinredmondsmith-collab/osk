@@ -55,6 +55,7 @@
     correlations: null,
     latestSitrep: null,
     members: [],
+    coordinatorState: null,
     memberSummary: null,
     wipeReadiness: null,
     bufferHistory: null,
@@ -109,6 +110,8 @@
     memberMapStatus: document.getElementById("member-map-status"),
     memberMapViewport: document.getElementById("member-map-viewport"),
     memberSummary: document.getElementById("member-summary"),
+    coordinatorStateSummary: document.getElementById("coordinator-state-summary"),
+    coordinatorStateDetail: document.getElementById("coordinator-state-detail"),
     wipeReadinessSummary: document.getElementById("wipe-readiness-summary"),
     wipeReadinessDetail: document.getElementById("wipe-readiness-detail"),
     auditTrailFilters: document.getElementById("audit-trail-filters"),
@@ -467,6 +470,7 @@
     state.latestSitrep = snapshot.latest_sitrep || null;
     state.operationStatus = snapshot.operation_status || null;
     state.intelligenceStatus = snapshot.intelligence_status || null;
+    state.coordinatorState = snapshot.coordinator_state || null;
     state.members = snapshot.members || [];
     state.memberSummary = snapshot.member_summary || null;
     state.wipeReadiness = snapshot.wipe_readiness || null;
@@ -1564,6 +1568,44 @@
       const prefix = state.latestSitrep.trend ? `${state.latestSitrep.trend.toUpperCase()} • ` : "";
       elements.latestSitrep.textContent = `${prefix}${state.latestSitrep.text || "No situation reports yet."}`;
     }
+
+    const coordinatorState = state.coordinatorState || {};
+    const activeGap = coordinatorState.active_gap || null;
+    const activeTask = coordinatorState.active_task || null;
+    const activeRecommendation = coordinatorState.active_recommendation || null;
+    elements.coordinatorStateSummary.innerHTML = [
+      ["Open gap", activeGap ? activeGap.title || activeGap.kind || "Open" : "None"],
+      [
+        "Assigned task",
+        activeTask
+          ? `${activeTask.assigned_member_name || "Member"} · ${String(activeTask.status || "open").toUpperCase()}`
+          : "None",
+      ],
+      [
+        "Recommendation",
+        activeRecommendation
+          ? `${activeRecommendation.title || activeRecommendation.route_key || "Active"}`
+          : "None",
+      ],
+    ]
+      .map(
+        ([label, value]) =>
+          `<div class="stack-row"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`,
+      )
+      .join("");
+    elements.coordinatorStateDetail.innerHTML = [
+      activeGap
+        ? `<div class="detail-item"><p>${escapeHtml(activeGap.title || "Open gap")}</p><small>${escapeHtml(activeGap.summary || "No gap summary.")}</small></div>`
+        : "",
+      activeTask
+        ? `<div class="detail-item"><p>${escapeHtml(activeTask.prompt || "Assigned task")}</p><small>${escapeHtml(activeTask.assigned_member_name || "Member")} • ${escapeHtml(activeTask.assignment_reason || "Assigned for the freshest route confirmation.")}</small></div>`
+        : "",
+      activeRecommendation
+        ? `<div class="detail-item"><p>${escapeHtml(activeRecommendation.title || "Active recommendation")}</p><small>${escapeHtml(activeRecommendation.rationale || activeRecommendation.summary || "No recommendation rationale yet.")}</small></div>`
+        : "",
+    ]
+      .filter(Boolean)
+      .join("") || '<div class="detail-item"><p>Waiting for coordinator state.</p></div>';
 
     const memberSummary = state.memberSummary || {};
     elements.memberSummary.innerHTML = [

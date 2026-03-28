@@ -12,6 +12,12 @@ import asyncpg
 
 from osk.intelligence_contracts import IntelligenceObservation
 from osk.models import (
+    CoordinatorGap,
+    CoordinatorGapStatus,
+    CoordinatorRecommendation,
+    CoordinatorRecommendationStatus,
+    CoordinatorTask,
+    CoordinatorTaskStatus,
     EventCategory,
     EventSeverity,
     FindingNote,
@@ -733,6 +739,353 @@ class Database:
             finding_id,
         )
         return dict(row) if row else None
+
+    async def get_open_coordinator_gap(
+        self,
+        operation_id: uuid.UUID,
+        kind: str,
+    ) -> dict | None:
+        pool = self._require_pool()
+        row = await pool.fetchrow(
+            """SELECT * FROM coordinator_gaps
+               WHERE operation_id = $1 AND kind = $2 AND status = 'open'
+               ORDER BY updated_at DESC
+               LIMIT 1""",
+            operation_id,
+            kind,
+        )
+        return dict(row) if row else None
+
+    async def upsert_open_coordinator_gap(
+        self,
+        operation_id: uuid.UUID,
+        gap: CoordinatorGap,
+    ) -> dict:
+        existing = await self.get_open_coordinator_gap(operation_id, gap.kind)
+        if existing is not None:
+            pool = self._require_pool()
+            row = await pool.fetchrow(
+                """UPDATE coordinator_gaps
+                   SET title = $3,
+                       summary = $4,
+                       severity = $5,
+                       requested_route_key = $6,
+                       source_finding_id = COALESCE($7, source_finding_id),
+                       details = $8::jsonb,
+                       updated_at = $9
+                   WHERE operation_id = $1 AND id = $2
+                   RETURNING *""",
+                operation_id,
+                existing["id"],
+                gap.title,
+                gap.summary,
+                gap.severity.value,
+                gap.requested_route_key,
+                gap.source_finding_id,
+                json.dumps(gap.details),
+                gap.updated_at,
+            )
+            return dict(row)
+
+        pool = self._require_pool()
+        row = await pool.fetchrow(
+            """INSERT INTO coordinator_gaps
+               (id, operation_id, kind, status, title, summary, severity, requested_route_key,
+                source_finding_id, details, created_at, updated_at, resolved_at, cancelled_at)
+               VALUES (
+                 $1, $2, $3, $4, $5, $6, $7, $8,
+                 $9, $10::jsonb, $11, $12, $13, $14
+               )
+               RETURNING *""",
+            gap.id,
+            operation_id,
+            gap.kind,
+            gap.status.value,
+            gap.title,
+            gap.summary,
+            gap.severity.value,
+            gap.requested_route_key,
+            gap.source_finding_id,
+            json.dumps(gap.details),
+            gap.created_at,
+            gap.updated_at,
+            gap.resolved_at,
+            gap.cancelled_at,
+        )
+        return dict(row)
+
+    async def update_coordinator_gap_status(
+        self,
+        operation_id: uuid.UUID,
+        gap_id: uuid.UUID,
+        *,
+        status: CoordinatorGapStatus,
+        changed_at: datetime,
+        details: dict | None = None,
+    ) -> dict | None:
+        pool = self._require_pool()
+        row = await pool.fetchrow(
+            """UPDATE coordinator_gaps
+               SET status = $3,
+                   details = COALESCE($5::jsonb, details),
+                   updated_at = $4,
+                   resolved_at = CASE
+                     WHEN $3 = 'resolved' THEN $4
+                     WHEN $3 = 'open' THEN NULL
+                     ELSE resolved_at
+                   END,
+                   cancelled_at = CASE
+                     WHEN $3 = 'cancelled' THEN $4
+                     WHEN $3 = 'open' THEN NULL
+                     ELSE cancelled_at
+                   END
+               WHERE operation_id = $1 AND id = $2
+               RETURNING *""",
+            operation_id,
+            gap_id,
+            status.value,
+            changed_at,
+            json.dumps(details) if details is not None else None,
+        )
+        return dict(row) if row else None
+
+    async def insert_coordinator_task(
+        self,
+        operation_id: uuid.UUID,
+        task: CoordinatorTask,
+    ) -> dict:
+        pool = self._require_pool()
+        row = await pool.fetchrow(
+            """INSERT INTO coordinator_tasks
+               (id, operation_id, gap_id, assigned_member_id, status, prompt, assignment_reason,
+                requested_route_key, requested_location_label, requested_viewpoint,
+                completion_event_id, superseded_by_task_id, details, created_at, updated_at,
+                completed_at, cancelled_at)
+               VALUES (
+                 $1, $2, $3, $4, $5, $6, $7,
+                 $8, $9, $10,
+                 $11, $12, $13::jsonb, $14, $15, $16, $17
+               )
+               RETURNING *""",
+            task.id,
+            operation_id,
+            task.gap_id,
+            task.assigned_member_id,
+            task.status.value,
+            task.prompt,
+            task.assignment_reason,
+            task.requested_route_key,
+            task.requested_location_label,
+            task.requested_viewpoint,
+            task.completion_event_id,
+            task.superseded_by_task_id,
+            json.dumps(task.details),
+            task.created_at,
+            task.updated_at,
+            task.completed_at,
+            task.cancelled_at,
+        )
+        return dict(row)
+
+    async def get_open_coordinator_task_for_gap(
+        self,
+        operation_id: uuid.UUID,
+        gap_id: uuid.UUID,
+    ) -> dict | None:
+        pool = self._require_pool()
+        row = await pool.fetchrow(
+            """SELECT * FROM coordinator_tasks
+               WHERE operation_id = $1 AND gap_id = $2 AND status = 'open'
+               ORDER BY created_at DESC
+               LIMIT 1""",
+            operation_id,
+            gap_id,
+        )
+        return dict(row) if row else None
+
+    async def get_open_coordinator_task_for_member(
+        self,
+        operation_id: uuid.UUID,
+        member_id: uuid.UUID,
+    ) -> dict | None:
+        pool = self._require_pool()
+        row = await pool.fetchrow(
+            """SELECT * FROM coordinator_tasks
+               WHERE operation_id = $1 AND assigned_member_id = $2 AND status = 'open'
+               ORDER BY created_at DESC
+               LIMIT 1""",
+            operation_id,
+            member_id,
+        )
+        return dict(row) if row else None
+
+    async def update_coordinator_task_status(
+        self,
+        operation_id: uuid.UUID,
+        task_id: uuid.UUID,
+        *,
+        status: CoordinatorTaskStatus,
+        changed_at: datetime,
+        details: dict | None = None,
+        completion_event_id: uuid.UUID | None = None,
+        superseded_by_task_id: uuid.UUID | None = None,
+    ) -> dict | None:
+        pool = self._require_pool()
+        row = await pool.fetchrow(
+            """UPDATE coordinator_tasks
+               SET status = $3,
+                   details = COALESCE($5::jsonb, details),
+                   completion_event_id = COALESCE($6, completion_event_id),
+                   superseded_by_task_id = COALESCE($7, superseded_by_task_id),
+                   updated_at = $4,
+                   completed_at = CASE
+                     WHEN $3 = 'completed' THEN $4
+                     WHEN $3 = 'open' THEN NULL
+                     ELSE completed_at
+                   END,
+                   cancelled_at = CASE
+                     WHEN $3 IN ('cancelled', 'superseded') THEN $4
+                     WHEN $3 = 'open' THEN NULL
+                     ELSE cancelled_at
+                   END
+               WHERE operation_id = $1 AND id = $2
+               RETURNING *""",
+            operation_id,
+            task_id,
+            status.value,
+            changed_at,
+            json.dumps(details) if details is not None else None,
+            completion_event_id,
+            superseded_by_task_id,
+        )
+        return dict(row) if row else None
+
+    async def insert_coordinator_recommendation(
+        self,
+        operation_id: uuid.UUID,
+        recommendation: CoordinatorRecommendation,
+    ) -> dict:
+        pool = self._require_pool()
+        row = await pool.fetchrow(
+            """INSERT INTO coordinator_recommendations
+               (id, operation_id, gap_id, route_key, status, title, summary, rationale,
+                supporting_task_id, details, created_at, updated_at, emitted_at,
+                invalidated_at, invalidated_reason)
+               VALUES (
+                 $1, $2, $3, $4, $5, $6, $7, $8,
+                 $9, $10::jsonb, $11, $12, $13, $14, $15
+               )
+               RETURNING *""",
+            recommendation.id,
+            operation_id,
+            recommendation.gap_id,
+            recommendation.route_key,
+            recommendation.status.value,
+            recommendation.title,
+            recommendation.summary,
+            recommendation.rationale,
+            recommendation.supporting_task_id,
+            json.dumps(recommendation.details),
+            recommendation.created_at,
+            recommendation.updated_at,
+            recommendation.emitted_at,
+            recommendation.invalidated_at,
+            recommendation.invalidated_reason,
+        )
+        return dict(row)
+
+    async def get_active_coordinator_recommendation(self, operation_id: uuid.UUID) -> dict | None:
+        pool = self._require_pool()
+        row = await pool.fetchrow(
+            """SELECT * FROM coordinator_recommendations
+               WHERE operation_id = $1 AND status = 'emitted'
+               ORDER BY emitted_at DESC NULLS LAST, updated_at DESC
+               LIMIT 1""",
+            operation_id,
+        )
+        return dict(row) if row else None
+
+    async def invalidate_coordinator_recommendation(
+        self,
+        operation_id: uuid.UUID,
+        recommendation_id: uuid.UUID,
+        *,
+        changed_at: datetime,
+        reason: str,
+        details: dict | None = None,
+    ) -> dict | None:
+        pool = self._require_pool()
+        row = await pool.fetchrow(
+            """UPDATE coordinator_recommendations
+               SET status = $3,
+                   details = COALESCE($6::jsonb, details),
+                   updated_at = $4,
+                   invalidated_at = $4,
+                   invalidated_reason = $5
+               WHERE operation_id = $1 AND id = $2
+               RETURNING *""",
+            operation_id,
+            recommendation_id,
+            CoordinatorRecommendationStatus.INVALIDATED.value,
+            changed_at,
+            reason,
+            json.dumps(details) if details is not None else None,
+        )
+        return dict(row) if row else None
+
+    async def get_coordinator_state(
+        self,
+        operation_id: uuid.UUID,
+        *,
+        limit: int = 5,
+    ) -> dict[str, list[dict] | dict | None]:
+        pool = self._require_pool()
+        gap_rows = await pool.fetch(
+            """SELECT * FROM coordinator_gaps
+               WHERE operation_id = $1
+               ORDER BY
+                 CASE status WHEN 'open' THEN 0 ELSE 1 END,
+                 updated_at DESC
+               LIMIT $2""",
+            operation_id,
+            max(1, limit),
+        )
+        task_rows = await pool.fetch(
+            """SELECT t.*, m.name AS assigned_member_name
+               FROM coordinator_tasks AS t
+               JOIN members AS m ON m.id = t.assigned_member_id
+               WHERE t.operation_id = $1
+               ORDER BY
+                 CASE t.status WHEN 'open' THEN 0 ELSE 1 END,
+                 t.updated_at DESC
+               LIMIT $2""",
+            operation_id,
+            max(1, limit),
+        )
+        recommendation_rows = await pool.fetch(
+            """SELECT * FROM coordinator_recommendations
+               WHERE operation_id = $1
+               ORDER BY
+                 CASE status WHEN 'emitted' THEN 0 WHEN 'pending' THEN 1 ELSE 2 END,
+                 updated_at DESC
+               LIMIT $2""",
+            operation_id,
+            max(1, limit),
+        )
+        gaps = [dict(row) for row in gap_rows]
+        tasks = [dict(row) for row in task_rows]
+        recommendations = [dict(row) for row in recommendation_rows]
+        return {
+            "gaps": gaps,
+            "tasks": tasks,
+            "recommendations": recommendations,
+            "active_gap": next((row for row in gaps if row.get("status") == "open"), None),
+            "active_task": next((row for row in tasks if row.get("status") == "open"), None),
+            "active_recommendation": next(
+                (row for row in recommendations if row.get("status") == "emitted"),
+                None,
+            ),
+        }
 
     async def get_synthesis_finding_notes(
         self,

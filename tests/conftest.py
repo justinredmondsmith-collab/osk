@@ -93,6 +93,26 @@ def mock_db() -> MagicMock:
     db.get_synthesis_findings = AsyncMock(return_value=[])
     db.get_synthesis_finding_correlations = AsyncMock(return_value=None)
     db.get_review_feed = AsyncMock(return_value=[])
+    db.get_coordinator_state = AsyncMock(
+        return_value={
+            "gaps": [],
+            "tasks": [],
+            "recommendations": [],
+            "active_gap": None,
+            "active_task": None,
+            "active_recommendation": None,
+        }
+    )
+    db.get_open_coordinator_gap = AsyncMock(return_value=None)
+    db.upsert_open_coordinator_gap = AsyncMock(return_value=None)
+    db.update_coordinator_gap_status = AsyncMock(return_value=None)
+    db.insert_coordinator_task = AsyncMock(return_value=None)
+    db.get_open_coordinator_task_for_gap = AsyncMock(return_value=None)
+    db.get_open_coordinator_task_for_member = AsyncMock(return_value=None)
+    db.update_coordinator_task_status = AsyncMock(return_value=None)
+    db.insert_coordinator_recommendation = AsyncMock(return_value=None)
+    db.get_active_coordinator_recommendation = AsyncMock(return_value=None)
+    db.invalidate_coordinator_recommendation = AsyncMock(return_value=None)
     db.get_events = AsyncMock(return_value=[])
     db.get_latest_sitrep = AsyncMock(return_value=None)
     db.get_recent_sitreps = AsyncMock(return_value=[])

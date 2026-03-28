@@ -517,6 +517,7 @@ def test_coordinator_dashboard_state_returns_snapshot(
     assert payload["buffer_history"]["trend"] == "steady"
     assert payload["buffer_history"]["window_points"] == 1
     assert payload["buffer_history"]["points"][0]["buffered_items"] == 3
+    assert payload["coordinator_state"]["active_gap"] is None
     assert payload["latest_sitrep"]["text"] == "Situation steady."
     assert payload["map"]["available"] is True
     assert payload["map"]["available_zooms"] == [14]

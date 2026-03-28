@@ -122,6 +122,20 @@ def _isoformat_utc(timestamp: dt.datetime | None) -> str | None:
     return timestamp.astimezone(dt.timezone.utc).isoformat().replace("+00:00", "Z")
 
 
+def _json_ready(value):
+    if isinstance(value, dict):
+        return {str(key): _json_ready(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_json_ready(item) for item in value]
+    if isinstance(value, tuple):
+        return [_json_ready(item) for item in value]
+    if isinstance(value, uuid.UUID):
+        return str(value)
+    if isinstance(value, dt.datetime):
+        return _isoformat_utc(value)
+    return value
+
+
 def _parse_timestamp(value: object) -> dt.datetime | None:
     if isinstance(value, dt.datetime):
         return value.astimezone(dt.timezone.utc)
@@ -1623,6 +1637,7 @@ async def _build_dashboard_state(
     conn_manager: ConnectionManager,
     db,
     intelligence_service,
+    coordinator_engine=None,
     limit: int = 40,
     include_types: set[str] | None = None,
     finding_status: FindingStatus | None = None,
@@ -1640,6 +1655,8 @@ async def _build_dashboard_state(
         db=db,
         heartbeat_timeout_seconds=config.member_heartbeat_timeout_seconds,
     )
+    if coordinator_engine is not None:
+        await coordinator_engine.refresh()
     latest_sitrep = await db.get_latest_sitrep(operation.id)
     review_feed = await db.get_review_feed(
         operation.id,
@@ -1654,6 +1671,7 @@ async def _build_dashboard_state(
         if intelligence_service is not None
         else {"running": False, "error": "Intelligence service is not configured"}
     )
+    coordinator_state = _json_ready(await db.get_coordinator_state(operation.id, limit=5))
     generated_at = _utcnow().isoformat().replace("+00:00", "Z")
     member_summary = _member_summary(members)
     audit_events = await db.get_audit_events(operation.id, limit=MAX_AUDIT_LIMIT)
@@ -1700,6 +1718,7 @@ async def _build_dashboard_state(
             "connected": conn_manager.connected_count,
         },
         "intelligence_status": intelligence_status,
+        "coordinator_state": coordinator_state,
         "latest_sitrep": latest_sitrep,
         "review_feed": review_feed_items,
         "members": members,
@@ -1769,10 +1788,12 @@ def create_app(
     conn_manager: ConnectionManager,
     db,
     intelligence_service=None,
+    coordinator_engine=None,
     member_runtime_overrides: dict[str, object] | None = None,
 ) -> FastAPI:
     app = FastAPI(title="Osk Hub", docs_url=None, redoc_url=None)
     app.state.intelligence_service = intelligence_service
+    app.state.coordinator_engine = coordinator_engine
     app.state.dashboard_buffer_history = deque(maxlen=DASHBOARD_BUFFER_HISTORY_MAX_POINTS)
     app.state.dashboard_buffer_signals = {}
     app.state.wipe_follow_up_markers = {}
@@ -2051,6 +2072,7 @@ def create_app(
             conn_manager=conn_manager,
             db=db,
             intelligence_service=intelligence_service,
+            coordinator_engine=app.state.coordinator_engine,
             limit=max(1, min(limit, MAX_REVIEW_FEED_LIMIT)),
             include_types=include_types,
             finding_status=finding_status,
@@ -2107,6 +2129,7 @@ def create_app(
                     conn_manager=conn_manager,
                     db=db,
                     intelligence_service=intelligence_service,
+                    coordinator_engine=app.state.coordinator_engine,
                     limit=clamped_limit,
                     include_types=include_types,
                     finding_status=finding_status,
@@ -2994,6 +3017,13 @@ def create_app(
             actor_member_id=event.source_member_id,
             details={"event_id": str(event.id)},
         )
+        if app.state.coordinator_engine is not None:
+            await app.state.coordinator_engine.process_member_report(
+                member_id=event.source_member_id,
+                report_text=event.text,
+                event_id=event.id,
+                timestamp=event.timestamp,
+            )
         return {"status": "reported", "event_id": str(event.id)}
 
     @app.post("/api/wipe")
@@ -3208,6 +3238,8 @@ def create_app(
                     "member_session_expires_at": runtime_bootstrap["expires_at"],
                 }
             )
+            if app.state.coordinator_engine is not None:
+                await app.state.coordinator_engine.push_current_task(member_id)
 
             while True:
                 message = await ws.receive()
@@ -3303,6 +3335,13 @@ def create_app(
                         if report_id is not None:
                             payload["report_id"] = report_id
                         await ws.send_json(payload)
+                        if app.state.coordinator_engine is not None:
+                            await app.state.coordinator_engine.process_member_report(
+                                member_id=member_id,
+                                report_text=event.text,
+                                event_id=event.id,
+                                timestamp=ack_timestamp,
+                            )
                     elif msg_type == "audio_meta":
                         pending_audio_meta = data
                         pending_frame_meta = None

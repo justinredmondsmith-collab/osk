@@ -49,7 +49,7 @@ if [[ ! -f "${LATEST_PATH}" ]]; then
 fi
 
 HELPER_ARGS=(
-  scripts/chromebook_real_hub_workflow_summary.py
+  "${REPO_ROOT}/scripts/chromebook_real_hub_workflow_summary.py"
   --latest-path "${LATEST_PATH}"
 )
 

@@ -88,6 +88,7 @@
     authenticated: false,
     feed: [],
     alerts: [],
+    currentTask: null,
     reconnectAttempt: 0,
     reconnectTimer: null,
     intentionallyLeaving: false,
@@ -151,6 +152,13 @@
     runtimeReportText: document.getElementById("runtime-report-text"),
     runtimeReportStatus: document.getElementById("runtime-report-status"),
     runtimeReportSend: document.getElementById("runtime-report-send"),
+    runtimeTaskSummary: document.getElementById("runtime-task-summary"),
+    runtimeTaskStatus: document.getElementById("runtime-task-status"),
+    runtimeTaskUpdated: document.getElementById("runtime-task-updated"),
+    runtimeTaskRoute: document.getElementById("runtime-task-route"),
+    runtimeTaskWhy: document.getElementById("runtime-task-why"),
+    runtimeTaskLocation: document.getElementById("runtime-task-location"),
+    runtimeTaskViewpoint: document.getElementById("runtime-task-viewpoint"),
     runtimeSensorSignal: document.getElementById("runtime-sensor-signal"),
     runtimeSensorState: document.getElementById("runtime-sensor-state"),
     runtimeSensorDetail: document.getElementById("runtime-sensor-detail"),
@@ -460,6 +468,63 @@
     if (elements.runtimeReportStatus) {
       elements.runtimeReportStatus.textContent = message;
       elements.runtimeReportStatus.classList.toggle("is-error", error);
+    }
+  }
+
+  function renderTask() {
+    const task = state.currentTask;
+    if (!task) {
+      if (elements.runtimeTaskSummary) {
+        elements.runtimeTaskSummary.textContent = "No active coordinator task for this member.";
+      }
+      if (elements.runtimeTaskStatus) {
+        elements.runtimeTaskStatus.textContent = "Idle";
+      }
+      if (elements.runtimeTaskUpdated) {
+        elements.runtimeTaskUpdated.textContent = "Waiting for assignment.";
+      }
+      if (elements.runtimeTaskRoute) {
+        elements.runtimeTaskRoute.textContent = "--";
+      }
+      if (elements.runtimeTaskWhy) {
+        elements.runtimeTaskWhy.textContent = "No routing reason yet.";
+      }
+      if (elements.runtimeTaskLocation) {
+        elements.runtimeTaskLocation.textContent = "--";
+      }
+      if (elements.runtimeTaskViewpoint) {
+        elements.runtimeTaskViewpoint.textContent = "No viewpoint requested.";
+      }
+      return;
+    }
+
+    if (elements.runtimeTaskSummary) {
+      elements.runtimeTaskSummary.textContent = task.prompt || "Coordinator task received.";
+    }
+    if (elements.runtimeTaskStatus) {
+      elements.runtimeTaskStatus.textContent = normalizeWhitespace(
+        String(task.status || "open").replaceAll("_", " "),
+      );
+    }
+    if (elements.runtimeTaskUpdated) {
+      const updatedAt = task.updated_at || task.created_at;
+      elements.runtimeTaskUpdated.textContent = updatedAt
+        ? `Updated ${formatRelativeTime(updatedAt)}`
+        : "Coordinator task received.";
+    }
+    if (elements.runtimeTaskRoute) {
+      elements.runtimeTaskRoute.textContent = task.requested_route_title || "--";
+    }
+    if (elements.runtimeTaskWhy) {
+      elements.runtimeTaskWhy.textContent =
+        task.assignment_reason || "Coordinator selected this member for the next field update.";
+    }
+    if (elements.runtimeTaskLocation) {
+      elements.runtimeTaskLocation.textContent = task.requested_location_label || "--";
+    }
+    if (elements.runtimeTaskViewpoint) {
+      elements.runtimeTaskViewpoint.textContent =
+        task.requested_viewpoint || "No viewpoint requested.";
     }
   }
 
@@ -2162,6 +2227,41 @@
     updateActionAvailability();
   }
 
+  function handleCoordinatorTask(payload) {
+    state.currentTask = {
+      task_id: String(payload.task_id || ""),
+      gap_id: String(payload.gap_id || ""),
+      status: String(payload.status || "open"),
+      prompt: String(payload.prompt || "Coordinator task received."),
+      assignment_reason: String(payload.assignment_reason || ""),
+      requested_route_key: String(payload.requested_route_key || ""),
+      requested_route_title: String(payload.requested_route_title || ""),
+      requested_location_label: String(payload.requested_location_label || ""),
+      requested_viewpoint: String(payload.requested_viewpoint || ""),
+      created_at: payload.created_at || null,
+      updated_at: payload.updated_at || null,
+      completed_at: payload.completed_at || null,
+      cancelled_at: payload.cancelled_at || null,
+      details: payload.details || {},
+    };
+    renderTask();
+    if (state.currentTask.status === "open") {
+      pushFeed("Coordinator assigned a field update task.", "warning");
+      return;
+    }
+    if (state.currentTask.status === "completed") {
+      pushFeed("Coordinator task marked complete.", "success");
+      return;
+    }
+    if (state.currentTask.status === "superseded") {
+      pushFeed("Coordinator task was superseded by a newer assignment.", "note");
+      return;
+    }
+    if (state.currentTask.status === "cancelled") {
+      pushFeed("Coordinator task was cancelled.", "note");
+    }
+  }
+
   function handleSocketMessage(payload) {
     if (payload.type === "auth_ok") {
       state.authenticated = true;
@@ -2198,6 +2298,11 @@
     if (payload.type === "role_change") {
       applyMemberRole(String(payload.role || "observer"));
       pushFeed(`Role updated to ${payload.role}.`);
+      return;
+    }
+
+    if (payload.type === "coordinator_task") {
+      handleCoordinatorTask(payload);
       return;
     }
 
@@ -2414,6 +2519,7 @@
     renderFeed();
     renderAlerts();
     renderAlertSummary();
+    renderTask();
     refreshSensorUi();
     refreshObserverUi();
     await refreshOutboxState();

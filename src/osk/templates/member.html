@@ -222,6 +222,33 @@
 
           <section class="member-control">
             <div class="member-control-copy">
+              <p class="member-eyebrow">Assigned Task</p>
+              <h3>Coordinator Request</h3>
+              <p class="member-subtle" id="runtime-task-summary">
+                No active coordinator task for this member.
+              </p>
+            </div>
+            <div class="member-grid member-grid--triple">
+              <div class="member-grid-item">
+                <span class="member-label">Status</span>
+                <strong id="runtime-task-status">Idle</strong>
+                <small id="runtime-task-updated">Waiting for assignment.</small>
+              </div>
+              <div class="member-grid-item">
+                <span class="member-label">Why You</span>
+                <strong id="runtime-task-route">--</strong>
+                <small id="runtime-task-why">No routing reason yet.</small>
+              </div>
+              <div class="member-grid-item">
+                <span class="member-label">Requested Position</span>
+                <strong id="runtime-task-location">--</strong>
+                <small id="runtime-task-viewpoint">No viewpoint requested.</small>
+              </div>
+            </div>
+          </section>
+
+          <section class="member-control">
+            <div class="member-control-copy">
               <p class="member-eyebrow">Location</p>
               <h3>Share GPS</h3>
               <p class="member-subtle">

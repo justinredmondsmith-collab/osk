@@ -6,8 +6,8 @@
 
 [![Version](https://img.shields.io/badge/version-1.0.0-blue)](https://github.com/justinredmondsmith-collab/osk/releases)
 [![Python](https://img.shields.io/badge/python-3.11%2B-blue)](https://www.python.org/)
-[![Tests](https://img.shields.io/badge/tests-498%20passing-brightgreen)]()
-[![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+[![Tests](https://img.shields.io/badge/tests-510%20passing-brightgreen)]()
+[![License](https://img.shields.io/badge/license-AGPL--3.0--only-blue)](LICENSE)
 
 [📖 Documentation](docs/) • [🚀 Quickstart](#quickstart) • [📥 Install](#installation) • [✅ Validation](#validation-status)
 
@@ -36,6 +36,7 @@ Osk is a **local-first coordination system** designed for civilian groups operat
 |---------|-------------|
 | 📡 **Sensor Streaming** | Live audio/video from 5+ member devices |
 | 🧠 **AI Synthesis** | LLM-powered situation analysis (Ollama) |
+| 🧭 **Coordinator Tasking** | Deterministic route-confirmation tasks pushed directly to field sensors |
 | 📊 **Live Dashboard** | Real-time map, alerts, and findings |
 | 🔒 **Encrypted Evidence** | Tamper-proof audit trail with SHA256 verification |
 | 🔥 **Emergency Wipe** | Broadcast shutdown to all connected devices |
@@ -100,7 +101,7 @@ Osk 1.0.0 is **production-ready** with comprehensive validation:
 | **Full Matrix** | Join/Reconnect/Offline/Wipe | ✅ PASS |
 | **Semantic Synthesis** | 10 unit tests | ✅ CODE VALIDATED |
 
-**Test Count:** 498 tests passing  
+**Test Count:** 510 tests passing  
 **Coverage:** Core workflows validated  
 **Stability:** 1+ hour continuous operation verified
 
@@ -146,9 +147,20 @@ Web-based command center showing:
 
 - 🗺️ **Live Map:** Member positions and movement
 - 🔔 **Active Alerts:** Severity-ranked notifications
+- 🧭 **Coordinator State:** Open gaps, assigned field tasks, and current route recommendations
 - 📋 **Findings:** Synthesized incident reports
 - 🎥 **Evidence Review:** Exported audio/video artifacts
 - 📈 **System Health:** CPU, memory, queue status
+
+### 🧭 Guided Route Confirmation
+The first coordinator slice turns synthesized route or police signals into
+explicit field tasks and route calls:
+
+- **Gap tracking:** Opens a coordinator gap when route viability needs confirmation
+- **Direct task push:** Sends a `coordinator_task` message to the freshest eligible sensor
+- **Scripted recommendations:** Confirms or invalidates fixed `north_exit` and `east_exit` routes
+- **Reconnect safety:** Re-pushes the current open task when a member reconnects
+- **Dashboard visibility:** Shows live gap, task, and recommendation state in the coordinator shell
 
 ### 🔐 Evidence & Compliance
 Forensic-grade audit trail:
@@ -227,7 +239,7 @@ osk doctor --json
 Run the validation suite:
 
 ```bash
-# Full test suite (498 tests)
+# Full test suite (510 tests)
 make test
 
 # Quick validation
