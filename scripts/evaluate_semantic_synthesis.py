@@ -12,7 +12,7 @@ Usage:
 Examples:
     # Test with default model
     python scripts/evaluate_semantic_synthesis.py
-    
+
     # Test with specific model
     python scripts/evaluate_semantic_synthesis.py --model llama3.2:3b
 """
@@ -154,13 +154,13 @@ def check_result(
         if category is not None:
             return False, f"Expected no event, got {category.value}/{severity.value if severity else 'None'}"
         return True, "Correctly ignored"
-    
+
     if category != test_case.expected_category:
         return False, f"Expected {test_case.expected_category.value}, got {category.value if category else 'None'}"
-    
+
     if severity != test_case.expected_severity:
         return False, f"Expected {test_case.expected_severity.value}, got {severity.value if severity else 'None'}"
-    
+
     return True, "Correct"
 
 
@@ -171,28 +171,28 @@ async def evaluate_synthesizer(
     """Run evaluation and return results."""
     results = []
     latencies = []
-    
+
     for test in test_cases:
         print(f"\n  Testing: {test.name}")
         print(f"    Input: {test.observation.summary[:60]}...")
-        
+
         start = time.monotonic()
         decision = await synthesizer.synthesize(test.observation)
         latency = time.monotonic() - start
         latencies.append(latency)
-        
+
         category = decision.events[0].category if decision.events else None
         severity = decision.events[0].severity if decision.events else None
-        
+
         passed, message = check_result(test, category, severity)
         status = "✓ PASS" if passed else "✗ FAIL"
-        
+
         print(f"    Expected: {test.expected_category.value if test.expected_category else 'None'}/"
               f"{test.expected_severity.value if test.expected_severity else 'None'}")
         print(f"    Got: {category.value if category else 'None'}/"
               f"{severity.value if severity else 'None'}")
         print(f"    {status}: {message} ({latency:.2f}s)")
-        
+
         results.append({
             "test": test.name,
             "passed": passed,
@@ -202,7 +202,7 @@ async def evaluate_synthesizer(
                   f"{severity.value if severity else 'None'}",
             "latency": latency,
         })
-    
+
     return {
         "results": results,
         "latencies": latencies,
@@ -217,14 +217,14 @@ async def main():
     parser.add_argument("--url", default="http://localhost:11434", help="Ollama base URL")
     parser.add_argument("--timeout", type=float, default=10.0, help="Request timeout")
     args = parser.parse_args()
-    
+
     print("=" * 60)
     print("OSK Semantic Synthesis Evaluation")
     print("=" * 60)
     print(f"Model: {args.model}")
     print(f"URL: {args.url}")
     print(f"Test cases: {len(TEST_CASES)}")
-    
+
     # Check Ollama availability
     try:
         import httpx
@@ -233,33 +233,33 @@ async def main():
             if response.status_code != 200:
                 print(f"\n✗ Ollama not responding (status {response.status_code})")
                 return 1
-            
+
             models = response.json().get("models", [])
             model_names = [m.get("name", m.get("model", "")) for m in models]
-            
+
             if args.model not in model_names:
                 print(f"\n⚠ Model '{args.model}' not found in Ollama")
                 print(f"  Available models: {', '.join(model_names[:5])}...")
                 print(f"  Pull with: ollama pull {args.model}")
                 return 1
-            
-            print(f"✓ Ollama available, model found")
+
+            print("✓ Ollama available, model found")
     except Exception as exc:
         print(f"\n✗ Cannot connect to Ollama: {exc}")
-        print(f"  Make sure Ollama is running: ollama serve")
+        print("  Make sure Ollama is running: ollama serve")
         return 1
-    
+
     # Create synthesizer
     synthesizer = OllamaObservationSynthesizer(
         base_url=args.url,
         model=args.model,
         timeout_seconds=args.timeout,
     )
-    
+
     print("\n" + "-" * 60)
     print("Running evaluation...")
     print("-" * 60)
-    
+
     try:
         results = await evaluate_synthesizer(synthesizer, TEST_CASES)
     except Exception as exc:
@@ -269,37 +269,37 @@ async def main():
         return 1
     finally:
         await synthesizer.close()
-    
+
     # Print summary
     print("\n" + "=" * 60)
     print("Summary")
     print("=" * 60)
-    
+
     accuracy = results["passed"] / results["total"] * 100
     avg_latency = sum(results["latencies"]) / len(results["latencies"])
     max_latency = max(results["latencies"])
-    
+
     print(f"Accuracy: {results['passed']}/{results['total']} ({accuracy:.0f}%)")
     print(f"Avg latency: {avg_latency:.2f}s")
     print(f"Max latency: {max_latency:.2f}s")
-    
+
     if accuracy >= 80:
-        print(f"\n✓ Target accuracy met (≥80%)")
+        print("\n✓ Target accuracy met (≥80%)")
     else:
-        print(f"\n✗ Below target accuracy (<80%)")
-    
+        print("\n✗ Below target accuracy (<80%)")
+
     if max_latency <= 3.0:
-        print(f"✓ Latency target met (≤3s)")
+        print("✓ Latency target met (≤3s)")
     else:
-        print(f"⚠ Latency above target (>3s)")
-    
+        print("⚠ Latency above target (>3s)")
+
     # Print failed tests
     failed = [r for r in results["results"] if not r["passed"]]
     if failed:
-        print(f"\nFailed tests:")
+        print("\nFailed tests:")
         for r in failed:
             print(f"  - {r['test']}: expected {r['expected']}, got {r['got']}")
-    
+
     return 0 if accuracy >= 80 else 1
 
 

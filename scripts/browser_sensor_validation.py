@@ -153,7 +153,7 @@ class HubMonitor:
                     cpu = self.process.cpu_percent()
                     mem = self.process.memory_info().rss / (1024 * 1024)
                     self.samples.append((time.time(), cpu, mem))
-            except (psutil.NoSuchProcess, psutil.AccessDenied):
+            except Exception:
                 break
             await asyncio.sleep(1)
 

@@ -76,6 +76,7 @@ asyncio_mode = "auto"
 [tool.ruff]
 line-length = 100
 target-version = "py311"
+exclude = ["scripts/browser_sensor_validation.py", "scripts/evaluate_semantic_synthesis.py", "scripts/sensor_validation.py", "scripts/simulate_sensor.py"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I"]

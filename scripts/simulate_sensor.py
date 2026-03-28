@@ -13,15 +13,12 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import json
 import logging
 import random
 import ssl
 import sys
 import time
-import uuid
 from dataclasses import dataclass, field
-from typing import Any
 
 import aiohttp
 
@@ -46,20 +43,20 @@ class SensorSession:
 async def join_as_sensor(hub_url: str, name: str) -> SensorSession:
     """Join the hub as a sensor member."""
     session = SensorSession()
-    
+
     # Get operation info
     async with aiohttp.ClientSession() as http_session:
         # First, try to get the join page to extract token or config
         ssl_context = ssl.create_default_context()
         ssl_context.check_hostname = False
         ssl_context.verify_mode = ssl.CERT_NONE
-        
+
         join_url = f"{hub_url}/join"
         logger.info(f"Connecting to {join_url}")
-        
+
         # For simplicity, we'll use a direct API approach
         # In production, this would parse the HTML form
-        
+
         # Get operation details
         status_url = f"{hub_url}/api/status"
         try:
@@ -73,7 +70,7 @@ async def join_as_sensor(hub_url: str, name: str) -> SensorSession:
             logger.error(f"Could not connect to hub: {exc}")
             session.errors.append(str(exc))
             return session
-        
+
         # Try to join via the member endpoint
         join_api_url = f"{hub_url}/api/members"
         join_data = {
@@ -82,7 +79,7 @@ async def join_as_sensor(hub_url: str, name: str) -> SensorSession:
             "latitude": 40.7128 + random.uniform(-0.01, 0.01),
             "longitude": -74.0060 + random.uniform(-0.01, 0.01),
         }
-        
+
         try:
             async with http_session.post(
                 join_api_url,
@@ -103,7 +100,7 @@ async def join_as_sensor(hub_url: str, name: str) -> SensorSession:
         except Exception as exc:
             logger.error(f"Join error: {exc}")
             session.errors.append(str(exc))
-    
+
     return session
 
 
@@ -115,27 +112,27 @@ async def stream_audio(
     """Stream synthetic audio chunks."""
     if not session.connected or not session.member_id:
         return
-    
+
     ssl_context = ssl.create_default_context()
     ssl_context.check_hostname = False
     ssl_context.verify_mode = ssl.CERT_NONE
-    
+
     start_time = time.time()
     chunk_duration = 4  # 4 second chunks
-    
+
     async with aiohttp.ClientSession() as http_session:
         while time.time() - start_time < duration_seconds:
             try:
                 # Generate synthetic audio data (128KB for 4s at 16kHz mono)
                 audio_data = bytes([random.randint(0, 255) for _ in range(128000)])
-                
+
                 # Upload audio chunk
                 upload_url = f"{hub_url}/api/members/{session.member_id}/audio"
-                
+
                 # Create multipart form data
                 data = aiohttp.FormData()
                 data.add_field("chunk", audio_data, filename="chunk.webm")
-                
+
                 async with http_session.post(
                     upload_url,
                     data=data,
@@ -146,12 +143,12 @@ async def stream_audio(
                         if session.audio_chunks_sent % 10 == 0:
                             logger.info(f"Audio chunks sent: {session.audio_chunks_sent}")
                     else:
-                        error = await resp.text()
+                        await resp.text()
                         logger.warning(f"Audio upload failed: {resp.status}")
                         session.errors.append(f"Audio HTTP {resp.status}")
-                
+
                 await asyncio.sleep(chunk_duration)
-                
+
             except Exception as exc:
                 logger.error(f"Audio streaming error: {exc}")
                 session.errors.append(str(exc))
@@ -166,27 +163,27 @@ async def stream_frames(
     """Stream synthetic frame data."""
     if not session.connected or not session.member_id:
         return
-    
+
     ssl_context = ssl.create_default_context()
     ssl_context.check_hostname = False
     ssl_context.verify_mode = ssl.CERT_NONE
-    
+
     start_time = time.time()
     frame_interval = 0.5  # 2 FPS
-    
+
     async with aiohttp.ClientSession() as http_session:
         while time.time() - start_time < duration_seconds:
             try:
                 # Generate synthetic JPEG data (10KB placeholder)
                 # In reality, this would be actual JPEG data
                 frame_data = bytes([0xFF, 0xD8] + [random.randint(0, 255) for _ in range(10000)] + [0xFF, 0xD9])
-                
+
                 # Upload frame
                 upload_url = f"{hub_url}/api/members/{session.member_id}/frames"
-                
+
                 data = aiohttp.FormData()
                 data.add_field("frame", frame_data, filename="frame.jpg")
-                
+
                 async with http_session.post(
                     upload_url,
                     data=data,
@@ -197,11 +194,11 @@ async def stream_frames(
                         if session.frames_sent % 20 == 0:
                             logger.info(f"Frames sent: {session.frames_sent}")
                     else:
-                        error = await resp.text()
+                        await resp.text()
                         logger.warning(f"Frame upload failed: {resp.status}")
-                
+
                 await asyncio.sleep(frame_interval)
-                
+
             except Exception as exc:
                 logger.error(f"Frame streaming error: {exc}")
                 await asyncio.sleep(1)
@@ -215,24 +212,24 @@ async def send_heartbeats(
     """Send periodic heartbeats."""
     if not session.connected or not session.member_id:
         return
-    
+
     ssl_context = ssl.create_default_context()
     ssl_context.check_hostname = False
     ssl_context.verify_mode = ssl.CERT_NONE
-    
+
     start_time = time.time()
-    
+
     async with aiohttp.ClientSession() as http_session:
         while time.time() - start_time < duration_seconds:
             try:
                 heartbeat_url = f"{hub_url}/api/members/{session.member_id}/heartbeat"
-                
+
                 async with http_session.post(heartbeat_url, ssl=ssl_context) as resp:
                     if resp.status != 200:
                         logger.warning(f"Heartbeat failed: {resp.status}")
-                
+
                 await asyncio.sleep(15)  # Heartbeat every 15 seconds
-                
+
             except Exception as exc:
                 logger.debug(f"Heartbeat error: {exc}")
                 await asyncio.sleep(5)
@@ -247,13 +244,13 @@ async def run_sensor(
     logger.info(f"Starting sensor: {name}")
     logger.info(f"Hub URL: {hub_url}")
     logger.info(f"Duration: {duration_seconds}s")
-    
+
     # Join
     session = await join_as_sensor(hub_url, name)
     if not session.connected:
         logger.error("Failed to connect")
         return session
-    
+
     # Start streaming tasks
     logger.info("Starting data streams...")
     await asyncio.gather(
@@ -261,12 +258,12 @@ async def run_sensor(
         stream_frames(hub_url, session, duration_seconds),
         send_heartbeats(hub_url, session, duration_seconds),
     )
-    
-    logger.info(f"Sensor session complete:")
+
+    logger.info("Sensor session complete:")
     logger.info(f"  Audio chunks: {session.audio_chunks_sent}")
     logger.info(f"  Frames: {session.frames_sent}")
     logger.info(f"  Errors: {len(session.errors)}")
-    
+
     return session
 
 
@@ -276,9 +273,9 @@ async def main():
     parser.add_argument("--name", default="Simulated-Sensor-01", help="Sensor name")
     parser.add_argument("--duration", type=int, default=3600, help="Duration in seconds")
     args = parser.parse_args()
-    
+
     session = await run_sensor(args.hub_url, args.name, args.duration)
-    
+
     return 0 if session.connected and len(session.errors) < 10 else 1
 
 
