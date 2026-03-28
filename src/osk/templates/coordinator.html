@@ -225,6 +225,105 @@
             </div>
           </section>
 
+          <!-- Task Management Panel (Release 1.2.0) -->
+          <section class="context-block task-panel-section">
+            <div class="context-block__head">
+              <h3>Task Management</h3>
+              <button class="ghost-button ghost-button--compact" id="btn-create-task" type="button">
+                + Assign Task
+              </button>
+            </div>
+
+            <!-- Task Creation Form (hidden by default) -->
+            <div class="task-create-form hidden" id="task-create-form">
+              <div class="form-group">
+                <label for="task-assignee">Assign to</label>
+                <select id="task-assignee" class="form-control">
+                  <option value="">Select member...</option>
+                </select>
+              </div>
+
+              <div class="form-group">
+                <label for="task-type">Task type</label>
+                <select id="task-type" class="form-control">
+                  <option value="CONFIRMATION">Confirmation</option>
+                  <option value="CHECKPOINT">Checkpoint</option>
+                  <option value="REPORT">Report</option>
+                  <option value="CUSTOM">Custom</option>
+                </select>
+              </div>
+
+              <div class="form-group">
+                <label for="task-title">Title</label>
+                <input type="text" id="task-title" class="form-control" placeholder="Task title" maxlength="200">
+              </div>
+
+              <div class="form-group">
+                <label for="task-description">Description</label>
+                <textarea id="task-description" class="form-control" rows="2" placeholder="Optional description"></textarea>
+              </div>
+
+              <div class="form-group">
+                <label class="checkbox-label">
+                  <input type="checkbox" id="task-has-location">
+                  Add location target
+                </label>
+              </div>
+
+              <div class="form-group hidden" id="task-location-fields">
+                <div class="location-inputs">
+                  <input type="number" id="task-lat" class="form-control" placeholder="Latitude" step="any">
+                  <input type="number" id="task-lon" class="form-control" placeholder="Longitude" step="any">
+                  <input type="number" id="task-radius" class="form-control" placeholder="Radius (m)" value="50" min="10">
+                </div>
+              </div>
+
+              <div class="form-row">
+                <div class="form-group">
+                  <label for="task-timeout">Timeout</label>
+                  <select id="task-timeout" class="form-control">
+                    <option value="5">5 minutes</option>
+                    <option value="15" selected>15 minutes</option>
+                    <option value="30">30 minutes</option>
+                    <option value="60">1 hour</option>
+                  </select>
+                </div>
+
+                <div class="form-group">
+                  <label for="task-priority">Priority</label>
+                  <select id="task-priority" class="form-control">
+                    <option value="1">Normal</option>
+                    <option value="2">High</option>
+                    <option value="3">Urgent</option>
+                  </select>
+                </div>
+              </div>
+
+              <div class="form-actions">
+                <button type="button" class="ghost-button" id="btn-cancel-task">Cancel</button>
+                <button type="button" class="primary-button" id="btn-submit-task">Assign Task</button>
+              </div>
+            </div>
+
+            <!-- Active Tasks List -->
+            <div class="task-list" id="active-tasks-list">
+              <p class="empty-state empty-state--compact">No active tasks</p>
+            </div>
+
+            <!-- Task Detail Modal -->
+            <div class="modal hidden" id="task-detail-modal">
+              <div class="modal-content">
+                <h4 id="modal-task-title"></h4>
+                <div class="task-detail-body" id="modal-task-body"></div>
+                <div class="modal-actions">
+                  <button type="button" class="ghost-button" id="btn-close-task-modal">Close</button>
+                  <button type="button" class="danger-button hidden" id="btn-cancel-active-task">Cancel Task</button>
+                  <button type="button" class="primary-button hidden" id="btn-retry-task">Retry</button>
+                </div>
+              </div>
+            </div>
+          </section>
+
           <section class="context-block">
             <h3>Field Map</h3>
             <div class="map-panel" id="member-map">

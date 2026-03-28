@@ -2252,6 +2252,7 @@
       if (payload) {
         await refreshDashboard();
         connectDashboardStream();
+        initTaskManager(); // Initialize task management (Release 1.2.0)
       }
     } catch (error) {
       const message =
@@ -2259,6 +2260,326 @@
       setBanner(message, "error");
       updateConnectionState("error", "Session check failed");
     }
+  }
+
+  // ==========================================================================
+  // Task Management (Release 1.2.0)
+  // ==========================================================================
+
+  const taskManager = {
+    tasks: new Map(),
+    members: new Map(),
+    pollingInterval: null,
+
+    init() {
+      this.bindEvents();
+      this.loadMembers();
+      this.startPolling();
+    },
+
+    bindEvents() {
+      // Create task button
+      document.getElementById('btn-create-task')?.addEventListener('click', () => {
+        document.getElementById('task-create-form').classList.remove('hidden');
+        this.loadMembers(); // Refresh member list
+      });
+
+      // Cancel task creation
+      document.getElementById('btn-cancel-task')?.addEventListener('click', () => {
+        document.getElementById('task-create-form').classList.add('hidden');
+        this.clearForm();
+      });
+
+      // Toggle location fields
+      document.getElementById('task-has-location')?.addEventListener('change', (e) => {
+        document.getElementById('task-location-fields').classList.toggle('hidden', !e.target.checked);
+      });
+
+      // Submit task
+      document.getElementById('btn-submit-task')?.addEventListener('click', () => this.createTask());
+
+      // Close task modal
+      document.getElementById('btn-close-task-modal')?.addEventListener('click', () => {
+        document.getElementById('task-detail-modal').classList.add('hidden');
+      });
+
+      // Cancel active task
+      document.getElementById('btn-cancel-active-task')?.addEventListener('click', () => {
+        const taskId = document.getElementById('task-detail-modal').dataset.taskId;
+        if (taskId) this.cancelTask(taskId);
+      });
+
+      // Retry task
+      document.getElementById('btn-retry-task')?.addEventListener('click', () => {
+        const taskId = document.getElementById('task-detail-modal').dataset.taskId;
+        if (taskId) this.retryTask(taskId);
+      });
+    },
+
+    async loadMembers() {
+      try {
+        const response = await fetch('/api/members', {
+          headers: { 'Authorization': `Bearer ${state.sessionToken}` }
+        });
+        if (!response.ok) return;
+
+        const members = await response.json();
+        this.members.clear();
+
+        const select = document.getElementById('task-assignee');
+        select.innerHTML = '<option value="">Select member...</option>';
+
+        members.forEach(member => {
+          if (member.status === 'connected') {
+            this.members.set(member.id, member);
+            const option = document.createElement('option');
+            option.value = member.id;
+            option.textContent = `${member.name} (${member.role})`;
+            select.appendChild(option);
+          }
+        });
+      } catch (err) {
+        console.error('Failed to load members:', err);
+      }
+    },
+
+    async createTask() {
+      const assigneeId = document.getElementById('task-assignee').value;
+      const taskType = document.getElementById('task-type').value;
+      const title = document.getElementById('task-title').value.trim();
+      const description = document.getElementById('task-description').value.trim();
+      const timeoutMinutes = parseInt(document.getElementById('task-timeout').value);
+      const priority = parseInt(document.getElementById('task-priority').value);
+
+      if (!assigneeId || !title) {
+        setBanner('Please select a member and enter a title', 'error');
+        return;
+      }
+
+      const body = {
+        assignee_id: assigneeId,
+        task_type: taskType,
+        title: title,
+        description: description || null,
+        timeout_minutes: timeoutMinutes,
+        priority: priority
+      };
+
+      // Add location if specified
+      if (document.getElementById('task-has-location').checked) {
+        const lat = parseFloat(document.getElementById('task-lat').value);
+        const lon = parseFloat(document.getElementById('task-lon').value);
+        if (!isNaN(lat) && !isNaN(lon)) {
+          body.target_lat = lat;
+          body.target_lon = lon;
+          body.target_radius_meters = parseInt(document.getElementById('task-radius').value) || 50;
+        }
+      }
+
+      try {
+        const response = await fetch('/api/operator/tasks', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${state.sessionToken}`
+          },
+          body: JSON.stringify(body)
+        });
+
+        if (response.ok) {
+          const task = await response.json();
+          this.tasks.set(task.id, task);
+          this.renderTasks();
+          this.clearForm();
+          document.getElementById('task-create-form').classList.add('hidden');
+          setBanner('Task assigned successfully', 'success');
+        } else {
+          const error = await response.json();
+          setBanner(error.error || 'Failed to create task', 'error');
+        }
+      } catch (err) {
+        setBanner('Network error creating task', 'error');
+      }
+    },
+
+    async loadTasks() {
+      try {
+        const response = await fetch('/api/operator/tasks', {
+          headers: { 'Authorization': `Bearer ${state.sessionToken}` }
+        });
+        if (!response.ok) return;
+
+        const tasks = await response.json();
+        this.tasks.clear();
+        tasks.forEach(task => this.tasks.set(task.id, task));
+        this.renderTasks();
+      } catch (err) {
+        console.error('Failed to load tasks:', err);
+      }
+    },
+
+    renderTasks() {
+      const container = document.getElementById('active-tasks-list');
+      const activeTasks = Array.from(this.tasks.values())
+        .filter(t => ['assigned', 'acknowledged', 'in_progress'].includes(t.state))
+        .sort((a, b) => b.priority - a.priority || new Date(a.created_at) - new Date(b.created_at));
+
+      if (activeTasks.length === 0) {
+        container.innerHTML = '<p class="empty-state empty-state--compact">No active tasks</p>';
+        return;
+      }
+
+      container.innerHTML = activeTasks.map(task => this.renderTaskCard(task)).join('');
+
+      // Add click handlers
+      container.querySelectorAll('.task-card').forEach(card => {
+        card.addEventListener('click', () => this.showTaskDetail(card.dataset.taskId));
+      });
+    },
+
+    renderTaskCard(task) {
+      const priorityLabels = ['', '●', '●●', '●●●'];
+      const priorityClass = ['', 'normal', 'high', 'urgent'][task.priority];
+      const stateClass = task.state;
+      const isOverdue = task.is_overdue;
+
+      return `
+        <div class="task-card ${priorityClass} ${stateClass} ${isOverdue ? 'overdue' : ''}" data-task-id="${task.id}">
+          <div class="task-card__header">
+            <span class="task-priority" title="Priority ${task.priority}">${priorityLabels[task.priority]}</span>
+            <span class="task-type">${task.type}</span>
+            <span class="task-state">${task.state}</span>
+          </div>
+          <h4 class="task-title">${this.escapeHtml(task.title)}</h4>
+          <p class="task-assignee">To: ${this.escapeHtml(task.assignee_name || 'Unknown')}</p>
+          <div class="task-meta">
+            <span class="task-timer">⏱️ ${this.formatTimeRemaining(task.time_remaining_seconds)}</span>
+            ${isOverdue ? '<span class="overdue-badge">OVERDUE</span>' : ''}
+          </div>
+        </div>
+      `;
+    },
+
+    showTaskDetail(taskId) {
+      const task = this.tasks.get(taskId);
+      if (!task) return;
+
+      const modal = document.getElementById('task-detail-modal');
+      modal.dataset.taskId = taskId;
+
+      document.getElementById('modal-task-title').textContent = task.title;
+      document.getElementById('modal-task-body').innerHTML = `
+        <p><strong>Type:</strong> ${task.type}</p>
+        <p><strong>State:</strong> ${task.state}</p>
+        <p><strong>Assignee:</strong> ${this.escapeHtml(task.assignee_name || 'Unknown')}</p>
+        ${task.description ? `<p><strong>Description:</strong> ${this.escapeHtml(task.description)}</p>` : ''}
+        ${task.target_location ? `<p><strong>Target:</strong> ${task.target_location.lat.toFixed(6)}, ${task.target_location.lon.toFixed(6)}</p>` : ''}
+        <p><strong>Created:</strong> ${new Date(task.created_at).toLocaleString()}</p>
+        <p><strong>Timeout:</strong> ${new Date(task.timeout_at).toLocaleString()}</p>
+        <p><strong>Time remaining:</strong> ${this.formatTimeRemaining(task.time_remaining_seconds)}</p>
+      `;
+
+      // Show appropriate action buttons
+      const cancelBtn = document.getElementById('btn-cancel-active-task');
+      const retryBtn = document.getElementById('btn-retry-task');
+
+      cancelBtn.classList.toggle('hidden', task.state === 'timeout');
+      retryBtn.classList.toggle('hidden', task.state !== 'timeout');
+
+      modal.classList.remove('hidden');
+    },
+
+    async cancelTask(taskId) {
+      try {
+        const response = await fetch(`/api/operator/tasks/${taskId}/cancel`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${state.sessionToken}`
+          },
+          body: JSON.stringify({ reason: 'Cancelled by coordinator' })
+        });
+
+        if (response.ok) {
+          this.tasks.delete(taskId);
+          this.renderTasks();
+          document.getElementById('task-detail-modal').classList.add('hidden');
+          setBanner('Task cancelled', 'success');
+        }
+      } catch (err) {
+        setBanner('Failed to cancel task', 'error');
+      }
+    },
+
+    async retryTask(taskId) {
+      try {
+        const response = await fetch(`/api/operator/tasks/${taskId}/retry`, {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${state.sessionToken}` }
+        });
+
+        if (response.ok) {
+          const task = await response.json();
+          this.tasks.set(task.id, task);
+          this.renderTasks();
+          document.getElementById('task-detail-modal').classList.add('hidden');
+          setBanner('Task retry initiated', 'success');
+        }
+      } catch (err) {
+        setBanner('Failed to retry task', 'error');
+      }
+    },
+
+    startPolling() {
+      this.loadTasks();
+      this.pollingInterval = window.setInterval(() => this.loadTasks(), 5000);
+    },
+
+    stopPolling() {
+      if (this.pollingInterval) {
+        window.clearInterval(this.pollingInterval);
+        this.pollingInterval = null;
+      }
+    },
+
+    clearForm() {
+      document.getElementById('task-assignee').value = '';
+      document.getElementById('task-type').value = 'CONFIRMATION';
+      document.getElementById('task-title').value = '';
+      document.getElementById('task-description').value = '';
+      document.getElementById('task-has-location').checked = false;
+      document.getElementById('task-location-fields').classList.add('hidden');
+      document.getElementById('task-lat').value = '';
+      document.getElementById('task-lon').value = '';
+      document.getElementById('task-radius').value = '50';
+      document.getElementById('task-timeout').value = '15';
+      document.getElementById('task-priority').value = '1';
+    },
+
+    formatTimeRemaining(seconds) {
+      if (seconds <= 0) return 'Expired';
+      const mins = Math.floor(seconds / 60);
+      const secs = seconds % 60;
+      return `${mins}m ${secs.toString().padStart(2, '0')}s`;
+    },
+
+    escapeHtml(text) {
+      if (!text) return '';
+      const div = document.createElement('div');
+      div.textContent = text;
+      return div.innerHTML;
+    },
+
+    // Handle WebSocket messages for task updates
+    handleWebSocketMessage(msg) {
+      if (msg.type === 'task_acknowledged' || msg.type === 'task_started' || msg.type === 'task_completed') {
+        this.loadTasks(); // Refresh task list
+      }
+    }
+  };
+
+  function initTaskManager() {
+    taskManager.init();
   }
 
   function init() {

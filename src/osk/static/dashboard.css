@@ -1102,3 +1102,228 @@ textarea {
     grid-template-columns: 1fr;
   }
 }
+
+/* ==========================================================================
+   Task Management (Release 1.2.0)
+   ========================================================================== */
+
+.task-panel-section {
+  border-top: 2px solid var(--accent);
+}
+
+.task-create-form {
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 8px;
+  padding: 1rem;
+  margin-bottom: 1rem;
+}
+
+.task-create-form .form-group {
+  margin-bottom: 0.75rem;
+}
+
+.task-create-form label {
+  display: block;
+  font-size: 0.8rem;
+  color: var(--muted);
+  margin-bottom: 0.25rem;
+}
+
+.task-create-form .form-control {
+  width: 100%;
+  padding: 0.5rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text);
+  font-size: 0.9rem;
+}
+
+.task-create-form .form-control:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.task-create-form textarea.form-control {
+  resize: vertical;
+  min-height: 60px;
+}
+
+.task-create-form .form-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem;
+}
+
+.task-create-form .checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  cursor: pointer;
+}
+
+.task-create-form .location-inputs {
+  display: grid;
+  grid-template-columns: 1fr 1fr 100px;
+  gap: 0.5rem;
+}
+
+.task-create-form .form-actions {
+  display: flex;
+  gap: 0.5rem;
+  justify-content: flex-end;
+  margin-top: 1rem;
+}
+
+.task-list {
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.task-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.75rem;
+  margin-bottom: 0.5rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.task-card:hover {
+  border-color: var(--accent);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.task-card__header {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  margin-bottom: 0.5rem;
+  font-size: 0.75rem;
+}
+
+.task-priority {
+  font-weight: bold;
+}
+
+.task-card.normal .task-priority {
+  color: var(--success);
+}
+
+.task-card.high .task-priority {
+  color: var(--warning);
+}
+
+.task-card.urgent .task-priority {
+  color: var(--error);
+}
+
+.task-type {
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.task-state {
+  margin-left: auto;
+  padding: 0.125rem 0.375rem;
+  border-radius: 3px;
+  font-size: 0.7rem;
+  text-transform: uppercase;
+}
+
+.task-card.assigned .task-state {
+  background: rgba(100, 149, 237, 0.2);
+  color: cornflowerblue;
+}
+
+.task-card.acknowledged .task-state {
+  background: rgba(255, 193, 7, 0.2);
+  color: #ffc107;
+}
+
+.task-card.in_progress .task-state {
+  background: rgba(40, 167, 69, 0.2);
+  color: #28a745;
+}
+
+.task-title {
+  font-size: 0.95rem;
+  margin: 0 0 0.25rem 0;
+  color: var(--text);
+}
+
+.task-assignee {
+  font-size: 0.8rem;
+  color: var(--muted);
+  margin: 0 0 0.5rem 0;
+}
+
+.task-meta {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.8rem;
+}
+
+.task-timer {
+  color: var(--muted);
+}
+
+.task-card.overdue {
+  border-color: var(--error);
+  background: rgba(220, 53, 69, 0.1);
+}
+
+.task-card.overdue .task-timer {
+  color: var(--error);
+}
+
+.overdue-badge {
+  background: var(--error);
+  color: white;
+  padding: 0.125rem 0.375rem;
+  border-radius: 3px;
+  font-size: 0.7rem;
+  font-weight: bold;
+}
+
+/* Task detail modal */
+.task-detail-body {
+  margin: 1rem 0;
+}
+
+.task-detail-body p {
+  margin: 0.5rem 0;
+  font-size: 0.9rem;
+}
+
+/* Primary and danger button variants */
+.primary-button {
+  background: var(--accent);
+  color: var(--surface);
+  border: none;
+  padding: 0.5rem 1rem;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.9rem;
+}
+
+.primary-button:hover {
+  opacity: 0.9;
+}
+
+.danger-button {
+  background: var(--error);
+  color: white;
+  border: none;
+  padding: 0.5rem 1rem;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.9rem;
+}
+
+.danger-button:hover {
+  opacity: 0.9;
+}
