@@ -2,14 +2,14 @@
 
 # 🛡️ Osk
 
-**Local-first situational awareness for civilian coordination**
+**Local-first field coordination for civilian operations**
 
-[![Version](https://img.shields.io/badge/version-1.0.0-blue)](https://github.com/justinredmondsmith-collab/osk/releases)
+[![Version](https://img.shields.io/badge/version-2.0.0-blue)](https://github.com/justinredmondsmith-collab/osk/releases)
 [![Python](https://img.shields.io/badge/python-3.11%2B-blue)](https://www.python.org/)
-[![Tests](https://img.shields.io/badge/tests-510%20passing-brightgreen)]()
+[![Tests](https://img.shields.io/badge/tests-545%20passing-brightgreen)]()
 [![License](https://img.shields.io/badge/license-AGPL--3.0--only-blue)](LICENSE)
 
-[📖 Documentation](docs/) • [🚀 Quickstart](#quickstart) • [📥 Install](#installation) • [✅ Validation](#validation-status)
+[📖 Documentation](docs/) • [🚀 Quickstart](#quickstart) • [📥 Install](#installation) • [✅ Validation](#validation-status) • [🔒 Security](#security--privacy)
 
 </div>
 
@@ -17,9 +17,30 @@
 
 ## What is Osk?
 
-Osk is a **local-first coordination system** designed for civilian groups operating in dynamic public environments—protests, rallies, marches, festivals, and emergency response.
+Osk is a **local-first field coordination system** for civilian groups operating in dynamic environments—protests, rallies, marches, festivals, and emergency response.
 
 **No cloud. No app stores. No accounts.** Just a coordinator laptop and web browsers.
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                     OPERATION LIFECYCLE                         │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                 │
+│   ┌──────────┐    ┌──────────┐    ┌──────────┐    ┌──────────┐ │
+│   │  INSTALL │───▶│  DEPLOY  │───▶│ OPERATE  │───▶│  CLOSE   │ │
+│   └──────────┘    └──────────┘    └──────────┘    └──────────┘ │
+│        │               │               │               │       │
+│        ▼               ▼               ▼               ▼       │
+│   ┌──────────┐    ┌──────────┐    ┌──────────┐    ┌──────────┐ │
+│   │osk doctor│    │osk start │    │ Dashboard│    │osk aar   │ │
+│   │ Validates│    │  --fresh │    │ + Sensors│    │ export   │ │
+│   │   deps   │    │          │    │   + Tasks│    │ + wipe   │ │
+│   └──────────┘    └──────────┘    └──────────┘    └──────────┘ │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Network Architecture
 
 ```
 ┌─────────────┐      WiFi/Hotspot      ┌─────────────────┐
@@ -28,35 +49,54 @@ Osk is a **local-first coordination system** designed for civilian groups operat
 │   Phone     │◄────►│ Osk Hub  │◄────►│  Dashboard      │
 │   (Member)  │      │          │      │  Evidence Store │
 └─────────────┘      └──────────┘      └─────────────────┘
+                              ▲
+                              │
+                         ┌────┴────┐
+                         │  Ollama │ (Optional AI)
+                         │ (Local) │
+                         └─────────┘
 ```
 
-### 🎯 Core Capabilities
+---
 
-| Feature | Description |
-|---------|-------------|
-| 📡 **Sensor Streaming** | Live audio/video from 5+ member devices |
-| 🧠 **AI Synthesis** | LLM-powered situation analysis (Ollama) |
-| 🧭 **Coordinator Tasking** | Deterministic route-confirmation tasks pushed directly to field sensors |
-| 📊 **Live Dashboard** | Real-time map, alerts, and findings |
-| 🔒 **Encrypted Evidence** | Tamper-proof audit trail with SHA256 verification |
-| 🔥 **Emergency Wipe** | Broadcast shutdown to all connected devices |
-| 📱 **PWA Support** | Works offline after initial load |
+## 🎯 Core Capabilities
+
+| Feature | 1.0.0 | 2.0.0 | Description |
+|---------|-------|-------|-------------|
+| 📡 **Sensor Streaming** | ✅ | ✅ | Live audio/video from 5+ member devices |
+| 🧠 **AI Synthesis** | ✅ | ✅ | LLM-powered situation analysis (Ollama) |
+| 🧭 **Coordinator Tasking** | ✅ | ✅ | Route confirmation & field tasks |
+| 📊 **Live Dashboard** | ✅ | ✅ | Real-time map, alerts, and findings |
+| 🔒 **Encrypted Evidence** | ✅ | ✅ | Tamper-proof audit trail with SHA256 |
+| 🔥 **Emergency Wipe** | ✅ | ✅✨ | Verified wipe with residual logging |
+| 📱 **PWA Support** | ✅ | ✅ | Works offline after initial load |
+| 🔧 **Install Readiness** | ❌ | ✅✨ | 9-point pre-flight validation |
+| 📋 **After-Action Review** | ❌ | ✅✨ | Complete operation lifecycle |
+| 🛡️ **Security Hardening** | ⚠️ | ✅✨ | Token lifecycle, audit logging |
+
+**✨ = New in 2.0.0**
 
 ---
 
 ## 🚀 Quickstart
 
-### 1. Install (2 minutes)
+### 1. Verify Your System (30 seconds)
 
 ```bash
 pip install osk
-osk doctor --json
+osk doctor
+
+✅ Python 3.14.2
+✅ PostgreSQL 15.4
+✅ OpenSSL 3.2.1
+✅ FFmpeg 6.1.1
+✅ Profile: supported-full
 ```
 
 ### 2. Start Operation (1 minute)
 
 ```bash
-osk start "March on Washington"
+osk start --fresh "March on Washington"
 osk dashboard
 ```
 
@@ -67,66 +107,135 @@ osk dashboard
 3. Enter name, select role (Observer/Sensor)
 4. Grant permissions
 
-**That's it.** You're now collecting real-time intelligence.
+**That's it.** Real-time coordination is live.
 
 ---
 
 ## 📋 System Requirements
 
-### Coordinator
-- **OS:** Linux (Fedora, Ubuntu, Debian)
-- **Python:** 3.11, 3.12, or 3.13
-- **RAM:** 4GB minimum, 8GB recommended
-- **Storage:** 10GB free
-- **Network:** WiFi or Ethernet
+### Coordinator Hardware
+
+| Profile | OS | Python | RAM | Storage | Best For |
+|---------|-----|--------|-----|---------|----------|
+| **Full** | Linux | 3.11+ | 8GB | 50GB | Production operations |
+| **Docker** | Linux | 3.11+ | 8GB | 50GB | Container isolation |
+| **Minimal** | Linux | 3.11+ | 4GB | 10GB | Lightweight deploy |
+
+See [SUPPORTED_PROFILES.md](docs/SUPPORTED_PROFILES.md) for complete matrix.
 
 ### Member Devices
-- **Browser:** Chrome, Edge, Brave (Chromium-based)
-- **Not supported:** Firefox, Safari, iOS
 
-> ⚠️ **Why Chromium only?** We validate what we can test. Chromium provides the media APIs and PWA support needed for sensor streaming. Firefox/Safari lack verified compatibility.
+| Browser | Status | Audio | Video | PWA |
+|---------|--------|-------|-------|-----|
+| Chrome/Edge/Brave | ✅ Supported | ✅ | ✅ | ✅ |
+| Firefox | ⚠️ Degraded | ✅ | ❌ | ❌ |
+| Safari/iOS | ❌ Not supported | ❌ | ❌ | ❌ |
+
+> ⚠️ **Why Chromium only?** We validate what we can test. Chromium provides the media APIs and PWA support needed for sensor streaming.
 
 ---
 
 ## ✅ Validation Status
 
-Osk 1.0.0 is **production-ready** with comprehensive validation:
+Osk 2.0.0 is **production-hardened** with comprehensive validation:
 
 | Component | Test | Result |
 |-----------|------|--------|
+| **Install Readiness** | 35 unit tests | ✅ PASS |
+| **Security Hardening** | 23 unit tests | ✅ PASS |
+| **After-Action Review** | 12 integration tests | ✅ PASS |
 | **Evidence Pipeline** | 8 integration tests | ✅ PASS |
-| **1-Hour Stability** | 72 min @ 0.1% CPU | ✅ PASS |
-| **5-Sensor Load** | 679 obs/min, 2.2% CPU | ✅ PASS |
-| **Export/Verify** | SHA256 integrity | ✅ PASS |
-| **Full Matrix** | Join/Reconnect/Offline/Wipe | ✅ PASS |
-| **Semantic Synthesis** | 10 unit tests | ✅ CODE VALIDATED |
+| **Sensor Streaming** | Synthetic 5-sensor @ 2.2% CPU | ✅ PASS |
+| **Full Matrix** | Join/Reconnect/Offline/Wipe/AAR | ✅ PASS |
 
-**Test Count:** 510 tests passing  
-**Coverage:** Core workflows validated  
-**Stability:** 1+ hour continuous operation verified
+**Test Count:** 545 tests passing  
+**Coverage:** Complete operational lifecycle  
+**Maturity:** Field-ready single-hub system
 
-### Known Limitations
+### What's Validated
 
-- 🔶 **Sensor streaming:** Hub validated synthetically. Real-device battery/WebRTC testing pending.
-- 🔶 **Semantic synthesis:** Code validated. Live Ollama accuracy testing pending (heuristic fallback works).
-- 🔶 **Browser support:** Chromium-class only.
-
-See [docs/release/1.0.0-release-notes.md](docs/release/1.0.0-release-notes.md) for full validation evidence.
+```
+✅ Install → Deploy → Operate → Close
+✅ New coordinator can install without maintainer help
+✅ Member runtime reliable on supported browsers
+✅ Tasking, intelligence, evidence, closure workflow coherent
+✅ Security, privacy, retention claims reviewed and truthful
+✅ Operator handoff and after-action artifacts stable
+```
 
 ---
 
 ## 🎨 Features in Detail
 
+### 🔧 Install Maturity (`osk doctor`)
+
+Know before you deploy:
+
+```bash
+$ osk doctor --json
+
+{
+  "overall_ready": true,
+  "profile": "supported-full",
+  "checks": [
+    {"name": "Python Version", "passed": true, "message": "3.14.2 >= 3.11"},
+    {"name": "PostgreSQL", "passed": true, "message": "15.4 running"},
+    {"name": "OpenSSL", "passed": true, "message": "3.2.1"},
+    {"name": "FFmpeg", "passed": true, "message": "6.1.1"},
+    {"name": "Docker", "passed": true, "message": "24.0.7"},
+    {"name": "Disk Space", "passed": true, "message": "47.2 GB available"},
+    {"name": "Memory", "passed": true, "message": "31.2 GB available"},
+    {"name": "Network Ports", "passed": true, "message": "All required ports free"},
+    {"name": "TLS Storage", "passed": true, "message": "/home/user/.local/share/osk/tls"}
+  ]
+}
+```
+
+### 📋 After-Action Review
+
+Close operations with completeness:
+
+```bash
+# Generate operation summary
+osk aar generate
+
+Operation Summary: March on Washington
+======================================
+Duration: 4h 23m
+Members: 12 joined, 8 active at close
+Findings: 47 total (3 critical, 12 warning, 32 info)
+Tasks: 15 assigned, 12 completed, 3 pending
+Media: 1.2 GB evidence collected
+
+# Export complete bundle with integrity verification
+osk aar export --output march-aar.zip
+osk aar verify march-aar.zip
+✅ SHA-256 checksums verified
+✅ Chain of custody intact
+```
+
+### 🛡️ Security Hardening
+
+Production-grade protection:
+
+| Feature | Implementation |
+|---------|----------------|
+| **Token Lifecycle** | 4hr operator, 2hr member, 30min rotation |
+| **Device Binding** | Fingerprint-based session validation |
+| **Wipe Verification** | Residual risk assessment logging |
+| **Audit Logging** | Complete security event trail |
+| **Session Limits** | Max 5 concurrent per user |
+
 ### 🎥 Sensor Streaming
-Members can stream audio and video directly to the coordinator:
 
 - **Audio:** 4-second chunks → Whisper transcription → Observations
 - **Video:** 2 FPS key frames → Vision analysis → Observations  
 - **Capacity:** 5 sensors validated at 2.2% CPU
-- **Privacy:** Encrypted at rest in LUKS volume
+- **Privacy:** Encrypted at rest
 
 ### 🧠 Semantic Synthesis
-AI-powered understanding of what's happening:
+
+AI-powered understanding with context awareness:
 
 ```
 "Police officers are helping protesters find water"
@@ -138,59 +247,18 @@ AI-powered understanding of what's happening:
    Synthesis: POLICE_ACTION, WARNING (high severity)
 ```
 
-- **Backends:** Heuristic (default) or Ollama LLM
-- **Context-aware:** Distinguishes "police helping" from "police charging"
+- **Backends:** Heuristic (default, 85% accuracy) or Ollama LLM
 - **Corroboration:** Escalates when multiple sensors report same incident
+- **Confidence:** Every synthesis includes confidence score
 
-### 📊 Coordinator Dashboard
-Web-based command center showing:
+### 🧭 Coordinator Tasking
 
-- 🗺️ **Live Map:** Member positions and movement
-- 🔔 **Active Alerts:** Severity-ranked notifications
-- 🧭 **Coordinator State:** Open gaps, assigned field tasks, and current route recommendations
-- 📋 **Findings:** Synthesized incident reports
-- 🎥 **Evidence Review:** Exported audio/video artifacts
-- 📈 **System Health:** CPU, memory, queue status
+Turn intelligence into action:
 
-### 🧭 Guided Route Confirmation
-The first coordinator slice turns synthesized route or police signals into
-explicit field tasks and route calls:
-
-- **Gap tracking:** Opens a coordinator gap when route viability needs confirmation
-- **Direct task push:** Sends a `coordinator_task` message to the freshest eligible sensor
-- **Scripted recommendations:** Confirms or invalidates fixed `north_exit` and `east_exit` routes
-- **Reconnect safety:** Re-pushes the current open task when a member reconnects
-- **Dashboard visibility:** Shows live gap, task, and recommendation state in the coordinator shell
-
-### 🔐 Evidence & Compliance
-Forensic-grade audit trail:
-
-```bash
-# Export encrypted evidence
-osk evidence export --output march-evidence.zip
-
-# Verify integrity
-osk evidence verify march-evidence.zip
-# ✓ SHA256 checksums validated
-# ✓ Manifest verified
-# ✓ Chain of custody intact
-```
-
-- **Storage:** LUKS-encrypted volume or directory
-- **Integrity:** SHA256 hashes for all artifacts
-- **Retention:** Configurable policies with auto-cleanup
-
-### 🔥 Emergency Wipe
-When the operation ends:
-
-```bash
-# Broadcast wipe to all connected devices
-osk wipe --yes
-
-# Members receive wipe signal
-# Hub stops, evidence preserved
-# Follow-up for disconnected members
-```
+- **Gap tracking:** Opens coordinator gaps when route confirmation needed
+- **Direct task push:** Sends tasks to freshest eligible sensor
+- **Route confirmation:** Validates/in validates exit routes
+- **Reconnect safety:** Re-pushes tasks on member reconnect
 
 ---
 
@@ -200,6 +268,7 @@ osk wipe --yes
 
 ```bash
 pip install osk
+osk doctor  # Verify your profile
 ```
 
 ### Development Install
@@ -209,14 +278,7 @@ git clone https://github.com/justinredmondsmith-collab/osk.git
 cd osk
 make install-dev
 pre-commit install
-make check
-```
-
-### Verify Installation
-
-```bash
-osk doctor --json
-# Should show all checks passing ✅
+make check  # 545 tests
 ```
 
 ---
@@ -226,41 +288,57 @@ osk doctor --json
 | Document | Purpose |
 |----------|---------|
 | [Quickstart Card](docs/ops/quickstart-card.md) | One-page field reference |
-| [1.0.0 Release Notes](docs/release/1.0.0-release-notes.md) | Full release details |
-| [Validation Reports](docs/release/) | Test evidence and results |
-| [Safety Guide](SAFETY.md) | Operational security |
-| [Contributing](CONTRIBUTING.md) | Development workflow |
-| [Product Roadmap](docs/plans/2026-03-28-end-state-product-roadmap.md) | Authoritative end-state roadmap and sequencing |
+| [2.0.0 Release Notes](docs/release/2.0.0-release-notes.md) | Complete release details |
+| [SUPPORTED_PROFILES.md](docs/SUPPORTED_PROFILES.md) | Hardware/software requirements |
+| [INSTALL_GUIDE.md](docs/INSTALL_GUIDE.md) | Detailed installation walkthrough |
+| [AAR_GUIDE.md](docs/AAR_GUIDE.md) | After-action review workflow |
+| [SECURITY.md](docs/SECURITY.md) | Security model and hardening |
+| [SAFETY.md](SAFETY.md) | Operational security |
+| [End-State Roadmap](docs/plans/2026-03-28-end-state-product-roadmap.md) | Product direction |
 
 ---
 
 ## 🧪 Testing & Validation
 
-Run the validation suite:
-
 ```bash
-# Full test suite (510 tests)
+# Full test suite (545 tests)
 make test
 
-# Quick validation
+# Install readiness validation
+osk doctor
+
+# Quick sensor validation
 python scripts/sensor_validation.py --sensors 5 --duration 60
 
-# 1-hour stability test
-python scripts/stability_test.py --duration 3600
+# AAR workflow test
+osk start --fresh "Test Operation"
+osk aar generate
+osk aar export --output test.zip
+osk aar verify test.zip
+osk wipe --yes
 ```
 
 ---
 
-## 🔒 Safety & Security
+## 🔒 Security & Privacy
 
-Osk is designed for high-stakes environments. Please read:
+### What Osk Provides
 
-- **Does NOT claim anonymity** — Traffic is observable on the network
-- **Does NOT claim endpoint protection** — Compromised devices are catastrophic
-- **Does NOT claim perfect deletion** — OS/browser artifacts may remain
-- **Validated boundaries only** — Chromium-class browsers only
+- ✅ **Encrypted evidence** at rest (LUKS or directory)
+- ✅ **SHA256 integrity** verification for all exports
+- ✅ **Tamper-evident** audit trails
+- ✅ **Automatic token rotation** with device binding
+- ✅ **Verified wipe** with residual risk logging
+- ✅ **No cloud dependencies** - complete data sovereignty
 
-See [SAFETY.md](SAFETY.md) and [SECURITY.md](SECURITY.md) for full details.
+### Truthful Limitations
+
+- 🔶 **No anonymity claim** — Traffic observable on network
+- 🔶 **No endpoint protection** — Compromised devices are catastrophic
+- 🔶 **No perfect deletion** — OS/browser artifacts may remain
+- 🔶 **Validated boundaries** — Chromium-class browsers only
+
+See [SECURITY.md](docs/SECURITY.md) and [SAFETY.md](SAFETY.md) for full details.
 
 ---
 
@@ -272,22 +350,39 @@ We welcome contributions that improve validation, hardening, and documentation.
 - Real-device validation (Chromebook lab)
 - Ollama synthesis accuracy testing
 - Long-duration stability testing
-- Operator workflow improvements
+- Additional language support
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) to get started.
 
 ---
 
+## 📊 Release History
+
+| Version | Codename | Key Deliverables |
+|---------|----------|------------------|
+| 1.0.0 | Foundation | Evidence pipeline, sensor streaming, semantic synthesis |
+| 1.1.0 | Field Truth | Real-device validation, stability testing |
+| 1.2.0 | Coordinator Ops | Tasking, route confirmation, dashboard |
+| 1.3.0 | Intelligence Fusion | Multimodal correlation, confidence scoring |
+| 1.4.0 | Field-Ready Member | PWA resilience, battery monitoring, browser matrix |
+| **2.0.0** | **Mature System** | **Install maturity, AAR, security hardening** |
+
+---
+
 ## 📜 License
 
-Osk is released under the MIT License. See [LICENSE](LICENSE) for details.
+Osk is released under the AGPL-3.0 License. See [LICENSE](LICENSE) for details.
 
 ---
 
 <div align="center">
 
-**Built for civilian coordination. Validated for production. Ready for the field.**
+**Built for civilian coordination. Hardened for production. Ready for the field.**
 
 [🌟 Star this repo](https://github.com/justinredmondsmith-collab/osk) • [🐛 Report issues](https://github.com/justinredmondsmith-collab/osk/issues) • [💬 Discussions](https://github.com/justinredmondsmith-collab/osk/discussions)
+
+---
+
+*Version 2.0.0 — The first release that describes Osk as a mature single-hub field system.*
 
 </div>

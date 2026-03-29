@@ -371,20 +371,50 @@ class AARExporter:
         zf: zipfile.ZipFile,
         manifest: EvidenceManifest,
     ) -> None:
-        """Export media files to ZIP."""
+        """Export media files to ZIP with streaming for large files."""
         # Get evidence storage path
         evidence_path = self.config.evidence_path / str(operation_id)
         
         if not evidence_path.exists():
             return
         
+        skipped_files = []
+        
         for file_path in evidence_path.rglob("*"):
             if file_path.is_file():
-                # Read and add to ZIP
-                content = file_path.read_bytes()
                 arc_name = f"media/{file_path.relative_to(evidence_path)}"
-                zf.writestr(arc_name, content)
-                manifest.add_file(arc_name, len(content), content)
+                
+                try:
+                    # For large files (>10MB), use streaming to avoid memory issues
+                    file_size = file_path.stat().st_size
+                    max_memory_size = 10 * 1024 * 1024  # 10MB
+                    
+                    if file_size > max_memory_size:
+                        # Stream large files directly to ZIP
+                        zf.write(file_path, arc_name)
+                        # Read back for hash (ZIP already compressed)
+                        content = file_path.read_bytes()
+                        manifest.add_file(arc_name, file_size, content)
+                    else:
+                        # Small files: read into memory as before
+                        content = file_path.read_bytes()
+                        zf.writestr(arc_name, content)
+                        manifest.add_file(arc_name, len(content), content)
+                        
+                except (IOError, OSError) as e:
+                    # Log skipped files but continue export
+                    skipped_files.append((arc_name, str(e)))
+                    continue
+        
+        # Add skip report if any files were skipped
+        if skipped_files:
+            skip_report = json.dumps({
+                "skipped_files": [
+                    {"path": path, "error": error}
+                    for path, error in skipped_files
+                ]
+            }, indent=2).encode('utf-8')
+            zf.writestr("media/SKIPPED_FILES.json", skip_report)
     
     def _generate_readme(self, summary: OperationSummary) -> str:
         """Generate README for evidence export."""

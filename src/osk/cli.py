@@ -162,10 +162,16 @@ def _cmd_aar_generate(args: argparse.Namespace) -> int:
                 print("Error: No operation ID provided and no active operation")
                 return 1
         
+        # Validate UUID format
         try:
-            summary = await exporter.generate_operation_summary(
-                uuid.UUID(operation_id)
-            )
+            op_uuid = uuid.UUID(operation_id)
+        except ValueError:
+            print(f"Error: Invalid operation ID format: {operation_id}")
+            print("Expected format: 12345678-1234-1234-1234-123456789abc")
+            return 1
+        
+        try:
+            summary = await exporter.generate_operation_summary(op_uuid)
             
             if args.output:
                 output_path = Path(args.output)
@@ -210,12 +216,20 @@ def _cmd_aar_export(args: argparse.Namespace) -> int:
                 print("Error: No operation ID provided and no active operation")
                 return 1
         
+        # Validate UUID format
+        try:
+            op_uuid = uuid.UUID(operation_id)
+        except ValueError:
+            print(f"Error: Invalid operation ID format: {operation_id}")
+            print("Expected format: 12345678-1234-1234-1234-123456789abc")
+            return 1
+        
         output_path = Path(args.output or f"evidence-export-{operation_id}.zip")
         
         try:
             print(f"Exporting evidence for operation {operation_id}...")
             manifest = await exporter.export_evidence(
-                uuid.UUID(operation_id),
+                op_uuid,
                 output_path,
                 include_media=args.include_media,
             )
@@ -259,8 +273,16 @@ def _cmd_aar_checklist(args: argparse.Namespace) -> int:
                 print("Error: No operation ID provided and no active operation")
                 return 1
         
+        # Validate UUID format
         try:
-            items = await checklist.generate(uuid.UUID(operation_id))
+            op_uuid = uuid.UUID(operation_id)
+        except ValueError:
+            print(f"Error: Invalid operation ID format: {operation_id}")
+            print("Expected format: 12345678-1234-1234-1234-123456789abc")
+            return 1
+        
+        try:
+            items = await checklist.generate(op_uuid)
             
             print(f"Closure Checklist for Operation {operation_id}")
             print("=" * 60)

@@ -1,4 +1,4 @@
-# Osk 1.0.0 Operator Quickstart Card
+# Osk 2.0.0 Operator Quickstart Card
 
 **One-page reference for field deployment**
 
@@ -7,20 +7,25 @@
 ## Pre-Flight (5 minutes)
 
 ```bash
-# Verify installation
-osk doctor --json | jq '.checks[] | select(.ok==false)'
+# 1. Verify installation and profile
+osk doctor --json | jq '.profile, .overall_ready'
 
-# Should return empty - if not, fix issues before proceeding
+# Expected output:
+# "supported-full"
+# true
 
-# Check version
-osk --version  # Should show 1.0.0
+# If unsupported, fix issues before proceeding
+
+# 2. Check version
+osk --version  # Should show 2.0.0
 ```
 
 **Hardware Check:**
 - [ ] Linux laptop charged/plugged in
-- [ ] 4GB+ RAM available
+- [ ] 4GB+ RAM available (8GB recommended)
 - [ ] 10GB+ disk free
 - [ ] WiFi working (or Ethernet)
+- [ ] `osk doctor` shows "supported-full" or "supported-minimal"
 
 ---
 
@@ -82,10 +87,10 @@ osk audit --last 10
 
 ```bash
 # During operation - create checkpoint
-osk evidence export --output checkpoint-$(date +%Y%m%d-%H%M).zip
+osk aar export --output checkpoint-$(date +%Y%m%d-%H%M).zip
 
 # Verify export
-osk evidence verify checkpoint-XXXX.zip
+osk aar verify checkpoint-XXXX.zip
 ```
 
 **Store securely:** Export contains raw audio/video
@@ -104,11 +109,37 @@ osk wipe --yes
 # Verify stopped
 osk status  # Should show "No operation running"
 
-# Final evidence export (if needed)
-osk evidence export --output final-evidence.zip
+# Final AAR export (if not already done)
+osk aar export --output final-aar.zip
+osk aar verify final-aar.zip
 ```
 
 **Post-wipe:** Follow up with disconnected members manually
+
+---
+
+## After-Action Review (Post-Operation)
+
+```bash
+# Generate operation summary
+osk aar generate
+
+# View summary
+osk aar generate --format json | jq '.'
+
+# Export complete bundle
+osk aar export --output operation-aar-$(date +%Y%m%d).zip
+
+# Verify integrity
+osk aar verify operation-aar-XXXX.zip
+```
+
+**AAR Contents:**
+- Operation summary (duration, members, findings)
+- Timeline events (chronological)
+- Evidence manifest (SHA-256 verified)
+- Media files (audio, frames, metadata)
+- Closure checklist
 
 ---
 
@@ -129,14 +160,14 @@ kill -9 <pid>
 ### Evidence Store Full
 ```bash
 # Check usage
-osk evidence list | wc -l
+osk aar list | wc -l
 
 # Export and verify
-osk evidence export --output emergency-export.zip
-osk evidence verify emergency-export.zip
+osk aar export --output emergency-export.zip
+osk aar verify emergency-export.zip
 
 # Destroy if exported successfully
-osk evidence destroy
+osk aar destroy
 ```
 
 ### Network Issues
@@ -157,12 +188,13 @@ osk hotspot instructions
 
 ### Before Field Use
 - [ ] `osk doctor` passes all checks
+- [ ] Profile is "supported-full" or "supported-minimal"
 - [ ] Synthetic validation passes:
   ```bash
   python scripts/sensor_validation.py --sensors 5 --duration 60
   ```
 - [ ] Test join from your device
-- [ ] Test evidence export
+- [ ] Test AAR export and verify
 - [ ] Test wipe drill
 
 ### During Operation (every 30 min)
@@ -172,7 +204,8 @@ osk hotspot instructions
 - [ ] Export checkpoint evidence
 
 ### After Operation
-- [ ] Final evidence export
+- [ ] Final AAR export
+- [ ] AAR verify passes
 - [ ] Wipe executed
 - [ ] Evidence archive secured
 - [ ] Follow-up with disconnected members
@@ -184,7 +217,7 @@ osk hotspot instructions
 ```toml
 # ~/.config/osk/config.toml
 
-# Sensors (synthetically validated at 5)
+# Sensors (validated at 5 synthetically)
 max_sensors = 10
 
 # Synthesis (heuristic is default, Ollama optional)
@@ -194,6 +227,19 @@ synthesis_backend = "heuristic"
 storage_backend = "luks"  # or "directory"
 luks_volume_size_gb = 1
 
+# Security (2.0.0 defaults)
+[security]
+operator_session_hours = 4
+member_session_hours = 2
+token_rotation_minutes = 30
+max_concurrent_sessions = 5
+
+# AAR (2.0.0)
+[aar]
+auto_export_on_close = false
+evidence_retention_days = 90
+include_media = true
+
 # Performance
 transcriber_backend = "fake"  # or "whisper"
 vision_backend = "fake"       # or "ollama"
@@ -201,12 +247,25 @@ vision_backend = "fake"       # or "ollama"
 
 ---
 
-## Known Limitations (1.0.0)
+## Known Limitations (2.0.0)
 
 1. **Sensor streaming:** Validated synthetically. Real-device battery/WebRTC pending.
 2. **Semantic synthesis:** Code validated. Ollama accuracy pending; heuristic works.
 3. **Browsers:** Chromium-class only. Firefox/Safari not supported.
 4. **Offline:** PWA works for previously loaded pages only.
+5. **Federation:** Single-hub only. Multi-hub is 3.x consideration.
+
+---
+
+## New in 2.0.0
+
+| Feature | Command | Purpose |
+|---------|---------|---------|
+| Install Readiness | `osk doctor` | Validate environment before deploy |
+| AAR Generate | `osk aar generate` | Operation summary |
+| AAR Export | `osk aar export` | Complete evidence bundle |
+| AAR Verify | `osk aar verify` | Integrity verification |
+| Security Hardening | Automatic | Token rotation, session limits |
 
 ---
 
@@ -215,7 +274,11 @@ vision_backend = "fake"       # or "ollama"
 - **Issues:** https://github.com/justinredmondsmith-collab/osk/issues
 - **Documentation:** `docs/` directory
 - **Validation reports:** `docs/release/`
+- **Install profiles:** `docs/SUPPORTED_PROFILES.md`
 
 ---
 
 **Print this card and keep with coordinator laptop.**
+
+**Version:** 2.0.0  
+**Last Updated:** 2026-03-28
