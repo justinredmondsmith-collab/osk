@@ -1,0 +1,189 @@
+name: Browser Matrix Tests
+
+on:
+  push:
+    branches: [main, feature/*]
+  pull_request:
+    branches: [main]
+  schedule:
+    # Run weekly on Sundays at 2 AM UTC
+    - cron: '0 2 * * 0'
+
+jobs:
+  test-chrome:
+    name: Chrome Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      
+      - name: Install dependencies
+        run: |
+          pip install -e ".[dev]"
+          pip install playwright pytest-playwright
+          playwright install chromium
+      
+      - name: Start Osk hub
+        run: |
+          osk start --fresh &
+          sleep 10
+          osk status
+      
+      - name: Run Chrome PWA tests
+        run: |
+          python -m pytest tests/browser/test_chrome_pwa.py -v --browser=chromium
+      
+      - name: Run Chrome sensor tests
+        run: |
+          python -m pytest tests/browser/test_chrome_sensors.py -v --browser=chromium
+      
+      - name: Upload test artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: chrome-test-screenshots
+          path: test-results/
+          retention-days: 7
+      
+      - name: Stop hub
+        if: always()
+        run: osk stop || true
+
+  test-firefox:
+    name: Firefox Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      
+      - name: Install dependencies
+        run: |
+          pip install -e ".[dev]"
+          pip install playwright pytest-playwright
+          playwright install firefox
+      
+      - name: Start Osk hub
+        run: |
+          osk start --fresh &
+          sleep 10
+      
+      - name: Run Firefox compatibility tests
+        run: |
+          python -m pytest tests/browser/test_firefox_compat.py -v --browser=firefox
+      
+      - name: Upload test artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: firefox-test-screenshots
+          path: test-results/
+          retention-days: 7
+      
+      - name: Stop hub
+        if: always()
+        run: osk stop || true
+
+  test-webkit:
+    name: WebKit (Safari) Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      
+      - name: Install dependencies
+        run: |
+          pip install -e ".[dev]"
+          pip install playwright pytest-playwright
+          playwright install webkit
+      
+      - name: Start Osk hub
+        run: |
+          osk start --fresh &
+          sleep 10
+      
+      - name: Run WebKit compatibility tests
+        run: |
+          python -m pytest tests/browser/test_webkit_compat.py -v --browser=webkit
+      
+      - name: Upload test artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: webkit-test-screenshots
+          path: test-results/
+          retention-days: 7
+      
+      - name: Stop hub
+        if: always()
+        run: osk stop || true
+
+  test-resilience:
+    name: PWA Resilience Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      
+      - name: Install dependencies
+        run: |
+          pip install -e ".[dev]"
+          pip install playwright pytest-playwright
+          playwright install chromium
+      
+      - name: Start Osk hub
+        run: |
+          osk start --fresh &
+          sleep 10
+      
+      - name: Run offline/online resilience tests
+        run: |
+          python -m pytest tests/browser/test_pwa_resilience.py -v --browser=chromium -k "resilience"
+      
+      - name: Run reconnect stress test (20 cycles)
+        run: |
+          python -m pytest tests/browser/test_pwa_resilience.py -v --browser=chromium -k "stress" --cycles=20
+      
+      - name: Upload test artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: resilience-test-results
+          path: test-results/
+          retention-days: 7
+      
+      - name: Stop hub
+        if: always()
+        run: osk stop || true
+
+  summary:
+    name: Test Summary
+    needs: [test-chrome, test-firefox, test-webkit, test-resilience]
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - name: Generate summary
+        run: |
+          echo "## Browser Matrix Test Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Browser | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|---------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Chrome | ${{ needs.test-chrome.result == 'success' && '✅ PASS' || '❌ FAIL' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Firefox | ${{ needs.test-firefox.result == 'success' && '✅ PASS' || '❌ FAIL' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| WebKit | ${{ needs.test-webkit.result == 'success' && '✅ PASS' || '❌ FAIL' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Resilience | ${{ needs.test-resilience.result == 'success' && '✅ PASS' || '❌ FAIL' }} |" >> $GITHUB_STEP_SUMMARY
