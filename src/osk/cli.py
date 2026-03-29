@@ -71,6 +71,14 @@ def _doctor_snapshot() -> tuple[int, dict[str, object]]:
 
 
 def _cmd_doctor(args: argparse.Namespace) -> int:
+    # Run 2.0 readiness checks if requested
+    if getattr(args, 'readiness', False):
+        from .install_readiness import run_all_checks, format_report
+        report = run_all_checks()
+        print(format_report(report, json_output=args.json_output))
+        return 0 if report.overall_ready else 1
+    
+    # Legacy doctor snapshot
     code, payload = _doctor_snapshot()
     if args.json_output:
         print(json.dumps(payload, indent=2, sort_keys=True))
@@ -110,6 +118,10 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
         print("Field network guidance: no blocking hotspot warnings.")
     for action in hotspot["actions"]:
         print(f"- {action}")
+    
+    # 2.0: Suggest readiness check
+    print("\n💡 Tip: Run 'osk doctor --readiness' for detailed installation checks")
+    
     return code
 
 
@@ -678,13 +690,18 @@ def build_parser() -> argparse.ArgumentParser:
 
     doctor_parser = subparsers.add_parser(
         "doctor",
-        help="Report whether the local Phase 1 scaffold is present.",
+        help="Report system readiness and scaffold status.",
     )
     doctor_parser.add_argument(
         "--json",
         dest="json_output",
         action="store_true",
         help="Emit machine-readable JSON output.",
+    )
+    doctor_parser.add_argument(
+        "--readiness",
+        action="store_true",
+        help="Run comprehensive installation readiness checks (2.0+)",
     )
     doctor_parser.set_defaults(func=_cmd_doctor)
 
