@@ -7,7 +7,7 @@ changes manually while the project is in its early public setup phase.
 
 ## [Unreleased]
 
-## [2.0.0] - 2026-05-23 (Planned)
+## [2.0.0] - 2026-05-23
 
 ### Summary
 
@@ -22,27 +22,38 @@ This release completes the single-hub product before any platform expansion.
 - **Install and Deployment Maturity**
   - Comprehensive installation readiness checker (`osk doctor --readiness`)
   - Supported configuration profiles (Full, Docker-Managed, Minimal)
-  - Hardware compatibility matrix
-  - Clear prerequisite error messages with remediation guidance
-  - Common failure playbook
+  - Hardware compatibility matrix with tested devices
+  - 9-point pre-flight check (Python, Postgres, SSL, FFmpeg, Docker, disk, memory, ports, TLS)
+  - Actionable error messages with remediation guidance
+  - Profile auto-detection (supported-full/docker-managed/minimal)
 
-- **After-Action Review System** (Design)
-  - Operation summary generation concept
-  - Evidence export formats (ZIP, PDF, JSONL)
-  - Integrity verification with SHA-256 manifests
-  - Closure checklist framework
+- **After-Action Review System**
+  - Operation summary generation with statistics
+  - Evidence export to ZIP with integrity verification (SHA-256)
+  - Timeline generation from audit events
+  - Closure checklist with automated verification
+  - CLI commands: `osk aar generate`, `osk aar export`, `osk aar checklist`
+  - Export structure: MANIFEST.json, timeline, findings, audit trail, media
 
-- **Security Hardening** (Planning)
-  - Token lifecycle improvements (shorter timeouts, rotation)
-  - Key handling enhancements (isolation, rotation)
-  - Wipe verification improvements
-  - Privacy claims audit framework
+- **Security Hardening**
+  - Shorter session timeouts (operator: 4hr, member: 2hr)
+  - Token rotation every 30 minutes with grace period
+  - Device fingerprinting for token binding
+  - Wipe verification logging with residual risk assessment
+  - Security audit logging for all sensitive operations
+  - Wipe event tracking (member acknowledgments, cleanup verification)
+
+- **Configuration**
+  - SECURITY_2_0_DEFAULTS with hardened settings
+  - Configurable timeouts and rotation intervals
+  - Optional forensic wipe mode
 
 ### Documentation
 
-- SUPPORTED_PROFILES.md: Three-tier configuration support
-- AFTER_ACTION_REVIEW.md: AAR system design
-- SECURITY_HARDENING_2_0.md: Security improvement checklist
+- SUPPORTED_PROFILES.md: Three-tier configuration support with hardware matrix
+- AFTER_ACTION_REVIEW.md: AAR system documentation
+- SECURITY_HARDENING_2_0.md: Security improvements implemented
+- CHANGELOG.md: Release notes updated
 
 ## [1.4.0] - 2026-04-11
 
