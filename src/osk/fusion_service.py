@@ -26,8 +26,6 @@ from osk.intelligence_fusion import (
 )
 from osk.intelligence_contracts import (
     IntelligenceObservation,
-    EventCategory,
-    EventSeverity,
 )
 
 logger = logging.getLogger(__name__)
