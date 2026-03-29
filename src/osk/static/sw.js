@@ -14,6 +14,26 @@ const STATIC_ASSETS = [
   "/static/pwa-runtime.js",
   "/static/icon.svg",
 ];
+
+// Service Worker resilience metrics
+let swMetrics = {
+  installTime: null,
+  activateTime: null,
+  fetchCount: 0,
+  errorCount: 0,
+  lastError: null,
+};
+
+function logError(context, error) {
+  const entry = {
+    context,
+    message: error?.message || String(error),
+    timestamp: new Date().toISOString(),
+  };
+  swMetrics.errorCount++;
+  swMetrics.lastError = entry;
+  console.error(`[SW] ${context}:`, error);
+}
 const NAVIGATION_PATHS = new Set(["/join", "/member"]);
 const OFFLINE_HTML = `<!doctype html>
 <html lang="en">
@@ -96,12 +116,18 @@ const OFFLINE_HTML = `<!doctype html>
 </html>`;
 
 async function clearOfflineCaches() {
-  const keys = await caches.keys();
-  await Promise.all(
-    keys
-      .filter((cacheName) => cacheName.startsWith(CACHE_PREFIX))
-      .map((cacheName) => caches.delete(cacheName)),
-  );
+  try {
+    const keys = await caches.keys();
+    await Promise.all(
+      keys
+        .filter((cacheName) => cacheName.startsWith(CACHE_PREFIX))
+        .map((cacheName) => caches.delete(cacheName)),
+    );
+    return { success: true, cleared: keys.length };
+  } catch (error) {
+    logError("clearOfflineCaches", error);
+    return { success: false, error: error?.message };
+  }
 }
 
 async function clearMemberOfflineState() {
@@ -113,31 +139,83 @@ async function clearMemberOfflineState() {
 }
 
 self.addEventListener("install", (event) => {
+  swMetrics.installTime = new Date().toISOString();
   event.waitUntil(
-    caches
-      .open(SHELL_CACHE)
-      .then((cache) => cache.addAll(STATIC_ASSETS))
-      .then(() => self.skipWaiting()),
+    (async () => {
+      try {
+        const cache = await caches.open(SHELL_CACHE);
+        // Use individual puts instead of addAll for better error handling
+        const results = await Promise.allSettled(
+          STATIC_ASSETS.map(async (url) => {
+            try {
+              const response = await fetch(url, { cache: "no-cache" });
+              if (!response.ok) {
+                throw new Error(`HTTP ${response.status} for ${url}`);
+              }
+              await cache.put(url, response);
+              return { url, success: true };
+            } catch (error) {
+              logError(`cache populate: ${url}`, error);
+              return { url, success: false, error: error?.message };
+            }
+          }),
+        );
+        const failures = results.filter((r) => !r.value?.success);
+        if (failures.length > 0) {
+          console.warn(`[SW] ${failures.length} assets failed to cache`);
+        }
+        await self.skipWaiting();
+        return { cached: results.length - failures.length, failed: failures.length };
+      } catch (error) {
+        logError("install", error);
+        // Still skip waiting to avoid blocking
+        await self.skipWaiting();
+        throw error;
+      }
+    })(),
   );
 });
 
 self.addEventListener("activate", (event) => {
+  swMetrics.activateTime = new Date().toISOString();
   event.waitUntil(
     (async () => {
-      const keys = await caches.keys();
-      await Promise.all(
-        keys
-          .filter((cacheName) => cacheName.startsWith(CACHE_PREFIX) && ![SHELL_CACHE, NAV_CACHE].includes(cacheName))
-          .map((cacheName) => caches.delete(cacheName)),
-      );
-      await self.clients.claim();
+      try {
+        const keys = await caches.keys();
+        const deletions = await Promise.allSettled(
+          keys
+            .filter((cacheName) => cacheName.startsWith(CACHE_PREFIX) && ![SHELL_CACHE, NAV_CACHE].includes(cacheName))
+            .map(async (cacheName) => {
+              try {
+                await caches.delete(cacheName);
+                return { cacheName, deleted: true };
+              } catch (error) {
+                logError(`cache delete: ${cacheName}`, error);
+                return { cacheName, deleted: false, error: error?.message };
+              }
+            }),
+        );
+        const failed = deletions.filter((d) => d.status === "rejected" || !d.value?.deleted);
+        if (failed.length > 0) {
+          console.warn(`[SW] ${failed.length} old caches could not be deleted`);
+        }
+        await self.clients.claim();
+        return { cleaned: deletions.length - failed.length };
+      } catch (error) {
+        logError("activate", error);
+        // Still claim clients to avoid blocking
+        await self.clients.claim();
+        throw error;
+      }
     })(),
   );
 });
 
 self.addEventListener("message", (event) => {
-  if (event.data?.type === "clear_member_offline_state") {
-    const replyPort = event.ports?.[0] || null;
+  const replyPort = event.ports?.[0] || null;
+  const messageType = event.data?.type;
+  
+  if (messageType === "clear_member_offline_state") {
     event.waitUntil(
       (async () => {
         let payload = {
@@ -147,52 +225,118 @@ self.addEventListener("message", (event) => {
         try {
           payload = await clearMemberOfflineState();
         } catch (error) {
+          logError("clear_member_offline_state", error);
           payload = {
             cleared: false,
             unregistered: false,
             error: "offline-clear-failed",
+            errorDetail: error?.message,
           };
         }
         replyPort?.postMessage(payload);
       })(),
     );
+  } else if (messageType === "sw_health_check") {
+    // Health check for diagnostics
+    event.waitUntil(
+      (async () => {
+        const health = {
+          type: "sw_health",
+          healthy: true,
+          metrics: { ...swMetrics },
+          timestamp: new Date().toISOString(),
+        };
+        replyPort?.postMessage(health);
+      })(),
+    );
+  } else if (messageType === "sw_clear_metrics") {
+    // Reset metrics for testing
+    swMetrics = {
+      installTime: swMetrics.installTime,
+      activateTime: swMetrics.activateTime,
+      fetchCount: 0,
+      errorCount: 0,
+      lastError: null,
+    };
+    replyPort?.postMessage({ type: "sw_metrics_cleared", metrics: swMetrics });
   }
 });
 
 async function cacheFirst(request) {
-  const cached = await caches.match(request);
-  if (cached) {
-    return cached;
-  }
-  const response = await fetch(request);
-  if (response.ok) {
-    const cache = await caches.open(SHELL_CACHE);
-    cache.put(request, response.clone());
-  }
-  return response;
-}
-
-async function navigationResponse(request) {
-  const navCache = await caches.open(NAV_CACHE);
+  swMetrics.fetchCount++;
   try {
-    const response = await fetch(request);
-    if (response.ok && NAVIGATION_PATHS.has(new URL(request.url).pathname)) {
-      navCache.put(request, response.clone());
-    }
-    return response;
-  } catch (error) {
-    const cached = await navCache.match(request);
+    const cached = await caches.match(request);
     if (cached) {
       return cached;
     }
-    const cachedMember = await navCache.match("/member");
-    if (cachedMember) {
-      return cachedMember;
+    const response = await fetch(request);
+    if (response.ok) {
+      try {
+        const cache = await caches.open(SHELL_CACHE);
+        await cache.put(request, response.clone());
+      } catch (cacheError) {
+        logError(`cache put: ${request.url}`, cacheError);
+        // Return response even if caching fails
+      }
     }
-    const cachedJoin = await navCache.match("/join");
-    if (cachedJoin) {
-      return cachedJoin;
+    return response;
+  } catch (error) {
+    logError(`cacheFirst: ${request.url}`, error);
+    // Return a 503 response for network failures
+    return new Response("Network error", {
+      status: 503,
+      statusText: "Service Unavailable",
+      headers: { "Content-Type": "text/plain" },
+    });
+  }
+}
+
+async function navigationResponse(request) {
+  const url = new URL(request.url);
+  const pathname = url.pathname;
+  
+  try {
+    const navCache = await caches.open(NAV_CACHE);
+    try {
+      const response = await fetch(request);
+      if (response.ok && NAVIGATION_PATHS.has(pathname)) {
+        try {
+          await navCache.put(request, response.clone());
+        } catch (cacheError) {
+          logError(`nav cache put: ${pathname}`, cacheError);
+        }
+      }
+      return response;
+    } catch (networkError) {
+      // Network failed - try cache
+      logError(`nav fetch: ${pathname}`, networkError);
+      
+      const cached = await navCache.match(request);
+      if (cached) {
+        return cached;
+      }
+      
+      // Try fallback pages
+      const fallbackPaths = ["/member", "/join"];
+      for (const fallbackPath of fallbackPaths) {
+        const cachedFallback = await navCache.match(fallbackPath);
+        if (cachedFallback) {
+          console.log(`[SW] Serving ${fallbackPath} as fallback for ${pathname}`);
+          return cachedFallback;
+        }
+      }
+      
+      // No cached fallback - return offline HTML
+      return new Response(OFFLINE_HTML, {
+        headers: {
+          "Content-Type": "text/html; charset=utf-8",
+          "Cache-Control": "no-store",
+        },
+      });
     }
+  } catch (error) {
+    logError(`navigationResponse: ${pathname}`, error);
+    // Ultimate fallback
     return new Response(OFFLINE_HTML, {
       headers: {
         "Content-Type": "text/html; charset=utf-8",

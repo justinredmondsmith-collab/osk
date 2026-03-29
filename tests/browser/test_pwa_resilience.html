@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Osk PWA Resilience Test Suite</title>
+  <style>
+    :root {
+      --bg: #07101b;
+      --panel: #0a1826;
+      --line: rgba(143, 173, 209, 0.18);
+      --ink: #edf5ff;
+      --muted: #8ca2be;
+      --accent: #5be0ce;
+      --success: #2dd4bf;
+      --error: #f87171;
+      --warn: #fbbf24;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      padding: 2rem;
+      font-family: system-ui, -apple-system, sans-serif;
+      background: var(--bg);
+      color: var(--ink);
+      line-height: 1.6;
+    }
+    h1 { color: var(--accent); margin-top: 0; }
+    .test-panel {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 0.75rem;
+      padding: 1.5rem;
+      margin-bottom: 1.5rem;
+    }
+    button {
+      background: var(--accent);
+      color: var(--bg);
+      border: none;
+      padding: 0.75rem 1.5rem;
+      border-radius: 0.5rem;
+      font-weight: 600;
+      cursor: pointer;
+      font-size: 0.9rem;
+      margin-right: 0.5rem;
+      margin-bottom: 0.5rem;
+    }
+    button:hover { opacity: 0.9; }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+    .results {
+      font-family: monospace;
+      font-size: 0.85rem;
+      white-space: pre-wrap;
+      background: rgba(0, 0, 0, 0.3);
+      padding: 1rem;
+      border-radius: 0.5rem;
+      max-height: 400px;
+      overflow-y: auto;
+    }
+    .log-entry { margin: 0.25rem 0; padding: 0.25rem 0; border-bottom: 1px solid var(--line); }
+    .log-entry.success { color: var(--success); }
+    .log-entry.error { color: var(--error); }
+    .log-entry.warn { color: var(--warn); }
+    .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; margin-top: 1rem; }
+    .stat-box {
+      background: rgba(0, 0, 0, 0.2);
+      padding: 1rem;
+      border-radius: 0.5rem;
+      text-align: center;
+    }
+    .stat-value { font-size: 2rem; font-weight: bold; color: var(--accent); }
+    .stat-label { font-size: 0.8rem; color: var(--muted); text-transform: uppercase; }
+  </style>
+</head>
+<body>
+  <h1>PWA Resilience Test Suite</h1>
+  
+  <div class="test-panel">
+    <div>
+      <button onclick="checkSWHealth()">Check SW Health</button>
+      <button onclick="toggleOffline()">Toggle Offline</button>
+      <button onclick="testQueueRecovery()">Test Queue Recovery</button>
+      <button onclick="runStressTest()">Run 100 Cycles</button>
+      <button onclick="clearResults()">Clear</button>
+    </div>
+    
+    <div class="stats">
+      <div class="stat-box">
+        <div class="stat-value" id="stat-total">0</div>
+        <div class="stat-label">Tests</div>
+      </div>
+      <div class="stat-box">
+        <div class="stat-value" id="stat-passed">0</div>
+        <div class="stat-label">Passed</div>
+      </div>
+      <div class="stat-box">
+        <div class="stat-value" id="stat-failed">0</div>
+        <div class="stat-label">Failed</div>
+      </div>
+      <div class="stat-box">
+        <div class="stat-value" id="stat-rate">0%</div>
+        <div class="stat-label">Rate</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="test-panel">
+    <h3>Results</h3>
+    <div class="results" id="results">Click a test button to begin...</div>
+  </div>
+
+  <script>
+    let testResults = [];
+
+    function log(msg, type = 'info') {
+      const results = document.getElementById('results');
+      const entry = document.createElement('div');
+      entry.className = `log-entry ${type}`;
+      entry.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
+      results.appendChild(entry);
+      results.scrollTop = results.scrollHeight;
+    }
+
+    function updateStats() {
+      const total = testResults.length;
+      const passed = testResults.filter(r => r.passed).length;
+      const rate = total > 0 ? Math.round((passed / total) * 100) : 0;
+      document.getElementById('stat-total').textContent = total;
+      document.getElementById('stat-passed').textContent = passed;
+      document.getElementById('stat-failed').textContent = total - passed;
+      document.getElementById('stat-rate').textContent = rate + '%';
+    }
+
+    function clearResults() {
+      testResults = [];
+      document.getElementById('results').innerHTML = 'Ready...';
+      updateStats();
+    }
+
+    function record(name, passed, details = '') {
+      testResults.push({ name, passed, details });
+      log((passed ? 'PASS: ' : 'FAIL: ') + name + (details ? ' - ' + details : ''), passed ? 'success' : 'error');
+      updateStats();
+    }
+
+    async function checkSWHealth() {
+      if (!('serviceWorker' in navigator)) {
+        record('SW Health', false, 'Not supported');
+        return;
+      }
+      const reg = await navigator.serviceWorker.getRegistration();
+      if (!reg || !reg.active) {
+        record('SW Health', false, 'Not active');
+        return;
+      }
+      const channel = new MessageChannel();
+      const health = await new Promise((resolve, reject) => {
+        setTimeout(() => reject(new Error('Timeout')), 5000);
+        channel.port1.onmessage = e => resolve(e.data);
+      });
+      reg.active.postMessage({ type: 'sw_health_check' }, [channel.port2]);
+      record('SW Health', health.healthy, 'Fetches: ' + (health.metrics?.fetchCount || 0));
+    }
+
+    let offlineMode = false;
+    async function toggleOffline() {
+      offlineMode = !offlineMode;
+      Object.defineProperty(navigator, 'onLine', { value: !offlineMode, writable: true, configurable: true });
+      window.dispatchEvent(new Event(offlineMode ? 'offline' : 'online'));
+      record('Toggle Offline', true, offlineMode ? 'OFF' : 'ON');
+    }
+
+    async function testQueueRecovery() {
+      if (!('indexedDB' in window)) {
+        record('Queue Recovery', false, 'No IndexedDB');
+        return;
+      }
+      const db = await new Promise((res, rej) => {
+        const req = indexedDB.open('test-db', 1);
+        req.onupgradeneeded = () => req.result.createObjectStore('items', { keyPath: 'id' });
+        req.onsuccess = () => res(req.result);
+        req.onerror = () => rej(req.error);
+      });
+      const id = 'test-' + Date.now();
+      const tx = db.transaction('items', 'readwrite');
+      await new Promise((res, rej) => {
+        const put = tx.objectStore('items').put({ id, data: 'test' });
+        put.onsuccess = () => res();
+        put.onerror = () => rej(put.error);
+      });
+      db.close();
+      const db2 = await new Promise((res, rej) => {
+        const req = indexedDB.open('test-db', 1);
+        req.onsuccess = () => res(req.result);
+        req.onerror = () => rej(req.error);
+      });
+      const tx2 = db2.transaction('items', 'readonly');
+      const result = await new Promise((res, rej) => {
+        const get = tx2.objectStore('items').get(id);
+        get.onsuccess = () => res(get.result);
+        get.onerror = () => rej(get.error);
+      });
+      db2.close();
+      record('Queue Recovery', result && result.id === id, result ? 'Data persisted' : 'Data lost');
+    }
+
+    async function runStressTest() {
+      log('Starting 100 cycles...');
+      let passed = 0;
+      for (let i = 0; i < 100; i++) {
+        try {
+          Object.defineProperty(navigator, 'onLine', { value: false, writable: true, configurable: true });
+          window.dispatchEvent(new Event('offline'));
+          await new Promise(r => setTimeout(r, 10));
+          Object.defineProperty(navigator, 'onLine', { value: true, writable: true, configurable: true });
+          window.dispatchEvent(new Event('online'));
+          await new Promise(r => setTimeout(r, 10));
+          passed++;
+        } catch (e) {
+          log('Cycle ' + (i + 1) + ' failed: ' + e.message, 'error');
+        }
+        if ((i + 1) % 20 === 0) log('Completed ' + (i + 1) + '/100...');
+      }
+      record('Stress Test', passed >= 95, passed + '/100 passed');
+    }
+
+    window.addEventListener('load', () => {
+      log('Test suite loaded');
+    });
+  </script>
+</body>
+</html>

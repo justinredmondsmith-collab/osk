@@ -1,0 +1,560 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Osk Reconnect Stress Test</title>
+  <style>
+    :root {
+      --bg: #07101b;
+      --panel: #0a1826;
+      --line: rgba(143, 173, 209, 0.18);
+      --ink: #edf5ff;
+      --muted: #8ca2be;
+      --accent: #5be0ce;
+      --success: #2dd4bf;
+      --error: #f87171;
+      --warn: #fbbf24;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      padding: 1.5rem;
+      font-family: system-ui, -apple-system, sans-serif;
+      background: var(--bg);
+      color: var(--ink);
+      line-height: 1.6;
+    }
+    h1 { color: var(--accent); margin-top: 0; font-size: 1.5rem; }
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 0.75rem;
+      padding: 1.25rem;
+      margin-bottom: 1rem;
+    }
+    .controls {
+      display: flex;
+      gap: 0.5rem;
+      flex-wrap: wrap;
+    }
+    button {
+      background: var(--accent);
+      color: var(--bg);
+      border: none;
+      padding: 0.75rem 1rem;
+      border-radius: 0.5rem;
+      font-weight: 600;
+      font-size: 0.9rem;
+      cursor: pointer;
+    }
+    button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+    button.secondary {
+      background: transparent;
+      border: 1px solid var(--accent);
+      color: var(--accent);
+    }
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 1rem;
+      margin-top: 1rem;
+    }
+    .stat {
+      background: rgba(0,0,0,0.2);
+      padding: 1rem;
+      border-radius: 0.5rem;
+      text-align: center;
+    }
+    .stat-value {
+      font-size: 1.75rem;
+      font-weight: bold;
+      color: var(--accent);
+    }
+    .stat-label {
+      font-size: 0.75rem;
+      color: var(--muted);
+      text-transform: uppercase;
+    }
+    .progress {
+      height: 4px;
+      background: var(--line);
+      border-radius: 2px;
+      margin-top: 1rem;
+      overflow: hidden;
+    }
+    .progress-fill {
+      height: 100%;
+      background: var(--accent);
+      width: 0%;
+      transition: width 0.3s;
+    }
+    .log {
+      font-family: monospace;
+      font-size: 0.8rem;
+      background: rgba(0,0,0,0.3);
+      padding: 1rem;
+      border-radius: 0.5rem;
+      max-height: 300px;
+      overflow-y: auto;
+      white-space: pre-wrap;
+    }
+    .log-entry {
+      margin: 0.2rem 0;
+      padding: 0.2rem 0;
+    }
+    .log-entry.success { color: var(--success); }
+    .log-entry.error { color: var(--error); }
+    .log-entry.warn { color: var(--warn); }
+    .status {
+      display: inline-block;
+      padding: 0.25rem 0.5rem;
+      border-radius: 0.25rem;
+      font-size: 0.75rem;
+      font-weight: 600;
+      text-transform: uppercase;
+    }
+    .status.connected { background: rgba(45, 212, 191, 0.2); color: var(--success); }
+    .status.disconnected { background: rgba(248, 113, 113, 0.2); color: var(--error); }
+    .status.testing { background: rgba(251, 191, 36, 0.2); color: var(--warn); }
+    
+    .config-row {
+      display: flex;
+      gap: 1rem;
+      align-items: center;
+      margin-bottom: 0.5rem;
+    }
+    label {
+      font-size: 0.9rem;
+      min-width: 120px;
+    }
+    input[type="number"], select {
+      background: rgba(0,0,0,0.3);
+      border: 1px solid var(--line);
+      color: var(--ink);
+      padding: 0.5rem;
+      border-radius: 0.25rem;
+      width: 100px;
+    }
+    
+    .battery-display {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      font-size: 0.9rem;
+    }
+    .battery-level {
+      width: 40px;
+      height: 20px;
+      border: 2px solid var(--line);
+      border-radius: 3px;
+      position: relative;
+      padding: 2px;
+    }
+    .battery-level::after {
+      content: '';
+      position: absolute;
+      right: -5px;
+      top: 5px;
+      width: 3px;
+      height: 8px;
+      background: var(--line);
+      border-radius: 0 2px 2px 0;
+    }
+    .battery-fill {
+      height: 100%;
+      background: var(--accent);
+      border-radius: 1px;
+      transition: width 0.3s;
+    }
+  </style>
+</head>
+<body>
+  <h1>📱 Reconnect Stress Test</h1>
+  
+  <div class="panel">
+    <div style="display: flex; justify-content: space-between; align-items: center;">
+      <div>
+        <strong>Status:</strong> 
+        <span id="ws-status" class="status disconnected">Disconnected</span>
+      </div>
+      <div class="battery-display">
+        <span id="battery-text">--%</span>
+        <div class="battery-level">
+          <div class="battery-fill" id="battery-fill" style="width: 0%"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h3>Test Configuration</h3>
+    <div class="config-row">
+      <label>Test Cycles:</label>
+      <input type="number" id="cycles" value="100" min="10" max="1000">
+    </div>
+    <div class="config-row">
+      <label>Offline Duration:</label>
+      <select id="offline-time">
+        <option value="100">100ms (quick)</option>
+        <option value="500" selected>500ms (normal)</option>
+        <option value="2000">2s (long)</option>
+        <option value="5000">5s (very long)</option>
+      </select>
+    </div>
+    <div class="config-row">
+      <label>Online Duration:</label>
+      <select id="online-time">
+        <option value="500">500ms</option>
+        <option value="1000" selected>1s</option>
+        <option value="3000">3s</option>
+        <option value="5000">5s</option>
+      </select>
+    </div>
+    <div class="config-row">
+      <label>Test Mode:</label>
+      <select id="test-mode">
+        <option value="websocket">WebSocket Toggle</option>
+        <option value="network">Network Simulation</option>
+        <option value="both">Both Combined</option>
+      </select>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h3>Test Controls</h3>
+    <div class="controls">
+      <button id="btn-start" onclick="startTest()">Start Test</button>
+      <button id="btn-stop" onclick="stopTest()" disabled>Stop</button>
+      <button id="btn-single" onclick="singleDisconnect()">Single Disconnect</button>
+      <button id="btn-battery" onclick="startBatteryMonitor()">Start Battery Monitor</button>
+      <button class="secondary" onclick="exportResults()">Export Results</button>
+      <button class="secondary" onclick="clearLog()">Clear Log</button>
+    </div>
+    
+    <div class="stats-grid">
+      <div class="stat">
+        <div class="stat-value" id="stat-cycle">0/0</div>
+        <div class="stat-label">Cycle</div>
+      </div>
+      <div class="stat">
+        <div class="stat-value" id="stat-reconnect">0</div>
+        <div class="stat-label">Reconnects</div>
+      </div>
+      <div class="stat">
+        <div class="stat-value" id="stat-failed">0</div>
+        <div class="stat-label">Failed</div>
+      </div>
+      <div class="stat">
+        <div class="stat-value" id="stat-rate">0%</div>
+        <div class="stat-label">Success Rate</div>
+      </div>
+      <div class="stat">
+        <div class="stat-value" id="stat-latency">--</div>
+        <div class="stat-label">Avg Latency</div>
+      </div>
+      <div class="stat">
+        <div class="stat-value" id="stat-battery">--</div>
+        <div class="stat-label">Battery Drain</div>
+      </div>
+    </div>
+    
+    <div class="progress" id="progress-container" style="display: none;">
+      <div class="progress-fill" id="progress-bar"></div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h3>Test Log</h3>
+    <div class="log" id="log">Ready to start test...</div>
+  </div>
+
+  <script src="battery_monitor.js"></script>
+  <script>
+    // Test state
+    let isRunning = false;
+    let currentCycle = 0;
+    let totalCycles = 100;
+    let reconnectCount = 0;
+    let failedCount = 0;
+    let latencies = [];
+    let batteryDrain = 0;
+    let testResults = [];
+    let ws = null;
+    let testTimer = null;
+    let batteryMonitorStarted = false;
+
+    // Utility functions
+    function log(msg, type = 'info') {
+      const logEl = document.getElementById('log');
+      const entry = document.createElement('div');
+      entry.className = `log-entry ${type}`;
+      entry.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
+      logEl.appendChild(entry);
+      logEl.scrollTop = logEl.scrollHeight;
+    }
+
+    function clearLog() {
+      document.getElementById('log').innerHTML = 'Log cleared.';
+      testResults = [];
+      updateStats();
+    }
+
+    function updateStats() {
+      const rate = currentCycle > 0 ? Math.round((reconnectCount / currentCycle) * 100) : 0;
+      const avgLatency = latencies.length > 0 
+        ? Math.round(latencies.reduce((a,b) => a+b, 0) / latencies.length) 
+        : '--';
+      
+      document.getElementById('stat-cycle').textContent = `${currentCycle}/${totalCycles}`;
+      document.getElementById('stat-reconnect').textContent = reconnectCount;
+      document.getElementById('stat-failed').textContent = failedCount;
+      document.getElementById('stat-rate').textContent = `${rate}%`;
+      document.getElementById('stat-latency').textContent = avgLatency + 'ms';
+      document.getElementById('stat-battery').textContent = batteryDrain ? `-${(batteryDrain * 100).toFixed(1)}%` : '--';
+      
+      const progress = currentCycle / totalCycles * 100;
+      document.getElementById('progress-bar').style.width = `${progress}%`;
+    }
+
+    function setStatus(status) {
+      const el = document.getElementById('ws-status');
+      el.className = `status ${status}`;
+      el.textContent = status.charAt(0).toUpperCase() + status.slice(1);
+    }
+
+    // Battery display
+    async function initBatteryDisplay() {
+      if (!('getBattery' in navigator)) return;
+      
+      const battery = await navigator.getBattery();
+      
+      function updateBattery() {
+        const level = Math.round(battery.level * 100);
+        document.getElementById('battery-text').textContent = `${level}%`;
+        document.getElementById('battery-fill').style.width = `${level}%`;
+        document.getElementById('battery-fill').style.background = 
+          level < 20 ? 'var(--error)' : level < 50 ? 'var(--warn)' : 'var(--accent)';
+      }
+      
+      updateBattery();
+      battery.addEventListener('levelchange', updateBattery);
+    }
+
+    function startBatteryMonitor() {
+      if (batteryMonitorStarted) {
+        log('Battery monitor already running', 'warn');
+        return;
+      }
+      
+      BatteryMonitor.start();
+      batteryMonitorStarted = true;
+      log('Battery monitoring started');
+      
+      // Update battery drain display
+      setInterval(() => {
+        const report = BatteryMonitor.generateSnapshot();
+        if (report.levelChange) {
+          batteryDrain = Math.abs(report.levelChange);
+          updateStats();
+        }
+      }, 10000);
+    }
+
+    // WebSocket management
+    function connectWebSocket() {
+      return new Promise((resolve, reject) => {
+        // This would connect to the actual Osk hub in real usage
+        // For testing, we simulate the connection
+        const startTime = Date.now();
+        
+        // Simulate WebSocket connection
+        setTimeout(() => {
+          setStatus('connected');
+          const latency = Date.now() - startTime;
+          resolve(latency);
+        }, Math.random() * 200 + 100);
+      });
+    }
+
+    function disconnectWebSocket() {
+      setStatus('disconnected');
+      return Promise.resolve();
+    }
+
+    // Test execution
+    async function runTestCycle() {
+      const offlineTime = parseInt(document.getElementById('offline-time').value);
+      const onlineTime = parseInt(document.getElementById('online-time').value);
+      const mode = document.getElementById('test-mode').value;
+      
+      currentCycle++;
+      updateStats();
+      
+      log(`Cycle ${currentCycle}: Going offline...`);
+      
+      try {
+        // Disconnect
+        if (mode === 'websocket' || mode === 'both') {
+          await disconnectWebSocket();
+        }
+        if (mode === 'network' || mode === 'both') {
+          Object.defineProperty(navigator, 'onLine', { value: false, writable: true });
+          window.dispatchEvent(new Event('offline'));
+        }
+        
+        await sleep(offlineTime);
+        
+        // Reconnect
+        log(`Cycle ${currentCycle}: Reconnecting...`);
+        const reconnectStart = Date.now();
+        
+        if (mode === 'network' || mode === 'both') {
+          Object.defineProperty(navigator, 'onLine', { value: true, writable: true });
+          window.dispatchEvent(new Event('online'));
+        }
+        
+        if (mode === 'websocket' || mode === 'both') {
+          const latency = await connectWebSocket();
+          latencies.push(latency);
+        }
+        
+        const totalLatency = Date.now() - reconnectStart;
+        reconnectCount++;
+        
+        testResults.push({
+          cycle: currentCycle,
+          success: true,
+          latency: totalLatency,
+          offlineTime,
+          onlineTime,
+        });
+        
+        log(`Cycle ${currentCycle}: Reconnected in ${totalLatency}ms`, 'success');
+        
+        await sleep(onlineTime);
+        
+      } catch (error) {
+        failedCount++;
+        testResults.push({
+          cycle: currentCycle,
+          success: false,
+          error: error.message,
+        });
+        log(`Cycle ${currentCycle}: Failed - ${error.message}`, 'error');
+      }
+      
+      updateStats();
+    }
+
+    async function startTest() {
+      if (isRunning) return;
+      
+      totalCycles = parseInt(document.getElementById('cycles').value);
+      isRunning = true;
+      currentCycle = 0;
+      reconnectCount = 0;
+      failedCount = 0;
+      latencies = [];
+      testResults = [];
+      
+      document.getElementById('btn-start').disabled = true;
+      document.getElementById('btn-stop').disabled = false;
+      document.getElementById('progress-container').style.display = 'block';
+      
+      log(`Starting stress test: ${totalCycles} cycles...`);
+      
+      // Start battery monitoring if available
+      if (!batteryMonitorStarted && 'getBattery' in navigator) {
+        startBatteryMonitor();
+      }
+      
+      for (let i = 0; i < totalCycles && isRunning; i++) {
+        await runTestCycle();
+      }
+      
+      stopTest();
+    }
+
+    function stopTest() {
+      isRunning = false;
+      document.getElementById('btn-start').disabled = false;
+      document.getElementById('btn-stop').disabled = true;
+      
+      const rate = currentCycle > 0 ? Math.round((reconnectCount / currentCycle) * 100) : 0;
+      
+      log(`Test complete: ${reconnectCount}/${currentCycle} successful (${rate}%)`, rate >= 95 ? 'success' : 'warn');
+      
+      // Stop battery monitor
+      if (batteryMonitorStarted) {
+        const batteryReport = BatteryMonitor.stop();
+        if (batteryReport) {
+          log(`Battery drain: ${(batteryReport.levelChange * 100).toFixed(1)}% over ${(batteryReport.duration / 60000).toFixed(1)} min`);
+        }
+        batteryMonitorStarted = false;
+      }
+    }
+
+    async function singleDisconnect() {
+      log('Single disconnect test...');
+      const startTime = Date.now();
+      
+      await disconnectWebSocket();
+      await sleep(1000);
+      
+      const reconnectStart = Date.now();
+      await connectWebSocket();
+      const latency = Date.now() - reconnectStart;
+      
+      log(`Reconnected in ${latency}ms (total: ${Date.now() - startTime}ms)`, 'success');
+    }
+
+    function exportResults() {
+      const data = {
+        timestamp: new Date().toISOString(),
+        userAgent: navigator.userAgent,
+        platform: navigator.platform,
+        configuration: {
+          totalCycles,
+          offlineTime: document.getElementById('offline-time').value,
+          onlineTime: document.getElementById('online-time').value,
+          testMode: document.getElementById('test-mode').value,
+        },
+        summary: {
+          completed: currentCycle,
+          successful: reconnectCount,
+          failed: failedCount,
+          successRate: currentCycle > 0 ? Math.round((reconnectCount / currentCycle) * 100) : 0,
+          avgLatency: latencies.length > 0 ? Math.round(latencies.reduce((a,b) => a+b, 0) / latencies.length) : null,
+          batteryDrain: batteryDrain,
+        },
+        results: testResults,
+      };
+      
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `reconnect-stress-${Date.now()}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+      
+      log('Results exported to JSON file');
+    }
+
+    function sleep(ms) {
+      return new Promise(resolve => setTimeout(resolve, ms));
+    }
+
+    // Initialize
+    window.addEventListener('load', () => {
+      initBatteryDisplay();
+      log('Reconnect Stress Test loaded');
+      log('Device: ' + navigator.userAgent.substring(0, 50) + '...');
+    });
+  </script>
+</body>
+</html>

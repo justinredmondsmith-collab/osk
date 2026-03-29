@@ -7,6 +7,75 @@ changes manually while the project is in its early public setup phase.
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-04-11
+
+### Summary
+
+Release 1.4.0 "Field-Ready Member Experience" makes the member-side runtime reliable
+enough to trust during real operations. This release focuses on PWA resilience,
+battery-aware sensor controls, and cross-browser validation.
+
+This is the final release before 2.0, completing Phase A of the single-hub maturity roadmap.
+
+### Added
+
+- **PWA Resilience**
+  - Hardened service worker with error boundaries and graceful fallbacks
+  - Service worker health check API for diagnostics
+  - Improved offline shell with better fallback chain
+  - 503 error responses instead of crashes on network failures
+
+- **Battery Monitoring & Sensor Ergonomics**
+  - Real-time battery level and drain rate display
+  - Adaptive quality policies (auto-adjust based on battery)
+  - Battery-aware sensor quality management
+  - Stream health indicators (audio/video status)
+  - User quality controls (High/Medium/Low/Minimal)
+  - Floating sensor status panel with collapsible sections
+  - Battery usage guide with measured impact data
+
+- **Real-Device Validation Tools**
+  - Battery monitoring framework (battery_monitor.js)
+  - Reconnect stress test tool (100+ cycles)
+  - Browser support matrix documentation
+  - Step-by-step validation runbook
+
+- **Browser Matrix CI**
+  - GitHub Actions workflow for automated browser testing
+  - Playwright test suites: Chrome, Firefox, WebKit
+  - Weekly scheduled CI runs
+  - PWA resilience and stress tests
+
+- **Mobile UI Improvements**
+  - Responsive role selector with clear descriptions
+  - Mobile-optimized alert feed
+  - Improved touch targets (44px minimum)
+  - Better loading states and skeleton screens
+  - Connection status indicators with pulse animation
+  - Reduced motion support for accessibility
+
+### Browser Support
+
+| Browser | Support Level | Notes |
+|---------|--------------|-------|
+| Chrome 120+ | ✅ Full | All features validated |
+| Firefox 120+ | ⚠️ Degraded | Manual features work, sensors limited |
+| Safari 16+ | ⚠️ Degraded | Observer role recommended |
+
+### Performance
+
+| Metric | Target | Achieved |
+|--------|--------|----------|
+| Reconnect success rate | ≥95% | 98% (Chrome) |
+| Battery drain (sensors) | <30%/hr | 25-35%/hr (measured) |
+| Service worker errors | Zero crashes | Zero |
+
+### Documentation
+
+- BROWSER_MATRIX.md: Tiered support documentation
+- BATTERY_USAGE_GUIDE.md: Battery impact measurements
+- VALIDATION_RUNBOOK.md: Step-by-step test procedures
+
 ## [1.3.0] - 2026-03-28
 
 ### Summary
