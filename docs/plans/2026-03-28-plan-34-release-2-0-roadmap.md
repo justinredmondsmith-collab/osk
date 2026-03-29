@@ -1,259 +1,267 @@
 # Plan 34: Release 2.0 "Mature Single-Hub Operational System"
 
-**Date:** 2026-03-28  
-**Status:** Draft for maintainer review  
+**Date:** 2026-03-28 (Revised)  
+**Status:** Draft - Critical Review Applied  
 **Prerequisite:** Release 1.3.0 completed and tagged  
-**Target Completion:** 8-10 weeks (Weeks 1-10: 1.4.x Field-Ready, Weeks 11-16: 2.0 Polish)
+**Target Completion:** 14-18 weeks (realistic with buffer)
+
+---
+
+## Critical Revisions from Initial Draft
+
+| Issue | Original | Revised |
+|-------|----------|---------|
+| Timeline | 16 weeks claimed as "8-10" | 14-18 weeks honest estimate |
+| Work pattern | 4 overlapping workstreams | 2 sequential phases with focus |
+| Validation | Metrics without methodology | Each metric has test plan |
+| Buffer | None | 2-3 week buffer included |
+| Scope risk | Complex features in final weeks | Complex work front-loaded |
 
 ---
 
 ## Purpose
 
-This plan defines the path from Release 1.3.0 (Trustworthy Intelligence Fusion) to Release 2.0 (Mature Single-Hub Operational System). The goal is not to add new capabilities but to make the existing single-hub product operationally excellent, supportable, and repeatable.
+Transform Osk from "validated foundation with good features" to "field-mature operational system that a new coordinator can trust without maintainer help."
 
-Release 2.0 is the milestone where Osk graduates from "validated foundation" to "field-mature operational system."
-
----
-
-## Mission Statement
-
-A motivated coordinator can:
-1. Install and launch Osk on supported hardware with minimal prep
-2. Run a complete operation with confidence in the system's reliability
-3. Direct members through tasking and intelligence review
-4. Close the operation with trustworthy evidence and clear handoff
-5. Trust the claims in the documentation to match real behavior
+The focus is **operational excellence, not new capabilities**.
 
 ---
 
-## Two-Phase Approach
+## Revised Two-Phase Approach
 
-### Phase A: Release 1.4.x "Field-Ready Member Experience" (Weeks 1-10)
+### Phase A: Release 1.4.0 "Field-Ready Foundation" (Weeks 1-8)
 
-Make the member-side runtime reliable enough to trust during real operations, not just validation sessions.
+Focus: PWA resilience + real-device validation (foundational for everything else)
 
-#### Workstream 1: PWA Resilience
+#### Sprint 1-2: PWA Core Resilience (Weeks 1-2)
 
-| Week | Task | Deliverable |
-|------|------|-------------|
-| 1-2 | Harden offline shell behavior | Robust service worker, cached critical assets |
-| 2-3 | Improve queued action handling | IndexedDB queue with sync recovery |
-| 3-4 | Reduce partial-state cases after reconnect | State reconciliation, clear loading indicators |
-| 4 | Create offline-first test suite | Automated tests for offline/online transitions |
+| Task | Deliverable | Validation |
+|------|-------------|------------|
+| Service worker hardening | Robust caching, offline shell | Synthetic: 100 offline/online cycles |
+| IndexedDB queue recovery | Queue survives crashes/restarts | Test: kill browser mid-queue, verify recovery |
+| State reconciliation | Clear loading states, no partial UI | Manual: 20 reconnect scenarios |
 
-**Success Criteria:**
-- Member can queue actions offline and sync successfully upon reconnect
-- Reconnect success rate >95% after transient disconnect
-- No confusing partial-state UI cases
+**Sprint Exit:** Demo queue recovery after simulated crash.
 
-#### Workstream 2: Sensor Ergonomics
+#### Sprint 3-4: Real-Device Validation (Weeks 3-4)
 
-| Week | Task | Deliverable |
-|------|------|-------------|
-| 3-4 | Expose stream health clearly | Battery cost indicator, stream quality meter |
-| 4-5 | Adaptive bandwidth/power policies | Auto-throttle on low battery/bandwidth |
-| 5-6 | Capture behavior controls | User-visible sensor on/off, quality selection |
-| 6 | Document sensor battery impact | Measured battery usage guide |
+| Task | Deliverable | Validation |
+|------|-------------|------------|
+| Battery measurement framework | Instrumented battery logging | Pixel 6 baseline measurement |
+| Reconnect stress test | Automated reconnect scenarios | 100 disconnect/reconnect cycles |
+| Firefox validation | Document capabilities/limits | Test matrix: Chrome vs Firefox |
+| Safari validation (iOS) | Document capabilities/limits | Test matrix: Chrome vs Safari |
 
-**Success Criteria:**
-- Member understands battery cost of sensor streaming
-- Adaptive policies reduce battery drain by >20% in degraded conditions
-- Stream quality controls are discoverable and effective
+**Sprint Exit:** Real-device validation report with battery/reconnect data.
 
-#### Workstream 3: Browser Support Matrix
+#### Sprint 5-6: Sensor Ergonomics (Weeks 5-6)
 
-| Week | Task | Deliverable |
-|------|------|-------------|
-| 5-6 | Expand Firefox validation | Document Firefox capabilities and limits |
-| 6-7 | Expand Safari validation | Document Safari capabilities and limits |
-| 7-8 | Define degraded modes | Honest documentation of browser differences |
-| 8 | Create browser regression CI | Automated matrix testing |
+| Task | Deliverable | Validation |
+|------|-------------|------------|
+| Battery cost indicator | Visible battery drain estimate | User comprehension test (n=3) |
+| Stream health display | Connection quality, dropped frames | Synthetic: throttle bandwidth, verify indicators |
+| Adaptive quality policies | Auto-reduce on low battery | Test: simulate 20% battery, verify throttle |
 
-**Success Criteria:**
-- Supported browsers documented with test evidence
-- Degraded modes honestly described
-- CI catches browser-specific regressions
+**Sprint Exit:** Sensor ergonomics validated on real device with battery verification.
 
-#### Workstream 4: Observer/Sensor Role Polish
+#### Sprint 7-8: Integration & 1.4.0 Polish (Weeks 7-8)
 
-| Week | Task | Deliverable |
-|------|------|-------------|
-| 7-8 | Clarify role transitions | Explicit role selector, onboarding hints |
-| 8-9 | Reduce accidental operator burden | Better member onboarding flow |
-| 9-10 | Improve mobile alert readability | Optimized alert feed for small screens |
-| 10 | Mobile task visibility improvements | Better task display under mobile constraints |
+| Task | Deliverable | Validation |
+|------|-------------|------------|
+| Browser matrix CI | Automated Chrome/Firefox/Safari tests | CI passing all browsers |
+| Bug fixes from validation | Address issues found in Weeks 3-4 | All P1/P2 bugs closed |
+| 1.4.0 documentation | What's new, known limitations | Doc review complete |
+| Tag 1.4.0 | Release cut | All tests passing |
 
-**Success Criteria:**
-- Member understands their role and capabilities
-- Role confusion reduced by >50% (measured in validation)
-- Mobile experience feels intentional, not cramped
+**Phase A Exit Criteria:**
+- [ ] Real-device validation report published
+- [ ] Reconnect success rate >95% (measured on real device, n=100)
+- [ ] Offline queue recovery >90% (synthetic tests)
+- [ ] Browser matrix documented with honest degraded modes
+- [ ] 1.4.0 tagged and released
+
+**Buffer:** If validation finds major issues, use Week 8 buffer before cutting 1.4.0.
 
 ---
 
-### Phase B: Release 2.0 "Mature Single-Hub Operational System" (Weeks 11-16)
+### Phase B: Release 2.0 "Mature System" (Weeks 9-16)
 
-Finish the product as a mature single-hub system before any platform expansion.
+Focus: Install maturity + after-action review (coordinator-facing excellence)
 
-#### Workstream 5: Install and Deployment Maturity
+#### Sprint 9-10: Install Hardening (Weeks 9-10)
 
-| Week | Task | Deliverable |
-|------|------|-------------|
-| 11 | Harden install experience | Better error messages, prerequisite checks |
-| 11-12 | Reduce coordinator tribal knowledge | Clearer startup guidance, common failure modes |
-| 12 | Document operational prerequisites | Hardware, network, browser requirements |
-| 12-13 | Define supported deployment profiles | Known-good configurations |
+| Task | Deliverable | Validation |
+|------|-------------|------------|
+| Prerequisite checker | `osk doctor` validates all deps | Test on fresh Ubuntu install |
+| Clear error messages | Every failure has actionable guidance | Review: all error paths documented |
+| Common failure playbook | Document top 10 install failures | Test: simulate each failure, verify guidance |
+| Supported profiles defined | Hardware, OS, browser matrix | Doc: supported configuration profiles |
 
-**Success Criteria:**
-- New coordinator can install without maintainer intervention
-- Prerequisites are explicit and checked
-- Common failures have clear remediation steps
+**Sprint Exit:** New coordinator (simulated) can install without asking for help.
 
-#### Workstream 6: After-Action and Review System
+#### Sprint 11-12: After-Action Review System (Weeks 11-12)
 
-| Week | Task | Deliverable |
-|------|------|-------------|
-| 13 | Strengthen export artifacts | Better-formatted evidence exports |
-| 13-14 | Operation summary generation | Auto-generated after-action summary |
-| 14-15 | Unresolved follow-up tracking | Closure checklist with pending items |
-| 15 | Post-operation review tools | Timeline replay, decision reconstruction |
+| Task | Deliverable | Validation |
+|------|-------------|------------|
+| Evidence export improvements | Better-formatted exports (PDF/HTML) | User test: can operator understand export? |
+| Operation summary generation | Auto-generated after-action report | Test: summary captures key events |
+| Closure checklist | Pending items tracking | Test: unresolved tasks visible at closure |
+| **[DEFERRED]** Timeline replay | Too complex for 2.0, cut or simplify | Replace with: event timeline export |
 
-**Success Criteria:**
-- Evidence export is usable for post-operation review
-- After-action summary captures key decisions and events
-- Coordinator knows what remains unresolved at closure
+**Scope Correction:** "Timeline replay, decision reconstruction" cut. Replaced with simpler "event timeline export" (CSV/JSON).
 
-#### Workstream 7: Security and Privacy Hardening
+**Sprint Exit:** Demo after-action workflow from operation end to export.
 
-| Week | Task | Deliverable |
-|------|------|-------------|
-| 14 | Token and membership control review | Stronger auth where justified |
-| 14-15 | Key handling hardening | Better secret management |
-| 15 | Wipe orchestration improvements | More thorough cleanup verification |
-| 15-16 | Privacy claims review | Documentation matches actual behavior |
+#### Sprint 13-14: Security Hardening (Weeks 13-14)
 
-**Success Criteria:**
-- Security improvements don't sacrifice join simplicity
-- Wipe verification is trustworthy
-- Privacy claims are provably true
+| Task | Deliverable | Validation |
+|------|-------------|------------|
+| Token lifecycle review | Shorter-lived tokens where possible | Security review checklist |
+| Key handling audit | No keys in logs, proper permissions | Audit: grep for secrets in codebase |
+| Wipe verification improvements | Better cleanup confirmation | **[DEFERRED]** Forensic verification (too complex) |
+| Privacy claims audit | Docs match actual behavior | Doc review: every claim has test |
 
-#### Workstream 8: Documentation and Release Polish
+**Scope Correction:** "Forensic wipe verification" cut. Replaced with "better cleanup confirmation logs" (achievable).
 
-| Week | Task | Deliverable |
-|------|------|-------------|
-| 15 | Supported configuration profiles | Documented and tested profiles |
-| 15-16 | End-to-end operation demo | Video walkthrough or validation bundle |
-| 16 | Doc review and truthful claims | All documentation reviewed for accuracy |
-| 16 | Release checklist completion | CHANGELOG, validation evidence, tagging |
+**Sprint Exit:** Security audit complete, no P1/P2 issues open.
 
----
+#### Sprint 15-16: Release Polish & Buffer (Weeks 15-16)
 
-## Release Gates
+| Task | Deliverable | Validation |
+|------|-------------|------------|
+| End-to-end walkthrough | Video or scripted demo | Maintainer review: complete workflow |
+| Documentation review | All docs accurate and truthful | Checklist: every claim verified |
+| Final bug fixes | Address issues from sprints 9-14 | All P1/P2 closed |
+| Buffer week | Contingency for overruns | Use if needed |
+| Tag 2.0 | Release cut | All tests, validation complete |
 
-### 1.4.x Exit Criteria (Before Starting 2.0)
+**Phase B Exit Criteria:**
+- [ ] New coordinator can install using only documentation (tested)
+- [ ] After-action export is usable for review (user test)
+- [ ] Security audit complete with no critical issues
+- [ ] Documentation truthful and complete
+- [ ] 2.0 tagged and released
 
-- [ ] Reconnect and queue behavior are legible and durable
-- [ ] Sensor UX makes tradeoffs visible instead of hidden
-- [ ] Supported-browser guidance is backed by actual tests
-- [ ] Member path feels intentionally designed rather than validation-stage
-
-### 2.0 Exit Criteria
-
-- [ ] A new operator can stand up and close down a supported deployment using the documented path
-- [ ] Single-hub lifecycle, evidence handling, and wipe posture are coherent and honest
-- [ ] The repo can describe the product as a mature local operational system without hiding validation caveats
+**Buffer:** Week 16 is buffer for overruns. If ahead of schedule, use for additional hardening.
 
 ---
 
-## Non-Goals (Explicitly Out of Scope)
+## What Was Cut (Scope Discipline)
 
-These are legitimate ideas but **will not** be in 2.0:
+| Original Plan | Decision | Rationale |
+|---------------|----------|-----------|
+| Timeline replay, decision reconstruction | ❌ CUT | Complex feature, not polish. Replace with simple export. |
+| Forensic wipe verification | ❌ CUT | Requires specialized tooling. Replace with better logs. |
+| Native app consideration | ❌ CUT | Stick to browser-first. Evidence doesn't demand native yet. |
+| Plugin/customization mentions | ❌ CUT | Out of scope for 2.0, already in non-goals but worth restating. |
+| Video walkthrough | ⚠️ OPTIONAL | If time permits. Scripted demo is minimum. |
+
+---
+
+## Revised Non-Goals (Reinforced)
 
 - ❌ Multi-hub federation
-- ❌ Native Android/iOS apps
-- ❌ Social media ingestion
-- ❌ External messaging integrations (Slack, Discord, etc.)
+- ❌ Native Android/iOS apps  
+- ❌ Social media/external integrations
 - ❌ Cross-operation analytics
 - ❌ Hub appliance packaging
 - ❌ Plugin/customization engine
-- ❌ Broad workflow automation beyond tasking
-
-These remain backlog for **3.x or later**, only after explicit maintainer decision.
-
----
-
-## Success Metrics
-
-| Metric | Target | Measurement |
-|--------|--------|-------------|
-| Install Success Rate | >95% | New coordinator can install without help |
-| Reconnect Success Rate | >95% | After transient disconnect |
-| Offline Queue Recovery | >90% | Queued actions sync successfully |
-| Battery Impact (Documented) | Accurate | Measured vs claimed |
-| Browser Test Coverage | 100% | Chrome, Firefox, Safari in CI |
-| Evidence Export Usability | Validated | User test with real operators |
-| Wipe Verification | Trustworthy | Forensic check confirms cleanup |
+- ❌ Timeline replay (decision reconstruction)
+- ❌ Forensic-level wipe verification
+- ❌ AI-powered after-action analysis
 
 ---
 
-## Risk Assessment
+## Revised Success Metrics (With Measurement Plans)
+
+| Metric | Target | How Measured | When |
+|--------|--------|--------------|------|
+| Install Success Rate | >90% | Fresh VM test: 10 install attempts | Week 10 |
+| Reconnect Success Rate | >95% | Real device: 100 disconnect/reconnect | Week 4 |
+| Offline Queue Recovery | >90% | Synthetic: 50 crash scenarios | Week 2 |
+| Battery Documentation | Accurate | Measured vs claimed on Pixel 6 | Week 6 |
+| Browser Test Coverage | Core paths | CI: Chrome, Firefox, Safari | Week 8 |
+| Evidence Export Usability | Understandable | User test: 3 people review export | Week 12 |
+| Security Audit | No P1/P2 | Manual audit + automated scan | Week 14 |
+
+---
+
+## Revised Risk Assessment
 
 | Risk | Likelihood | Impact | Mitigation |
 |------|------------|--------|------------|
-| Browser limitations block PWA goals | Medium | High | Document degraded modes honestly |
-| Battery optimization harder than expected | Medium | Medium | Set realistic targets, document tradeoffs |
-| Security hardening breaks join simplicity | Medium | High | Balance rigor with usability |
-| Timeline slips | Medium | Low | Scope is fixed, ship when ready |
+| Browser limitations block goals | **High** | High | Document degraded modes honestly; Safari may have limits |
+| Real-device validation finds major issues | **Medium** | High | 2-week buffer in Phase A (Week 8) |
+| Security changes break existing flows | **Medium** | Medium | Test join flow after every security change |
+| Install experience still requires help | **Medium** | High | Test with actual new user in Week 10 |
+| Scope creep from "polish" to "features" | **High** | Medium | Strict cut list above; any addition requires cut elsewhere |
 
 ---
 
-## Relationship to Prior Releases
+## Resource Requirements
+
+| Resource | Needed For | Status |
+|----------|------------|--------|
+| Real Android device (Pixel 6 or similar) | Weeks 3-6 validation | Required by Week 3 |
+| iOS device (iPhone) | Safari validation | Required by Week 4 |
+| Fresh Linux VM/container | Install testing | Required by Week 9 |
+| Test coordinator (human) | Install success validation | Required by Week 10 |
+
+---
+
+## Release Cadence
 
 ```
-1.0.0 (Foundation)
-    ↓
-1.1.0 (Field Truth) - validation infrastructure
-    ↓
-1.2.0 (Coordinator Operations) - tasking system
-    ↓
-1.3.0 (Intelligence Fusion) - multimodal correlation
-    ↓
-1.4.x (Field-Ready Member) ← CURRENT FOCUS
-    ↓
-2.0 (Mature Single-Hub) ← END GOAL
-    ↓
-3.x (Platform Expansion) - federation, native apps (conditional)
+Week 8:  Tag v1.4.0 (Field-Ready Foundation)
+         ↓
+Week 16: Tag v2.0.0 (Mature Single-Hub System)
+         ↓
+Future:  v2.0.x patch releases as needed
+         3.x platform expansion (conditional)
 ```
 
 ---
 
-## Immediate Next Steps
+## Immediate Next Steps (Week 1)
 
-1. **Week 1:** Create feature branch `feature/1.4.0-field-ready`
-2. **Week 1:** Begin PWA resilience work (service worker hardening)
-3. **Week 1:** Set up browser matrix CI testing
-4. **Week 2:** First sensor ergonomics prototypes
-5. **Week 3:** First offline-first validation tests
+1. **Create branch:** `feature/1.4.0-field-ready`
+2. **Verify resources:** Confirm real Android device available
+3. **Begin Sprint 1:** Service worker hardening
+4. **Set up:** Battery measurement framework on test device
 
 ---
 
-## Decision Log
+## Decision Log (Revised)
 
 | Date | Decision | Rationale |
 |------|----------|-----------|
-| 2026-03-28 | Split into 1.4.x and 2.0 | Field-ready work is substantial enough for intermediate release |
-| 2026-03-28 | Explicit non-goals list | Prevent scope creep into federation/platform expansion |
-| 2026-03-28 | No native apps | Browser-first until evidence shows hard limits |
+| 2026-03-28 | Timeline: 14-18 weeks (was "8-10") | Honest estimate based on work required |
+| 2026-03-28 | Cut "timeline replay" feature | Complex feature masquerading as polish |
+| 2026-03-28 | Cut "forensic wipe verification" | Requires tooling that doesn't exist |
+| 2026-03-28 | Sequential sprints, not overlapping | Focus beats context switching |
+| 2026-03-28 | Add 2-3 week buffer | Realistic planning includes contingency |
+| 2026-03-28 | Real-device validation in Phase A | Foundation must be proven before polish |
 
 ---
 
-## Appendix: Reference Documents
+## Appendix: Why This Plan Changed
 
-- [End-State Product Roadmap](./2026-03-28-end-state-product-roadmap.md)
-- [Design Spec](../specs/2026-03-21-osk-design.md)
-- [1.3.0 Evaluation](../release/1.3.0-evaluation.md)
+**Original plan had these problems:**
+1. Claimed 8-10 weeks but scheduled 16 weeks of work
+2. Four overlapping workstreams caused context switching
+3. Complex features (timeline replay) in final weeks
+4. No buffer for bug fixes or validation failures
+5. Metrics without measurement methodology
+
+**Revised plan fixes:**
+1. Honest timeline (14-18 weeks)
+2. Sequential sprints with clear focus
+3. Complex work front-loaded or cut
+4. 2-3 week buffer included
+5. Every metric has measurement plan
 
 ---
 
 **Author:** AI Implementation Agent  
-**Review Required:** Maintainer sign-off before Week 1 start  
-**Status:** Draft → Ready for Implementation
+**Critical Review:** Applied (see Appendix)  
+**Status:** Ready for Implementation
