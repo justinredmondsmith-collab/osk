@@ -7,6 +7,43 @@ changes manually while the project is in its early public setup phase.
 
 ## [Unreleased]
 
+## [2.0.0] - 2026-05-23 (Planned)
+
+### Summary
+
+Release 2.0 "Mature Single-Hub Operational System" represents the graduation from
+"validated foundation" to "field-mature operational system." A new coordinator can
+install, operate, and close an Osk deployment using only the documentation.
+
+This release completes the single-hub product before any platform expansion.
+
+### Added
+
+- **Install and Deployment Maturity**
+  - Comprehensive installation readiness checker (`osk doctor --readiness`)
+  - Supported configuration profiles (Full, Docker-Managed, Minimal)
+  - Hardware compatibility matrix
+  - Clear prerequisite error messages with remediation guidance
+  - Common failure playbook
+
+- **After-Action Review System** (Design)
+  - Operation summary generation concept
+  - Evidence export formats (ZIP, PDF, JSONL)
+  - Integrity verification with SHA-256 manifests
+  - Closure checklist framework
+
+- **Security Hardening** (Planning)
+  - Token lifecycle improvements (shorter timeouts, rotation)
+  - Key handling enhancements (isolation, rotation)
+  - Wipe verification improvements
+  - Privacy claims audit framework
+
+### Documentation
+
+- SUPPORTED_PROFILES.md: Three-tier configuration support
+- AFTER_ACTION_REVIEW.md: AAR system design
+- SECURITY_HARDENING_2_0.md: Security improvement checklist
+
 ## [1.4.0] - 2026-04-11
 
 ### Summary
