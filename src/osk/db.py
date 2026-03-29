@@ -1714,3 +1714,166 @@ class Database:
             reason,
             datetime.now(timezone.utc),
         )
+
+    # -------------------------------------------------------------------------
+    # Intelligence Fusion (Release 1.3.0)
+    # -------------------------------------------------------------------------
+
+    async def insert_observation_group(
+        self,
+        group_id: uuid.UUID,
+        operation_id: uuid.UUID,
+        category: str,
+        primary_location_lat: float | None,
+        primary_location_lon: float | None,
+        location_radius_meters: int,
+        first_observed_at: datetime,
+        last_observed_at: datetime,
+        source_types: list[str],
+        member_count: int,
+        observation_count: int,
+        diversity_score: float,
+    ) -> None:
+        """Insert a new observation group."""
+        pool = self._require_pool()
+        await pool.execute(
+            """INSERT INTO observation_groups (
+                id, operation_id, category,
+                primary_location_lat, primary_location_lon, location_radius_meters,
+                first_observed_at, last_observed_at,
+                source_types, member_count, observation_count, diversity_score
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)""",
+            group_id, operation_id, category,
+            primary_location_lat, primary_location_lon, location_radius_meters,
+            first_observed_at, last_observed_at,
+            source_types, member_count, observation_count, diversity_score,
+        )
+
+    async def update_observation_group(
+        self,
+        group_id: uuid.UUID,
+        last_observed_at: datetime,
+        primary_location_lat: float | None,
+        primary_location_lon: float | None,
+        source_types: list[str],
+        member_count: int,
+        observation_count: int,
+        diversity_score: float,
+    ) -> None:
+        """Update an observation group."""
+        pool = self._require_pool()
+        await pool.execute(
+            """UPDATE observation_groups
+               SET last_observed_at = $2,
+                   primary_location_lat = $3,
+                   primary_location_lon = $4,
+                   source_types = $5,
+                   member_count = $6,
+                   observation_count = $7,
+                   diversity_score = $8,
+                   updated_at = NOW()
+               WHERE id = $1""",
+            group_id, last_observed_at,
+            primary_location_lat, primary_location_lon,
+            source_types, member_count, observation_count, diversity_score,
+        )
+
+    async def insert_observation_group_member(
+        self,
+        group_id: uuid.UUID,
+        event_id: uuid.UUID,
+        member_id: uuid.UUID,
+        correlation_type: str,
+    ) -> None:
+        """Link an observation to a group."""
+        pool = self._require_pool()
+        await pool.execute(
+            """INSERT INTO observation_group_members (
+                group_id, event_id, member_id, correlation_type
+            ) VALUES ($1, $2, $3, $4)
+            ON CONFLICT (group_id, event_id) DO NOTHING""",
+            group_id, event_id, member_id, correlation_type,
+        )
+
+    async def insert_or_update_confidence_score(
+        self,
+        event_id: uuid.UUID,
+        operation_id: uuid.UUID,
+        group_id: uuid.UUID | None,
+        confidence_score: float,
+        source_reliability: float,
+        temporal_consistency: float,
+        spatial_consistency: float,
+        cross_source_corroboration: float,
+        observation_diversity: float,
+        primary_source_type: str | None,
+        contributing_sources: list[str],
+        contributing_member_count: int,
+        confidence_factors: list[str],
+    ) -> None:
+        """Insert or update confidence score for an event."""
+        pool = self._require_pool()
+        await pool.execute(
+            """INSERT INTO event_confidence_scores (
+                event_id, operation_id, group_id,
+                confidence_score,
+                source_reliability, temporal_consistency, spatial_consistency,
+                cross_source_corroboration, observation_diversity,
+                primary_source_type, contributing_sources, contributing_member_count,
+                confidence_factors
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+            ON CONFLICT (event_id) DO UPDATE SET
+                group_id = EXCLUDED.group_id,
+                confidence_score = EXCLUDED.confidence_score,
+                source_reliability = EXCLUDED.source_reliability,
+                temporal_consistency = EXCLUDED.temporal_consistency,
+                spatial_consistency = EXCLUDED.spatial_consistency,
+                cross_source_corroboration = EXCLUDED.cross_source_corroboration,
+                observation_diversity = EXCLUDED.observation_diversity,
+                primary_source_type = EXCLUDED.primary_source_type,
+                contributing_sources = EXCLUDED.contributing_sources,
+                contributing_member_count = EXCLUDED.contributing_member_count,
+                confidence_factors = EXCLUDED.confidence_factors,
+                calculated_at = NOW()""",
+            event_id, operation_id, group_id,
+            confidence_score,
+            source_reliability, temporal_consistency, spatial_consistency,
+            cross_source_corroboration, observation_diversity,
+            primary_source_type, contributing_sources, contributing_member_count,
+            confidence_factors,
+        )
+
+    async def get_enriched_event(self, event_id: uuid.UUID) -> dict | None:
+        """Get event with confidence scores from enriched_events view."""
+        pool = self._require_pool()
+        row = await pool.fetchrow(
+            "SELECT * FROM enriched_events WHERE id = $1",
+            event_id,
+        )
+        return dict(row) if row else None
+
+    async def get_observation_groups(
+        self,
+        operation_id: uuid.UUID,
+        category: str | None = None,
+        min_confidence: float | None = None,
+        status: str | None = None,
+    ) -> list[dict]:
+        """Get observation groups for an operation."""
+        pool = self._require_pool()
+        
+        query = "SELECT * FROM observation_groups WHERE operation_id = $1"
+        params = [operation_id]
+        
+        if category:
+            query += f" AND category = ${len(params) + 1}"
+            params.append(category)
+        
+        if status:
+            query += f" AND status = ${len(params) + 1}"
+            params.append(status)
+        
+        query += " ORDER BY last_observed_at DESC"
+        
+        rows = await pool.fetch(query, *params)
+        return [dict(row) for row in rows]
