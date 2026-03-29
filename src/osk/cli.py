@@ -5,6 +5,7 @@ import asyncio
 import getpass
 import json
 import logging
+import uuid
 from pathlib import Path
 from typing import Sequence
 
@@ -134,6 +135,156 @@ def _cmd_placeholder(args: argparse.Namespace) -> int:
 def _cmd_version(_: argparse.Namespace) -> int:
     print(__version__)
     return 0
+
+
+def _cmd_aar_generate(args: argparse.Namespace) -> int:
+    """Generate After-Action Review report."""
+    import asyncio
+    from .config import load_config
+    from .db import get_db_pool
+    from .storage import StorageManager
+    from .after_action_review import AARExporter
+    
+    async def run():
+        cfg = load_config()
+        db = await get_db_pool(cfg)
+        storage = StorageManager(cfg)
+        exporter = AARExporter(db, storage, cfg)
+        
+        operation_id = args.operation_id
+        if not operation_id:
+            # Get current operation
+            from .hub import read_hub_state
+            state = read_hub_state()
+            if state and state.get("operation_id"):
+                operation_id = state["operation_id"]
+            else:
+                print("Error: No operation ID provided and no active operation")
+                return 1
+        
+        try:
+            summary = await exporter.generate_operation_summary(
+                uuid.UUID(operation_id)
+            )
+            
+            if args.output:
+                output_path = Path(args.output)
+                output_path.write_text(
+                    json.dumps(summary.to_dict(), indent=2)
+                )
+                print(f"Report written to: {output_path}")
+            else:
+                print(json.dumps(summary.to_dict(), indent=2))
+            
+            return 0
+        except Exception as e:
+            print(f"Error generating report: {e}")
+            return 1
+        finally:
+            await db.close()
+    
+    return asyncio.run(run())
+
+
+def _cmd_aar_export(args: argparse.Namespace) -> int:
+    """Export operation evidence."""
+    import asyncio
+    from .config import load_config
+    from .db import get_db_pool
+    from .storage import StorageManager
+    from .after_action_review import AARExporter
+    
+    async def run():
+        cfg = load_config()
+        db = await get_db_pool(cfg)
+        storage = StorageManager(cfg)
+        exporter = AARExporter(db, storage, cfg)
+        
+        operation_id = args.operation_id
+        if not operation_id:
+            from .hub import read_hub_state
+            state = read_hub_state()
+            if state and state.get("operation_id"):
+                operation_id = state["operation_id"]
+            else:
+                print("Error: No operation ID provided and no active operation")
+                return 1
+        
+        output_path = Path(args.output or f"evidence-export-{operation_id}.zip")
+        
+        try:
+            print(f"Exporting evidence for operation {operation_id}...")
+            manifest = await exporter.export_evidence(
+                uuid.UUID(operation_id),
+                output_path,
+                include_media=args.include_media,
+            )
+            
+            print(f"\n✅ Export complete: {output_path}")
+            print(f"   Files: {len(manifest.files)}")
+            print(f"   Total size: {manifest.total_size_bytes / (1024*1024):.2f} MB")
+            print(f"\nVerify integrity:")
+            print(f"   unzip -l {output_path}")
+            print(f"   cd evidence-export && sha256sum -c MANIFEST.sha256")
+            
+            return 0
+        except Exception as e:
+            print(f"Error exporting evidence: {e}")
+            return 1
+        finally:
+            await db.close()
+    
+    return asyncio.run(run())
+
+
+def _cmd_aar_checklist(args: argparse.Namespace) -> int:
+    """View closure checklist."""
+    import asyncio
+    from .config import load_config
+    from .db import get_db_pool
+    from .after_action_review import ClosureChecklist
+    
+    async def run():
+        cfg = load_config()
+        db = await get_db_pool(cfg)
+        checklist = ClosureChecklist(db)
+        
+        operation_id = args.operation_id
+        if not operation_id:
+            from .hub import read_hub_state
+            state = read_hub_state()
+            if state and state.get("operation_id"):
+                operation_id = state["operation_id"]
+            else:
+                print("Error: No operation ID provided and no active operation")
+                return 1
+        
+        try:
+            items = await checklist.generate(uuid.UUID(operation_id))
+            
+            print(f"Closure Checklist for Operation {operation_id}")
+            print("=" * 60)
+            
+            for item in items:
+                status = "✅" if item["passed"] else "❌" if item["passed"] is False else "⏳"
+                auto = "[auto]" if item["automated"] else "[manual]"
+                print(f"{status} {auto} {item['description']}")
+                print(f"   {item['details']}")
+            
+            print("=" * 60)
+            if checklist.all_passed():
+                print("✅ All automated checks passed")
+            else:
+                print("❌ Some automated checks failed - review required")
+            
+            return 0
+        except Exception as e:
+            print(f"Error generating checklist: {e}")
+            return 1
+        finally:
+            await db.close()
+    
+    return asyncio.run(run())
 
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
@@ -709,6 +860,61 @@ def build_parser() -> argparse.ArgumentParser:
         "install", help="Install local prerequisites and assets."
     )
     install_parser.set_defaults(func=_cmd_install)
+
+    # After-Action Review (AAR) commands
+    aar_parser = subparsers.add_parser(
+        "aar",
+        help="After-Action Review commands for operation closure.",
+    )
+    aar_subparsers = aar_parser.add_subparsers(dest="aar_command")
+    
+    # aar generate
+    aar_gen = aar_subparsers.add_parser(
+        "generate",
+        help="Generate operation summary report.",
+    )
+    aar_gen.add_argument(
+        "--operation-id",
+        help="Operation ID (defaults to current operation)",
+    )
+    aar_gen.add_argument(
+        "--output", "-o",
+        help="Output file path (default: stdout)",
+    )
+    aar_gen.set_defaults(func=_cmd_aar_generate)
+    
+    # aar export
+    aar_export = aar_subparsers.add_parser(
+        "export",
+        help="Export operation evidence with integrity verification.",
+    )
+    aar_export.add_argument(
+        "--operation-id",
+        help="Operation ID (defaults to current operation)",
+    )
+    aar_export.add_argument(
+        "--output", "-o",
+        help="Output ZIP file path",
+    )
+    aar_export.add_argument(
+        "--no-media",
+        dest="include_media",
+        action="store_false",
+        default=True,
+        help="Exclude media files (metadata only)",
+    )
+    aar_export.set_defaults(func=_cmd_aar_export)
+    
+    # aar checklist
+    aar_check = aar_subparsers.add_parser(
+        "checklist",
+        help="View operation closure checklist.",
+    )
+    aar_check.add_argument(
+        "--operation-id",
+        help="Operation ID (defaults to current operation)",
+    )
+    aar_check.set_defaults(func=_cmd_aar_checklist)
 
     wipe_parser = subparsers.add_parser(
         "wipe",
